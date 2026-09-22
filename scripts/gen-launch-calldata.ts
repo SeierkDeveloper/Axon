@@ -11,7 +11,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { encodeFunctionData } from "viem";
-import { POT_ABI, launchParams } from "../src/lib/launchAbi";
+import { POT_ABI, FACTORY_ABI, launchParams } from "../src/lib/launchAbi";
 
 // Fixed rather than random: a fixture that changes every run tells you nothing when it changes.
 // The fork test knows these values and checks Pons recorded them.
@@ -40,9 +40,19 @@ export function fixtureCalldata(): `0x${string}` {
   });
 }
 
-const OUT = join(process.cwd(), "contracts", "test", "fixtures", "launchCalldata.txt");
+/** The first of the two signatures: the factory call that deploys this agent's pot and splitter. */
+export function fixtureDeployPairCalldata(): `0x${string}` {
+  return encodeFunctionData({
+    abi: FACTORY_ABI,
+    functionName: "deployPair",
+    args: [FIXTURE_DEV, 7000],
+  });
+}
+
+const DIR = join(process.cwd(), "contracts", "test", "fixtures");
 
 if (process.argv[1]?.endsWith("gen-launch-calldata.ts")) {
-  writeFileSync(OUT, `${fixtureCalldata()}\n`);
-  console.log(`wrote ${OUT}`);
+  writeFileSync(join(DIR, "launchCalldata.txt"), `${fixtureCalldata()}\n`);
+  writeFileSync(join(DIR, "deployPairCalldata.txt"), `${fixtureDeployPairCalldata()}\n`);
+  console.log(`wrote both fixtures to ${DIR}`);
 }

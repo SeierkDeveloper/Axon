@@ -27,6 +27,9 @@ contract AgentLaunchForkTest is ForkTest {
     AgentLaunchFactory factory;
     address payable dev = payable(address(0xA9E47));
 
+    /// The one the production page calls, from NEXT_PUBLIC_AGENT_LAUNCH_FACTORY. Deployed once, no owner.
+    address constant DEPLOYED_FACTORY = 0xB2c910D4cf68A5b7c12e78E9BCDF7fD0Cbd6b527;
+
     function setUp() public {
         _fork();
         factory = new AgentLaunchFactory(IPonsV2LaunchFactory(FACTORY));
@@ -134,6 +137,78 @@ contract AgentLaunchForkTest is ForkTest {
         // something, it just decodes to the wrong thing.
         assertEq(ILauncherTokenX(token).name(), "Fixture Agent");
         assertEq(ILauncherTokenX(token).symbol(), "FIXT");
+    }
+
+    /// The whole thing, as it will actually happen: the deployed factory, both transactions, the page's own
+    /// bytes, nothing built in Solidity.
+    ///
+    /// The test above still compiles its own factory from this repo's source, which assumes the deployed one
+    /// matches. It is the deployed one the button calls, at an address baked into the production
+    /// environment, and the only thing that proves those agree is calling it. So this calls it: the real
+    /// address, on a fork of the live chain, with the two calldatas the browser builds, in order, with the
+    /// second one spending the fee the API read off Pons.
+    ///
+    /// If this passes, the only untested thing left between a user and a launched token is MetaMask itself.
+    function test_fork_bothPageTransactionsAgainstTheDeployedFactory() public {
+        AgentLaunchFactory deployed = AgentLaunchFactory(DEPLOYED_FACTORY);
+        // Skip rather than fail if the address is not set, so the suite still runs before a deployment.
+        if (DEPLOYED_FACTORY.code.length == 0) return;
+        assertEq(address(deployed.ponsFactory()), FACTORY, "the deployed factory reads the real Pons");
+
+        address payable fixtureDev = payable(0x000000000000000000000000000000000000A9e4);
+        bytes memory deployData = vm.parseBytes(vm.trim(vm.readFile("test/fixtures/deployPairCalldata.txt")));
+        bytes memory launchData = vm.parseBytes(vm.trim(vm.readFile("test/fixtures/launchCalldata.txt")));
+
+        // Transaction one, signed by the agent's wallet in the browser.
+        vm.prank(fixtureDev);
+        (bool deployedOk, bytes memory pairOut) = DEPLOYED_FACTORY.call(deployData);
+        assertTrue(deployedOk, "deployPair rejected the calldata the page builds");
+        (address pot, address splitter) = abi.decode(pairOut, (address, address));
+
+        // The page does not decode the return value, it reads the event, so that path is checked too.
+        assertEq(AgentSplitter(payable(splitter)).DEV_BPS(), 7000, "the split the page asked for is the one deployed");
+        assertEq(BurnPot(payable(pot)).dev(), fixtureDev, "the pot belongs to the wallet that signed");
+
+        // Transaction two, the fee read off Pons rather than carried in the bundle.
+        uint256 fee = _pons().launchFee();
+        vm.deal(fixtureDev, fee);
+        vm.prank(fixtureDev);
+        (bool launchedOk, bytes memory tokenOut) = pot.call{value: fee}(launchData);
+        assertTrue(launchedOk, "the launch calldata the page builds is not what the pot accepts");
+
+        address token = abi.decode(tokenOut, (address));
+        IPonsV2LaunchFactory.LaunchedToken memory info = _pons().getLaunchedToken(token);
+        assertTrue(info.exists, "Pons launched it");
+        assertEq(info.deployer, pot);
+        assertEq(info.creatorFeeRecipient, splitter, "this agent's fees, and no one else's");
+        assertEq(ILauncherTokenX(token).name(), "Fixture Agent");
+        assertEq(ILauncherTokenX(token).symbol(), "FIXT");
+    }
+
+    /// The shape the page sent before this was caught, kept so the tests above cannot quietly become
+    /// vacuous.
+    ///
+    /// A raw call that passes proves nothing unless a wrong one fails, and this is the specific wrong one
+    /// that shipped: Socials flattened into five loose strings, expectedEconomics missing, salt in the
+    /// middle. It is frozen calldata rather than a live encoding, because it records a mistake rather than
+    /// describing anything current.
+    ///
+    /// It matters what kind of failure it is. The pot has no fallback function, so this reverts and the
+    /// wallet keeps the fee. Had it accepted stray calldata the way it accepts a donation, the same mistake
+    /// would have taken the fee and launched nothing.
+    function test_fork_thePreFixCalldataIsRejected() public {
+        (BurnPot pot,) = factory.deployPair(payable(0x000000000000000000000000000000000000A9e4), 7000);
+        bytes memory broken = vm.parseBytes(vm.trim(vm.readFile("test/fixtures/legacyBrokenCalldata.txt")));
+
+        uint256 fee = _pons().launchFee();
+        address payable fixtureDev = payable(0x000000000000000000000000000000000000A9e4);
+        vm.deal(fixtureDev, fee);
+        vm.prank(fixtureDev);
+        (bool ok,) = address(pot).call{value: fee}(broken);
+
+        assertFalse(ok, "the old calldata must fail, or the tests above are proving nothing");
+        assertEq(address(pot).balance, 0, "a rejected launch leaves the fee with the wallet");
+        assertEq(address(pot.token()), address(0), "and launches nothing");
     }
 
     function _balanceOf(address token, address who) internal view returns (uint256) {

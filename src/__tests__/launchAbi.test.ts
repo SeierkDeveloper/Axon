@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { encodeFunctionData, decodeFunctionData } from "viem";
 import { POT_ABI, FACTORY_ABI, launchParams, randomSalt, ZERO_ADDRESS } from "@/lib/launchAbi";
-import { fixtureCalldata } from "../../scripts/gen-launch-calldata";
+import { fixtureCalldata, fixtureDeployPairCalldata } from "../../scripts/gen-launch-calldata";
 
 /**
  * The launch page signs a struct it describes in TypeScript against a contract that declares it in Solidity.
@@ -116,16 +116,27 @@ describe("the launch ABI matches the contracts it signs against", () => {
     expect(sent.creatorTaxBps).toBe(0);
   });
 
-  it("the fork test's fixture is still the calldata the page builds", () => {
-    // contracts/test/AgentLaunchFork.t.sol fires these exact bytes at the real Pons. A fixture that has
-    // drifted from the page proves nothing about the page, so it is compared rather than trusted.
-    // Regenerate with: npx tsx scripts/gen-launch-calldata.ts
-    const committed = readFileSync(
-      join(process.cwd(), "contracts", "test", "fixtures", "launchCalldata.txt"),
+  it("the fork test's fixtures are still the calldata the page builds", () => {
+    // contracts/test/AgentLaunchFork.t.sol fires these exact bytes at the deployed factory and the real
+    // Pons. A fixture that has drifted from the page proves nothing about the page, so it is compared
+    // rather than trusted. Regenerate with: npx tsx scripts/gen-launch-calldata.ts
+    const committed = (f: string) =>
+      readFileSync(join(process.cwd(), "contracts", "test", "fixtures", f), "utf8").trim();
+
+    expect(committed("launchCalldata.txt")).toBe(fixtureCalldata());
+    expect(committed("deployPairCalldata.txt")).toBe(fixtureDeployPairCalldata());
+  });
+
+  it("the frozen pre-fix calldata is not accidentally the current one", () => {
+    // If a future edit made the current encoding match the broken one again, the regression test in the
+    // fork suite would still pass while proving the opposite of what it claims.
+    const legacy = readFileSync(
+      join(process.cwd(), "contracts", "test", "fixtures", "legacyBrokenCalldata.txt"),
       "utf8",
     ).trim();
 
-    expect(committed).toBe(fixtureCalldata());
+    expect(legacy).not.toBe(fixtureCalldata());
+    expect(legacy.slice(0, 10)).not.toBe(fixtureCalldata().slice(0, 10));
   });
 
   it("a salt is random rather than repeated", () => {
