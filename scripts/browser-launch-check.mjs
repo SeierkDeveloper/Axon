@@ -8,7 +8,7 @@
 import { spawn } from "node:child_process";
 import WebSocket from "ws";
 
-const SITE = "https://axon-private-production.up.railway.app";
+const SITE = process.env.CHECK_SITE ?? "https://axon-private-production.up.railway.app";
 const AGENT = "browser-check-agent";
 const WALLET = "0xccde58f296379d5ba93d924ca63004d29c2e34dc";
 const FACTORY = "0xb2c910d4cf68a5b7c12e78e9bcdf7fd0cbd6b527";
@@ -104,7 +104,13 @@ await send("Page.addScriptToEvaluateOnNewDocument", {
         if (method === "eth_requestAccounts" || method === "eth_accounts") return ["${WALLET}"];
         // Deliberately the WRONG chain first, so the page's switch prompt has to fire.
         if (method === "eth_chainId") return window.__switched ? "0x1237" : "0x1";
-        if (method === "wallet_switchEthereumChain") { window.__switched = true; return null; }
+        if (method === "wallet_switchEthereumChain") {
+          // A wallet that has never added Robinhood Chain, which is the ordinary case for a chain this
+          // new. MetaMask answers 4902 here, and a page that does not catch it dead-ends.
+          if (!window.__added) { const e = new Error("Unrecognized chain ID"); e.code = 4902; throw e; }
+          window.__switched = true; return null;
+        }
+        if (method === "wallet_addEthereumChain") { window.__added = true; window.__switched = true; window.__addParams = params[0]; return null; }
         if (method === "eth_sendTransaction") {
           window.__sent.push(params[0]);
           return "0x" + String(window.__sent.length).padStart(64, "0");
@@ -200,12 +206,40 @@ for (const [label, re] of [["deploy", /deploy/i], ["launch", /launch/i]]) {
   await sleep(8000);
 }
 
+report.addedChain = await evaluate("window.__addParams ?? null");
 report.calls = await evaluate("window.__calls");
 report.sent = await evaluate("window.__sent");
 report.pageText = await evaluate("document.body.innerText.slice(0, 600)");
 
 console.log(JSON.stringify(report, null, 2));
 
+// ── what the run had to show, or it did not pass ──────────────────────────────────────────────────
+// Printing a report and exiting zero makes every run look like a success, including the ones where the
+// page sent nothing at all. These are the things that were actually broken at some point, so these are
+// the things asserted: the chain offer (the page dead-ended without it), the factory call, and a launch
+// carrying the fee.
+const DEPLOY_PAIR = "0x5b54a1d6";
+const LAUNCH = "0xbe1687d6";
+const failures = [];
+const must = (cond, why) => { if (!cond) failures.push(why); };
+
+must(report.calls.includes("eth_requestAccounts"), "never asked the wallet for an account");
+must(
+  report.addedChain?.chainId === "0x1237",
+  "a wallet that answered 4902 was never offered the chain, so the flow dead-ends for anyone who has not added it",
+);
+must(report.sent.length === 2, `expected two transactions, got ${report.sent.length}`);
+must(report.sent[0]?.to?.toLowerCase() === FACTORY, "the first transaction did not go to the factory");
+must(report.sent[0]?.data?.startsWith(DEPLOY_PAIR), "the first transaction is not deployPair");
+must(report.sent[1]?.data?.startsWith(LAUNCH), "the second transaction is not launch");
+must(BigInt(report.sent[1]?.value ?? 0) === BigInt(FEE_WEI), "the launch did not carry the Pons fee");
+
 ws.close();
 chrome.kill("SIGKILL");
+
+if (failures.length) {
+  console.error("\nFAILED:\n" + failures.map((f) => `  - ${f}`).join("\n"));
+  process.exit(1);
+}
+console.error("\nPASSED: connect, chain offer, deployPair, launch with the fee");
 process.exit(0);

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { encodeFunctionData, parseEther, decodeEventLog } from "viem";
 import { connectWallet, getInjectedWallet } from "@/app/world/wallet";
-import { EXPLORER } from "@/lib/chain";
+import { EXPLORER, CHAIN_ID_HEX, CHAIN_PARAMS } from "@/lib/chain";
 import { FACTORY_ABI, POT_ABI, launchParams, randomSalt } from "@/lib/launchAbi";
 
 /**
@@ -15,7 +15,8 @@ import { FACTORY_ABI, POT_ABI, launchParams, randomSalt } from "@/lib/launchAbi"
  * enough to read, which matters more here than a saved click because none of it can be changed afterwards.
  */
 
-const CHAIN_ID_HEX = "0x1237"; // 4663
+// CHAIN_ID_HEX and CHAIN_PARAMS come from lib/chain rather than being restated here: a second copy of
+// the chain id is a copy that can disagree with the one the rest of the site switches to.
 
 interface Eligibility {
   eligible: boolean;
@@ -78,7 +79,17 @@ export default function LaunchClient({ agentId }: { agentId: string }) {
     // A launch pointed at the wrong chain deploys into nothing and cannot be undone.
     const chain = (await p.request({ method: "eth_chainId" })) as string;
     if (chain?.toLowerCase() !== CHAIN_ID_HEX) {
-      await p.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN_ID_HEX }] });
+      try {
+        await p.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN_ID_HEX }] });
+      } catch (e) {
+        // 4902 is "I have never heard of this chain", which for a chain this new is the ordinary case
+        // rather than the exception: most wallets opening this page have never added it. Without this
+        // the switch throws, the page says it could not deploy, and the only way forward is for the
+        // user to add the network by hand. The rest of the site has always offered it here.
+        if ((e as { code?: number }).code === 4902) {
+          await p.request({ method: "wallet_addEthereumChain", params: [CHAIN_PARAMS] });
+        } else throw e;
+      }
     }
     return (await p.request({
       method: "eth_sendTransaction",
