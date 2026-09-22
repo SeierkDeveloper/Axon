@@ -139,6 +139,31 @@ describe("the launch ABI matches the contracts it signs against", () => {
     expect(legacy.slice(0, 10)).not.toBe(fixtureCalldata().slice(0, 10));
   });
 
+  it("the bytes captured from Chrome still decode against the current ABI", () => {
+    // contracts/test/BrowserCapture.t.sol launches these on a fork of the real chain. They are a snapshot
+    // of what a browser produced, so unlike the other fixtures they cannot be regenerated from source,
+    // and a snapshot that nothing checks is a test that passes forever while the page moves underneath it.
+    // Decoding them against the current ABI is the tie: change the struct and this fails, which is the
+    // signal to re-capture with scratch/browsercheck rather than to edit the fixture by hand.
+    const captured = readFileSync(
+      join(process.cwd(), "contracts", "test", "fixtures", "browserCapturedCalldata.txt"),
+      "utf8",
+    ).trim() as `0x${string}`;
+
+    const back = decodeFunctionData({ abi: POT_ABI, data: captured });
+    const params = (back.args as unknown as [Record<string, unknown>, bigint, string[]])[0];
+
+    expect(back.functionName).toBe("launch");
+    expect(params.name).toBe("Browser Check");
+    expect(params.symbol).toBe("BCHK");
+    // The page must not let the caller choose these: the pot overwrites them, and sending them empty is
+    // what makes that obvious.
+    expect(params.creatorFeeRecipient).toBe(ZERO_ADDRESS);
+    expect(params.creatorTaxBps).toBe(0);
+    expect(params.buybackEnabled).toBe(false);
+    expect(params.expectedEconomics).toBe(`0x${"0".repeat(64)}`);
+  });
+
   it("a salt is random rather than repeated", () => {
     expect(randomSalt()).not.toBe(randomSalt());
     expect(randomSalt()).toMatch(/^0x[0-9a-f]{64}$/);
