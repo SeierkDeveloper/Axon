@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-09-23T10:38:06.076Z",
-  "finishedAt": "2026-09-23T10:38:12.617Z",
-  "commit": "bf27714",
+  "startedAt": "2026-09-23T11:09:27.190Z",
+  "finishedAt": "2026-09-23T11:09:33.136Z",
+  "commit": "6d16275",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 10,
       "findings": [],
-      "ms": 6236
+      "ms": 5648
     },
     {
       "id": "links",
@@ -17,13 +17,13 @@
       "ok": true,
       "checked": 174,
       "findings": [],
-      "ms": 35
+      "ms": 33
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 535,
+      "checked": 537,
       "findings": [
         {
           "severity": "warn",
@@ -39,6 +39,14 @@
           "why": "dead code reads exactly like live code",
           "where": [
             "src/lib/axonPayment.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "clampDiscountBps() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/axonQuote.ts"
           ]
         },
         {
@@ -90,11 +98,11 @@
           ]
         }
       ],
-      "ms": 266
+      "ms": 262
     }
   ],
   "errors": 0,
-  "warnings": 8,
+  "warnings": 9,
   "changed": false,
   "changes": []
 }
