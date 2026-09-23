@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-09-23T11:35:53.539Z",
-  "finishedAt": "2026-09-23T11:35:59.320Z",
-  "commit": "4993b02",
+  "startedAt": "2026-09-23T11:46:47.527Z",
+  "finishedAt": "2026-09-23T11:46:52.618Z",
+  "commit": "bc6c4f9",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 10,
       "findings": [],
-      "ms": 5465
+      "ms": 4784
     },
     {
       "id": "links",
@@ -17,13 +17,13 @@
       "ok": true,
       "checked": 174,
       "findings": [],
-      "ms": 39
+      "ms": 32
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 545,
+      "checked": 546,
       "findings": [
         {
           "severity": "warn",
@@ -36,6 +36,14 @@
         {
           "severity": "warn",
           "what": "storeDescription() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/agentDescription.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "noteAttempt() is exported but only used inside its own file",
           "why": "the export widens the surface without a caller to justify it",
           "where": [
             "src/lib/agentDescription.ts"
@@ -114,11 +122,11 @@
           ]
         }
       ],
-      "ms": 274
+      "ms": 271
     }
   ],
   "errors": 0,
-  "warnings": 11,
+  "warnings": 12,
   "changed": false,
   "changes": []
 }
