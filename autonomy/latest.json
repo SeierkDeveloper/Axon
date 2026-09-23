@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-09-23T11:09:27.190Z",
-  "finishedAt": "2026-09-23T11:09:33.136Z",
-  "commit": "6d16275",
+  "startedAt": "2026-09-23T11:35:53.539Z",
+  "finishedAt": "2026-09-23T11:35:59.320Z",
+  "commit": "4993b02",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 10,
       "findings": [],
-      "ms": 5648
+      "ms": 5465
     },
     {
       "id": "links",
@@ -17,13 +17,13 @@
       "ok": true,
       "checked": 174,
       "findings": [],
-      "ms": 33
+      "ms": 39
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 537,
+      "checked": 545,
       "findings": [
         {
           "severity": "warn",
@@ -31,6 +31,22 @@
           "why": "the export widens the surface without a caller to justify it",
           "where": [
             "src/lib/address.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "storeDescription() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/agentDescription.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "generateDescription() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/agentDescription.ts"
           ]
         },
         {
@@ -98,11 +114,11 @@
           ]
         }
       ],
-      "ms": 262
+      "ms": 274
     }
   ],
   "errors": 0,
-  "warnings": 9,
+  "warnings": 11,
   "changed": false,
   "changes": []
 }
