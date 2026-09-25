@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-09-25T09:49:35.889Z",
-  "finishedAt": "2026-09-25T09:49:40.832Z",
-  "commit": "c980e7e",
+  "startedAt": "2026-09-25T10:06:51.653Z",
+  "finishedAt": "2026-09-25T10:06:57.415Z",
+  "commit": "099ef67",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 10,
       "findings": [],
-      "ms": 4626
+      "ms": 5443
     },
     {
       "id": "links",
@@ -17,7 +17,7 @@
       "ok": true,
       "checked": 181,
       "findings": [],
-      "ms": 33
+      "ms": 34
     },
     {
       "id": "dead-exports",
