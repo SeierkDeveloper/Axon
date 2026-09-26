@@ -15,6 +15,9 @@ export const CHAIN_NAME = "Robinhood Chain";
 export const PONS = "https://www.ponsfamily.com";
 export const ponsTokenUrl = (token: string): string => `${PONS}/launchpad/${token}`;
 
+/** $AXON's listing on CoinGecko. Keyed by CoinGecko's own id rather than the address. */
+export const COINGECKO_URL = "https://www.coingecko.com/en/coins/axon";
+
 /** An on-chain transaction, on the chain's explorer. */
 export const explorerTxUrl = (hash: string): string => `${EXPLORER}/tx/${hash}`;
 

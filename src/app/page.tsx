@@ -6,7 +6,7 @@ import SiteNav from "@/components/SiteNav";
 import { getNetworkStats } from "@/lib/analytics";
 import { homeCardFingerprint } from "./homeCard";
 import { AXON_TOKEN_ADDRESS as AXON_TOKEN } from "@/lib/money";
-import { ponsTokenUrl } from "@/lib/chain";
+import { ponsTokenUrl, COINGECKO_URL } from "@/lib/chain";
 import { shortAddress } from "@/lib/address";
 import { getLatestRun } from "@/lib/autonomy";
 
@@ -187,7 +187,7 @@ export default async function Home() {
               </div>
             )}
 
-            <div className="mt-4 flex items-center justify-center gap-5">
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 [&>*]:whitespace-nowrap">
               {/* Reads the configured token rather than being edited on launch day. Before there is
                   one it says so plainly, which beats an absence somebody could mistake for a token
                   that exists somewhere else; after, it is the address and a way to check it. */}
@@ -211,6 +211,17 @@ export default async function Home() {
                   $AXON is looking. A page nobody can reach is a page that does not exist. */}
               {AXON_TOKEN && (
                 <>
+                  <span className="text-gray-200 dark:text-gray-700">·</span>
+                  <a
+                    href={COINGECKO_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 transition-colors"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src="/coingecko.png" alt="" width={14} height={14} className="w-3.5 h-3.5 rounded-full" />
+                    CoinGecko
+                  </a>
                   <span className="text-gray-200 dark:text-gray-700">·</span>
                   <Link href="/tier" className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 transition-colors">
                     What holding is worth →

@@ -3,7 +3,7 @@ import SiteNav from "@/components/SiteNav";
 import { getBurnLive, BURN_RULES } from "@/lib/burnLive";
 import { recentBurns } from "@/lib/burnHistory";
 import BurnHistory from "./BurnHistory";
-import { ponsTokenUrl } from "@/lib/chain";
+import { ponsTokenUrl, COINGECKO_URL } from "@/lib/chain";
 import { getBurnStats } from "@/lib/burn";
 import BurnClient, { type BurnPayload } from "./BurnClient";
 
@@ -107,6 +107,17 @@ export default async function BurnPage() {
               $AXON on Pons
             </a>
           ) : null}
+          {/* Not gated on the live read like Pons: the listing exists whether or not the pot answered. */}
+          <a
+            href={COINGECKO_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border border-gray-200 dark:border-gray-800 rounded-lg text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:border-gray-400 dark:hover:border-gray-600 transition-colors"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/coingecko.png" alt="" width={16} height={16} className="w-4 h-4 rounded-full" />
+            $AXON on CoinGecko
+          </a>
           <Link
             href="/explorer"
             className="inline-flex items-center px-4 py-2 text-sm font-medium border border-gray-200 dark:border-gray-800 rounded-lg text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:border-gray-400 dark:hover:border-gray-600 transition-colors"
