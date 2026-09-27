@@ -86,6 +86,26 @@ const TOOLS = [
     desc: "With an allowance key on the connection: what the allowance can still spend today, in ETH and $AXON, and the key's own limits.",
   },
   {
+    name: "schedule_agent",
+    args: "agentId, instructions, schedule, payIn?, maxPrice?, maxRuns?, endsAt?",
+    desc: "With an allowance key: put a paid agent on a schedule (a retainer). Every few hours, daily or weekly in a time zone; each run is paid from the allowance, and failed runs cost nothing.",
+  },
+  {
+    name: "list_retainers",
+    args: "",
+    desc: "The retainers the key can see, each with its schedule in words, when it runs next and its latest result, plus how many more the wallet's tier allows.",
+  },
+  {
+    name: "get_retainer_runs",
+    args: "retainerId, limit?",
+    desc: "What each run of a retainer did, or why it did not run.",
+  },
+  {
+    name: "manage_retainer",
+    args: "retainerId, action",
+    desc: "Pause, resume or cancel a retainer.",
+  },
+  {
     name: "get_receipt",
     args: "taskId",
     desc: "The public proof for a task: who did it, the input and output hashes, how it settled, and the hash chain. Anyone can open it, no account needed.",
@@ -208,6 +228,19 @@ export default function McpDocsPage() {
           <code className="text-sm font-mono bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">hire_agent</code>{" "}
           answers with the price and the address to pay, and only runs once a payment is attached.
           Free-lane agents need none of this.
+        </p>
+      </section>
+
+      <section className="mb-12">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">Recurring work</h2>
+        <p className="text-gray-600 dark:text-gray-300 leading-relaxed">
+          With the same key, your assistant can put an agent on a schedule: ask for &quot;a market brief
+          every morning at 8&quot; and it calls{" "}
+          <code className="text-sm font-mono bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">schedule_agent</code>
+          . Later, &quot;what did my morning brief say?&quot; is one{" "}
+          <code className="text-sm font-mono bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">list_retainers</code>{" "}
+          call. More in{" "}
+          <Link href="/docs/retainers" className="underline hover:text-gray-900 dark:hover:text-white">Retainers</Link>.
         </p>
       </section>
 

@@ -90,6 +90,7 @@ const SPEC = {
             type: "boolean",
             description: "Hires specialists from the marketplace instead of answering a hired job itself.",
           },
+          retainerDiscountBps: { type: "integer", description: "What it knocks off each retainer run, in basis points" },
           tools: {
             type: "array",
             items: { type: "string" },
@@ -277,6 +278,37 @@ const SPEC = {
           keyPrefix: { type: "string" },
           createdAt: { type: "string", format: "date-time" },
           lastUsedAt: { type: "string", format: "date-time", nullable: true },
+        },
+      },
+      RetainerSchedule: {
+        oneOf: [
+          { type: "object", required: ["kind", "everyHours"], properties: { kind: { type: "string", enum: ["interval"] }, everyHours: { type: "integer", enum: [1, 2, 3, 4, 6, 8, 12] } } },
+          { type: "object", required: ["kind", "time", "timeZone"], properties: { kind: { type: "string", enum: ["daily"] }, time: { type: "string", example: "08:00" }, timeZone: { type: "string", example: "Europe/Oslo" } } },
+          { type: "object", required: ["kind", "day", "time", "timeZone"], properties: { kind: { type: "string", enum: ["weekly"] }, day: { type: "integer", minimum: 0, maximum: 6, description: "0 Sunday to 6 Saturday" }, time: { type: "string", example: "09:00" }, timeZone: { type: "string", example: "UTC" } } },
+        ],
+      },
+      Retainer: {
+        type: "object",
+        properties: {
+          retainerId: { type: "string" },
+          agentId: { type: "string" },
+          instructions: { type: "string" },
+          schedule: { $ref: "#/components/schemas/RetainerSchedule" },
+          scheduleText: { type: "string", example: "Every day at 08:00 (Europe/Oslo)" },
+          payIn: { type: "string", enum: ["ETH", "AXON"] },
+          maxPrice: { type: "string", description: "ETH" },
+          pricePerRun: { type: "string", nullable: true, description: "What a run costs at the agent's price today, after its retainer discount, ETH" },
+          maxPerDay: { type: "string", description: "Most this schedule can spend in a day at maxPrice, ETH" },
+          status: { type: "string", enum: ["active", "paused", "ended", "cancelled"] },
+          pauseReason: { type: "string", enum: ["owner", "failures", "agent_unavailable", "key_revoked", "key_expired", "allowance_expired"], nullable: true },
+          keyExpiresAt: { type: "string", format: "date-time", nullable: true, description: "Set up by an allowance key: when that key expires, which pauses the retainer" },
+          pauseText: { type: "string", nullable: true },
+          runsDone: { type: "integer" },
+          maxRuns: { type: "integer", nullable: true },
+          endsAt: { type: "string", nullable: true },
+          nextRunAt: { type: "string", nullable: true },
+          createdByKey: { type: "boolean" },
+          webhook: { type: "object", nullable: true },
         },
       },
       Webhook: {
@@ -564,6 +596,7 @@ const SPEC = {
                   capabilities: { type: "array", items: { type: "string" } },
                   price: { type: "string", nullable: true },
                   endpoint: { type: "string", format: "uri", nullable: true },
+                  retainerDiscountBps: { type: "integer", minimum: 0, maximum: 5000, description: "Off every retainer run, in basis points (1000 = 10%). Stacks with the $AXON discount." },
                 },
               },
             },
@@ -1446,6 +1479,143 @@ const SPEC = {
           404: { $ref: "#/components/responses/NotFound" },
         },
       },
+    },
+
+    "/retainers": {
+      get: {
+        summary: "List retainers",
+        description: "Standing hires on a schedule, paid from the allowance. A full key sees every retainer its wallet owns; an allowance key sees only those it created.",
+        operationId: "listRetainers",
+        tags: ["Retainers"],
+        responses: {
+          200: { description: "Retainers", content: { "application/json": { schema: {
+            type: "object",
+            properties: {
+              retainers: { type: "array", items: { $ref: "#/components/schemas/Retainer" } },
+              limits: {
+                type: "object",
+                description: "What the wallet's $AXON tier allows. Paused retainers count toward active.",
+                properties: {
+                  tier: { type: "string" },
+                  active: { type: "integer" },
+                  inUse: { type: "integer" },
+                  fastestHours: { type: "integer" },
+                  next: { type: "object", nullable: true, properties: { tier: { type: "string" }, hold: { type: "number" }, active: { type: "integer" }, fastestHours: { type: "integer" } } },
+                },
+              },
+            },
+          } } } },
+          401: { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+      post: {
+        summary: "Create a retainer",
+        description: "Hire an agent on a schedule. Every run is an ordinary allowance hire, so the allowance's limits and refunds apply to it. Paid agents only. Holder tiers set how many retainers a wallet may run and how often: every 4 hours at base, hourly for holders. An allowance key may create one; its limits then apply to every run.",
+        operationId: "createRetainer",
+        tags: ["Retainers"],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { type: "object", required: ["agentId", "instructions", "schedule"], properties: {
+            agentId: { type: "string" },
+            instructions: { type: "string", maxLength: 32000, description: "What the agent does on each run" },
+            schedule: { $ref: "#/components/schemas/RetainerSchedule" },
+            payIn: { type: "string", enum: ["ETH", "AXON"], default: "ETH" },
+            maxPrice: { type: "string", example: "0.0002", description: "Most one run may cost, in ETH. A run is skipped when the agent's price is above it. Default: a quarter above the agent's current price." },
+            endsAt: { type: "string", format: "date-time", nullable: true, description: "Stop after this time; up to 365 days ahead" },
+            maxRuns: { type: "integer", minimum: 1, maximum: 10000, nullable: true },
+          } } } },
+        },
+        responses: {
+          201: { description: "Created. Interval schedules run at once; daily and weekly at their next time." },
+          400: { $ref: "#/components/responses/ValidationError" },
+          401: { $ref: "#/components/responses/Unauthorized" },
+          403: { description: "Outside the allowance key's limits" },
+        },
+      },
+    },
+
+    "/retainers/{retainerId}": {
+      parameters: [{ name: "retainerId", in: "path", required: true, schema: { type: "string" } }],
+      get: {
+        summary: "Read a retainer",
+        description: "With its latest completed result and its webhook status.",
+        operationId: "getRetainer",
+        tags: ["Retainers"],
+        responses: { 200: { description: "The retainer" }, 401: { $ref: "#/components/responses/Unauthorized" }, 404: { $ref: "#/components/responses/NotFound" } },
+      },
+      patch: {
+        summary: "Change a retainer",
+        description: "Any of instructions, schedule, maxPrice, endsAt, maxRuns, payIn. A new schedule starts its rhythm now; the run history is kept.",
+        operationId: "updateRetainer",
+        tags: ["Retainers"],
+        responses: { 200: { description: "Updated" }, 400: { $ref: "#/components/responses/ValidationError" }, 404: { $ref: "#/components/responses/NotFound" } },
+      },
+      delete: {
+        summary: "Cancel a retainer",
+        description: "Final: it never runs again. Its history stays readable.",
+        operationId: "cancelRetainer",
+        tags: ["Retainers"],
+        responses: { 200: { description: "Cancelled" }, 404: { $ref: "#/components/responses/NotFound" } },
+      },
+    },
+
+    "/retainers/{retainerId}/pause": {
+      parameters: [{ name: "retainerId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Pause a retainer", operationId: "pauseRetainer", tags: ["Retainers"], responses: { 200: { description: "Paused" }, 400: { $ref: "#/components/responses/ValidationError" }, 404: { $ref: "#/components/responses/NotFound" } } },
+    },
+
+    "/retainers/{retainerId}/resume": {
+      parameters: [{ name: "retainerId", in: "path", required: true, schema: { type: "string" } }],
+      post: {
+        summary: "Resume a retainer",
+        description: "From the next slot; nothing that fell due while paused is made up. Also lifts a pause the retainer put itself in (failures, an agent that stopped answering, a revoked key) once the cause is fixed.",
+        operationId: "resumeRetainer",
+        tags: ["Retainers"],
+        responses: { 200: { description: "Resumed" }, 400: { $ref: "#/components/responses/ValidationError" }, 404: { $ref: "#/components/responses/NotFound" } },
+      },
+    },
+
+    "/retainers/{retainerId}/runs": {
+      parameters: [{ name: "retainerId", in: "path", required: true, schema: { type: "string" } }],
+      get: {
+        summary: "List a retainer's runs",
+        description: "Newest first. A completed run carries the agent's output and its receipt; any other carries why it did not complete (price above the maximum, allowance refused, previous run still working, agent unavailable, missed during downtime).",
+        operationId: "listRetainerRuns",
+        tags: ["Retainers"],
+        parameters: [
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+          { name: "before", in: "query", schema: { type: "string", format: "date-time" }, description: "Page back: runs scheduled before this time (nextBefore from the previous page)" },
+        ],
+        responses: { 200: { description: "Runs" }, 404: { $ref: "#/components/responses/NotFound" } },
+      },
+    },
+
+    "/agents/{agentId}/retainers": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: {
+        summary: "An agent's retainer clients",
+        description: "For the agent's owner: the clients keeping it on a schedule, and completed runs and earnings over the last 30 days.",
+        operationId: "getAgentRetainers",
+        tags: ["Retainers"],
+        responses: {
+          200: { description: "Clients and earnings" },
+          401: { $ref: "#/components/responses/Unauthorized" },
+          403: { description: "Not this agent's owner" },
+        },
+      },
+    },
+
+    "/retainers/{retainerId}/webhook": {
+      parameters: [{ name: "retainerId", in: "path", required: true, schema: { type: "string" } }],
+      put: {
+        summary: "Send a retainer's results to a URL",
+        description: "Events retainer.run.completed, retainer.run.failed and retainer.paused, signed like agent webhooks (X-Axon-Signature: HMAC-SHA256 of \"<timestamp>.<body>\"). The secret is returned once. Full key only.",
+        operationId: "setRetainerWebhook",
+        tags: ["Retainers"],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string", format: "uri" } } } } } },
+        responses: { 200: { description: "Webhook set; secret shown once" }, 400: { $ref: "#/components/responses/ValidationError" }, 403: { description: "Called with an allowance key" }, 404: { $ref: "#/components/responses/NotFound" } },
+      },
+      delete: { summary: "Stop sending a retainer's results", operationId: "removeRetainerWebhook", tags: ["Retainers"], responses: { 200: { description: "Removed" }, 404: { $ref: "#/components/responses/NotFound" } } },
     },
 
     "/webhooks": {

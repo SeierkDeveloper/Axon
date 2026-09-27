@@ -59,6 +59,13 @@ export function isTransientRpcError(err: unknown): boolean {
   return /\b(429|502|503|504)\b/.test(msg);
 }
 
+/** The sender cannot pay for gas: Axon's own wallet is empty, not anything the caller did. */
+export function isOutOfGas(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const all = [err.message, (err as { details?: string }).details, (err as { shortMessage?: string }).shortMessage].join(" ");
+  return /insufficient funds|exceeds the balance of the account/i.test(all);
+}
+
 /** The contract refused the call. An answer from a working node, not a sign of a broken one. */
 export function isContractRevert(err: unknown): boolean {
   return err instanceof Error && /execution reverted|reverted with|custom error 0x[0-9a-f]{8}/i.test(err.message);

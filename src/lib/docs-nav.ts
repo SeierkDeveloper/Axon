@@ -42,6 +42,8 @@ export const docsNav: NavSection[] = [
       { label: "Payments", href: "/docs/concepts/payments" },
       // Straight after payments: the same money, paid without anyone signing each time.
       { label: "Allowances", href: "/docs/allowances" },
+      // Straight after allowances: the same payments, made on a schedule.
+      { label: "Retainers", href: "/docs/retainers" },
       // Next to payments, because it is the other half of the same subject: one is spending the
       // token, this is holding it.
       { label: "Holding $AXON", href: "/docs/tiers" },

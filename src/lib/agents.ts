@@ -29,6 +29,7 @@ interface AgentRow {
   tools: string | null;
   accepts_axon: number;
   axon_discount_bps: number;
+  retainer_discount_bps: number | null;
   description: string | null;
   created_at: string;
 }
@@ -45,6 +46,7 @@ interface AgentRow {
  */
 export { MAX_AXON_DISCOUNT_BPS, clampDiscount } from "./axonTerms";
 import { clampDiscount } from "./axonTerms";
+import { clampRetainerDiscount } from "./retainerPolicy";
 
 function parseCapabilitiesJson(raw: string): string[] {
   try {
@@ -81,6 +83,7 @@ function rowToAgent(row: AgentRow): Agent {
     tools: parseToolsColumn(row.tools),
     acceptsAxon: row.accepts_axon === 1,
     axonDiscountBps: clampDiscount(row.axon_discount_bps),
+    retainerDiscountBps: clampRetainerDiscount(row.retainer_discount_bps ?? 0),
     description: row.description ?? undefined,
     createdAt: row.created_at,
   };
@@ -175,6 +178,8 @@ export interface AgentUpdateFields {
   acceptsAxon?: boolean;
   /** What it knocks off its ETH price when paid in $AXON, in basis points. */
   axonDiscountBps?: number;
+  /** What it knocks off its price for a retainer run, in basis points. */
+  retainerDiscountBps?: number;
   capabilities?: string[];
   price?: string | null;
   endpoint?: string | null;
@@ -220,6 +225,10 @@ export function updateAgent(agentId: string, updates: AgentUpdateFields): Agent 
   if (updates.axonDiscountBps !== undefined) {
     setParts.push("axon_discount_bps = ?");
     values.push(clampDiscount(updates.axonDiscountBps));
+  }
+  if (updates.retainerDiscountBps !== undefined) {
+    setParts.push("retainer_discount_bps = ?");
+    values.push(clampRetainerDiscount(updates.retainerDiscountBps));
   }
   if ("tools" in updates) {
     const grants = updates.tools ? normalizeToolGrants(updates.tools) : [];

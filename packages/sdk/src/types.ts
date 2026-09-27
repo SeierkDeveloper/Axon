@@ -40,6 +40,9 @@ export interface Agent {
    *  on. Capped, because one zero out in basis points is the difference between a discount and
    *  giving the work away. */
   axonDiscountBps?: number;
+  /** What it knocks off its price for a retainer (a standing hire on a schedule), in basis points.
+   *  Stacks with the $AXON discount. */
+  retainerDiscountBps?: number;
   createdAt: string;
 }
 
@@ -95,6 +98,11 @@ export interface UpdateAgentOptions {
    * typo into a real half-price offer would be worse than rejecting it.
    */
   axonDiscountBps?: number;
+  /**
+   * What to knock off the price for a retainer run, in basis points. 1000 is 10%. Capped at 5000 by
+   * the server; a value outside the range is refused.
+   */
+  retainerDiscountBps?: number;
 }
 
 // ─── Discovery ────────────────────────────────────────────────────────────────
@@ -1631,3 +1639,101 @@ export interface CreatedAllowanceKey {
   allowedAgents: string[] | null;
   expiresAt: string;
 }
+
+// ── Retainers ────────────────────────────────────────────────────────────────
+
+/** When a retainer runs. Daily and weekly times are wall-clock times in `timeZone` (IANA). */
+export type RetainerSchedule =
+  | { kind: "interval"; everyHours: 1 | 2 | 3 | 4 | 6 | 8 | 12 }
+  | { kind: "daily"; time: string; timeZone: string }
+  | { kind: "weekly"; day: 0 | 1 | 2 | 3 | 4 | 5 | 6; time: string; timeZone: string };
+
+export interface RetainerRun {
+  runId: string;
+  scheduledFor: string;
+  status: "pending" | "running" | "completed" | "failed" | "skipped";
+  skipReason: "price_above_max" | "previous_run_in_flight" | "allowance_refused" | "agent_unavailable" | "missed" | "tier_pace" | "payment_unavailable" | null;
+  /** Why it did not complete, in words. */
+  message: string | null;
+  taskId: string | null;
+  /** What the run cost, in ETH. */
+  price: string | null;
+  /** The agent's answer, once completed. */
+  output: string | null;
+  receiptUrl: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+/** An agent owner's view of the clients keeping that agent on a schedule. */
+export interface AgentRetainers {
+  clients: number;
+  active: number;
+  paused: number;
+  /** Completed runs and what they earned (ETH, $AXON runs at their ETH value) over the last 30 days. */
+  last30Days: { runs: number; completed: number; earned: string };
+  retainers: {
+    client: string;
+    scheduleText: string;
+    payIn: "ETH" | "AXON";
+    status: "active" | "paused";
+    runsDone: number;
+    since: string;
+    nextRunAt: string | null;
+  }[];
+}
+
+/** What a wallet's $AXON tier allows for retainers, and what the next tier up would add. Paused ones count. */
+export interface RetainerLimits {
+  tier: string;
+  active: number;
+  inUse: number;
+  fastestHours: number;
+  next: { tier: string; hold: number; active: number; fastestHours: number } | null;
+}
+
+export interface Retainer {
+  retainerId: string;
+  agentId: string;
+  instructions: string;
+  schedule: RetainerSchedule;
+  /** The schedule in words: "Every day at 08:00 (Europe/Oslo)". */
+  scheduleText: string;
+  payIn: "ETH" | "AXON";
+  /** Most one run may cost, in ETH. */
+  maxPrice: string;
+  /** What a run costs at the agent's price today, after any retainer discount it offers. Null if it no longer charges. */
+  pricePerRun: string | null;
+  /** Most this schedule can spend in a day at maxPrice, in ETH. */
+  maxPerDay: string;
+  status: "active" | "paused" | "ended" | "cancelled";
+  pauseReason: "owner" | "failures" | "agent_unavailable" | "key_revoked" | "key_expired" | "allowance_expired" | null;
+  pauseText: string | null;
+  consecutiveFailures: number;
+  runsDone: number;
+  maxRuns: number | null;
+  endsAt: string | null;
+  nextRunAt: string | null;
+  createdByKey: boolean;
+  /** Set up by an allowance key: when that key expires, which pauses the retainer until it is resumed. */
+  keyExpiresAt: string | null;
+  webhook: { url: string; active: boolean; disabledAt: string | null; failuresInARow: number } | null;
+  createdAt: string;
+  updatedAt: string;
+  /** On getRetainer only: the newest completed run. */
+  latest?: RetainerRun | null;
+}
+
+export interface CreateRetainerOptions {
+  agentId: string;
+  instructions: string;
+  schedule: RetainerSchedule;
+  payIn?: "ETH" | "AXON";
+  /** ETH, e.g. "0.0002". Default: a quarter above the agent's current price. */
+  maxPrice?: string;
+  maxRuns?: number | null;
+  /** ISO 8601. */
+  endsAt?: string | null;
+}
+
+export type UpdateRetainerOptions = Partial<Omit<CreateRetainerOptions, "agentId">>;

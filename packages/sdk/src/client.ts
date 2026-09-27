@@ -1,5 +1,11 @@
 import { CommerceApi } from "./commerce";
 import type {
+  Retainer,
+  RetainerRun,
+  RetainerLimits,
+  AgentRetainers,
+  CreateRetainerOptions,
+  UpdateRetainerOptions,
   AllowanceStatus,
   AllowanceKey,
   CreateAllowanceKeyOptions,
@@ -566,6 +572,89 @@ export class AxonClient {
   /** Revoke an allowance key. It fails on its next request. Needs a full key. */
   async revokeAllowanceKey(keyId: string): Promise<{ ok: true }> {
     return this.delete(`/api/allowance/keys/${pathPart(keyId)}`) as Promise<{ ok: true }>;
+  }
+
+  // ── Retainers ──────────────────────────────────────────────────────────────
+
+  /**
+   * Put a paid agent on a schedule. Axon hires it every time the schedule comes round and pays from
+   * this wallet's allowance, inside its limits; failed runs cost nothing. With an allowance key, the
+   * key's limits apply to every run and it can see and control only the retainers it created.
+   */
+  async createRetainer(opts: CreateRetainerOptions): Promise<Retainer> {
+    const res = (await this.post("/api/retainers", opts)) as { retainer: Retainer };
+    return res.retainer;
+  }
+
+  /** Your retainers, newest first. */
+  async listRetainers(): Promise<Retainer[]> {
+    const res = (await this.get("/api/retainers")) as { retainers: Retainer[] };
+    return res.retainers;
+  }
+
+  /** How many retainers this wallet's tier allows, how many are in use, and the fastest schedule it may run. */
+  async getRetainerLimits(): Promise<RetainerLimits> {
+    const res = (await this.get("/api/retainers")) as { limits: RetainerLimits };
+    return res.limits;
+  }
+
+  /** One retainer, with its latest completed result and webhook status. */
+  async getRetainer(retainerId: string): Promise<Retainer> {
+    const res = (await this.get(`/api/retainers/${pathPart(retainerId)}`)) as { retainer: Retainer };
+    return res.retainer;
+  }
+
+  /** Change instructions, schedule, maxPrice, end, run limit or pay-in. A new schedule starts now. */
+  async updateRetainer(retainerId: string, changes: UpdateRetainerOptions): Promise<Retainer> {
+    const res = (await this.patch(`/api/retainers/${pathPart(retainerId)}`, changes)) as { retainer: Retainer };
+    return res.retainer;
+  }
+
+  async pauseRetainer(retainerId: string): Promise<Retainer> {
+    const res = (await this.post(`/api/retainers/${pathPart(retainerId)}/pause`, {})) as { retainer: Retainer };
+    return res.retainer;
+  }
+
+  /** Carries on from the next slot; nothing that fell due while paused is made up. */
+  async resumeRetainer(retainerId: string): Promise<Retainer> {
+    const res = (await this.post(`/api/retainers/${pathPart(retainerId)}/resume`, {})) as { retainer: Retainer };
+    return res.retainer;
+  }
+
+  /** Final: it never runs again. Its history stays readable. */
+  async cancelRetainer(retainerId: string): Promise<Retainer> {
+    const res = (await this.delete(`/api/retainers/${pathPart(retainerId)}`)) as { retainer: Retainer };
+    return res.retainer;
+  }
+
+  /** Runs newest first, with each completed run's output. Page back with `before: nextBefore`. */
+  async listRetainerRuns(retainerId: string, opts: { limit?: number; before?: string } = {}): Promise<{ runs: RetainerRun[]; nextBefore: string | null }> {
+    const q = new URLSearchParams();
+    if (opts.limit) q.set("limit", String(opts.limit));
+    if (opts.before) q.set("before", opts.before);
+    const qs = q.toString();
+    return this.get(`/api/retainers/${pathPart(retainerId)}/runs${qs ? `?${qs}` : ""}`) as Promise<{ runs: RetainerRun[]; nextBefore: string | null }>;
+  }
+
+  /**
+   * Send a retainer's results to a URL: retainer.run.completed, retainer.run.failed and
+   * retainer.paused, signed like agent webhooks (check them with verifyWebhook). The secret is
+   * returned once. Needs a full key.
+   */
+  async setRetainerWebhook(retainerId: string, url: string): Promise<{ webhook: Retainer["webhook"]; secret: string }> {
+    return this.request("PUT", `/api/retainers/${pathPart(retainerId)}/webhook`, { body: { url } }) as Promise<{ webhook: Retainer["webhook"]; secret: string }>;
+  }
+
+  async removeRetainerWebhook(retainerId: string): Promise<{ webhook: null }> {
+    return this.delete(`/api/retainers/${pathPart(retainerId)}/webhook`) as Promise<{ webhook: null }>;
+  }
+
+  /**
+   * For an agent's owner: the clients keeping it on a schedule, and what that earned over 30 days. Set
+   * a discount for them with `updateAgent(agentId, { retainerDiscountBps })`.
+   */
+  async getAgentRetainers(agentId: string): Promise<AgentRetainers> {
+    return this.get(`/api/agents/${pathPart(agentId)}/retainers`) as Promise<AgentRetainers>;
   }
 
   // ── Phase 11: Autonomous Delegation ────────────────────────────────────────

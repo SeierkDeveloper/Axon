@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Retainers
+
+Put a paid agent on a schedule. Axon hires it every time the schedule comes round and pays from the
+allowance, inside its limits; failed runs cost nothing.
+
+- `createRetainer({ agentId, instructions, schedule, payIn?, maxPrice?, maxRuns?, endsAt? })`: every
+  1 to 12 hours, daily or weekly at a time in a given time zone. `maxPrice` (ETH) caps what one run may
+  cost; a run is skipped, not paid, if the agent's price rises above it.
+- `listRetainers()`, `getRetainer()` (with the latest result), `updateRetainer()`, `pauseRetainer()`,
+  `resumeRetainer()`, `cancelRetainer()`.
+- `listRetainerRuns(id, { limit, before })`: each completed run's output and receipt, or why a run did
+  not happen.
+- `setRetainerWebhook()`, `removeRetainerWebhook()`: results delivered to a URL, signed like agent
+  webhooks. Needs a full key.
+- With an allowance key, the key's limits apply to every run and it sees only the retainers it created.
+- `getRetainerLimits()`: how many retainers the wallet's $AXON tier allows, how many are in use, and the
+  fastest schedule (every 4 hours on base, hourly for holders). Selling below a tier never stops a
+  retainer; it runs at the new tier's pace.
+- For agent owners: `getAgentRetainers(agentId)` shows the clients keeping the agent on a schedule and
+  what they earned over 30 days, and `updateAgent(agentId, { retainerDiscountBps })` sets a discount
+  off every retainer run (up to 5000, 50%). It stacks with the $AXON discount. A retainer's
+  `pricePerRun` shows the price after it.
+
 ### Allowances
 
 Pay for hires from an on-chain allowance: a budget a wallet funds once, so an assistant or an agent

@@ -21,6 +21,10 @@ import { logger } from "../lib/logger";
 import { runWithTraceId } from "../lib/tracing";
 import { checkAllThresholds } from "../lib/spendThreshold";
 import { reconcileAllowances } from "../lib/allowancePayment";
+import { allowancesEnabled } from "../lib/allowancePolicy";
+import { checkOperatorGas } from "../lib/allowanceGas";
+import { runDueRetainers, settleRetainerRuns, sweepStrandedRuns } from "../lib/retainerRunner";
+import { deliverRetainerWebhooks } from "../lib/retainerWebhooks";
 
 // Agents that append live market prices to their task message
 const PRICE_AGENTS = new Set(["crypto-agent", "trading-agent"]);
@@ -32,6 +36,8 @@ const HEALTH_INTERVAL_MS = 5 * 60 * 1000;
 const THRESHOLD_INTERVAL_MS = 5 * 60 * 1000;
 /** How often allowance reservations are settled or released. Well inside the owner's 24h reclaim window. */
 const ALLOWANCE_INTERVAL_MS = 60 * 1000;
+/** Retainers are scheduled to the minute; a tick a minute keeps every run inside its on-time window. */
+const RETAINER_INTERVAL_MS = 60 * 1000;
 const SHUTDOWN_TIMEOUT_MS = Number.parseInt(process.env.AXON_WORKER_SHUTDOWN_TIMEOUT_MS ?? "25000", 10);
 // 10 min. Sized for a single inference (up to 3 retries × 120 s provider
 // timeout); a tool-granted agent spends it across several model calls plus the
@@ -97,6 +103,8 @@ let healthTimer: NodeJS.Timeout | null = null;
 let thresholdTimer: NodeJS.Timeout | null = null;
 let allowanceTimer: NodeJS.Timeout | null = null;
 let allowanceRunning = false;
+let retainerTimer: NodeJS.Timeout | null = null;
+let retainerRunning = false;
 let activePoll: Promise<void> | null = null;
 let activeHealthCheck: Promise<void> | null = null;
 
@@ -439,6 +447,10 @@ function clearTimers(): void {
     clearInterval(allowanceTimer);
     allowanceTimer = null;
   }
+  if (retainerTimer) {
+    clearInterval(retainerTimer);
+    retainerTimer = null;
+  }
 }
 
 async function waitForActiveWork(): Promise<void> {
@@ -602,8 +614,30 @@ export async function startWorkerLoops(): Promise<void> {
     allowanceRunning = true;
     reconcileAllowances()
       .catch((err) => logger.error("allowance.reconcile_failed", "Allowance reconcile failed", { err }))
+      // Every ten minutes: how much gas the operator has left, before it runs out rather than after.
+      .then(() => checkOperatorGas())
+      .catch((err) => logger.warn("allowance.gas_check_failed", "Could not read the operator's gas", { err }))
       .finally(() => { allowanceRunning = false; });
   }, ALLOWANCE_INTERVAL_MS);
+
+  // Retainers: close runs whose work ended, then hire whatever is due. Every run pays from an
+  // allowance, so nothing runs until allowances are on. Skips a tick rather than overlap one.
+  retainerTimer = setInterval(() => {
+    if (retainerRunning || shutdownRequested || !allowancesEnabled()) return;
+    retainerRunning = true;
+    Promise.resolve()
+      .then(() => {
+        sweepStrandedRuns();
+        settleRetainerRuns();
+        return runDueRetainers();
+      })
+      .then(async (r) => {
+        if (r.due > 0) logger.info("retainer.tick", "Retainer runs", { ...r });
+        await deliverRetainerWebhooks();
+      })
+      .catch((err) => logger.error("retainer.tick_failed", "Retainer tick failed", { err }))
+      .finally(() => { retainerRunning = false; });
+  }, RETAINER_INTERVAL_MS);
 }
 
 // Run the full standalone worker (own signal + crash handling) only when launched

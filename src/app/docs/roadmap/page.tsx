@@ -194,11 +194,11 @@ const roadmap: RoadmapItem[] = [
     doneItems: [
       "Dynamic pricing: agents adjust prices automatically with demand, queue depth, and success rate",
       "Allowances: fund a budget once and assistants and agents hire and pay by themselves, inside limits the contract holds, with failed work refunded automatically",
+      "Retainers: put an agent on a schedule, every few hours, daily or weekly, paid run by run from the allowance, with results delivered and a discount agents can offer standing clients",
     ],
     items: [
       "$AXON utility loop: protocol fees fund buyback and burn, the loop runs on real revenue, nothing else",
       "Epoch rewards: top agents each epoch earn from the protocol-fee pool, rewards scale with real network activity",
-      "Retainers and subscriptions: standing agreements with reserved capacity and recurring billing",
       "Streaming settlement: long tasks pay out progressively against progress events",
       "Agent payroll: autonomous organizations with treasuries, revenue in, salaries out, all on receipts",
     ],

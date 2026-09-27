@@ -162,6 +162,66 @@ export const MCP_TOOLS = [
     inputSchema: { type: "object", properties: {} },
   },
   {
+    name: "schedule_agent",
+    description:
+      "Put a paid agent on a schedule (a retainer): Axon hires it every time the schedule comes round and pays from the owner's on-chain allowance, inside its limits; failed runs cost nothing. Use for anything recurring: a morning brief, a wallet check every few hours, a weekly report. Needs an Axon key on this connection. Daily and weekly times are in the given time zone (ask the user theirs). Hourly needs a holder tier; every 4 hours works for everyone.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agentId: { type: "string", description: "A paid agent from search_agents" },
+        instructions: { type: "string", description: "What the agent does on every run" },
+        schedule: {
+          type: "object",
+          description: 'One of {"kind":"interval","everyHours":1|2|3|4|6|8|12}, {"kind":"daily","time":"08:00","timeZone":"Europe/Oslo"}, {"kind":"weekly","day":0-6 (0 = Sunday),"time":"09:00","timeZone":"UTC"}',
+          properties: {
+            kind: { type: "string", enum: ["interval", "daily", "weekly"] },
+            everyHours: { type: "number" },
+            time: { type: "string", description: "HH:MM, 24-hour" },
+            timeZone: { type: "string", description: "IANA name, e.g. America/New_York" },
+            day: { type: "number", description: "0 Sunday to 6 Saturday" },
+          },
+          required: ["kind"],
+        },
+        payIn: { type: "string", enum: ["ETH", "AXON"], description: "Default ETH; AXON for agents that accept it" },
+        maxPrice: { type: "string", description: "Most one run may cost, in ETH, e.g. \"0.0002\". Default: a quarter above the agent's current price" },
+        maxRuns: { type: "number", description: "Optional: stop after this many runs" },
+        endsAt: { type: "string", description: "Optional: stop after this date (ISO 8601)" },
+      },
+      required: ["agentId", "instructions", "schedule"],
+    },
+  },
+  {
+    name: "list_retainers",
+    description:
+      "The retainers this connection's key can see: what each does, its schedule in words, when it runs next, its status and why it is paused if it is, and the latest completed result. Also the wallet's limits: how many retainers its $AXON tier allows, how many are in use, and the fastest schedule. Needs an Axon key on this connection.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "get_retainer_runs",
+    description:
+      "A retainer's recent runs, newest first: each completed run's output and receipt, or why a run did not happen (price above the maximum, allowance refused, previous run still working, agent unavailable, missed). Use to answer \"what did my morning brief say?\".",
+    inputSchema: {
+      type: "object",
+      properties: {
+        retainerId: { type: "string" },
+        limit: { type: "number", description: "Default 5, max 20" },
+      },
+      required: ["retainerId"],
+    },
+  },
+  {
+    name: "manage_retainer",
+    description: "Pause, resume or cancel a retainer. Cancel is final; its history stays readable. Resume carries on from the next slot.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        retainerId: { type: "string" },
+        action: { type: "string", enum: ["pause", "resume", "cancel"] },
+      },
+      required: ["retainerId", "action"],
+    },
+  },
+  {
     name: "get_receipt",
     description:
       "The public, verifiable proof for a task: parties, spec/output hashes, on-chain settlement, hash-chained execution trace, and the reproducibility verdict when the task has been re-run. Safe to share, never exposes task content.",
@@ -374,6 +434,93 @@ async function toolGetAllowance(apiKey: string | null) {
   return res.ok ? json : routeError(json, res.status);
 }
 
+// ── Retainers ─────────────────────────────────────────────────────────────────
+//
+// Every retainer tool goes through the /api/retainers routes with the connection's own key, so an
+// allowance key sees and controls only the retainers it created and stays inside its limits, exactly
+// as over plain HTTP.
+
+const NEEDS_KEY = { error: "Retainers need an Axon key in this MCP connection's Authorization header (an allowance key works)" };
+
+async function retainerCall(
+  apiKey: string,
+  load: () => Promise<Record<string, (req: NextRequest, ctx: { params: Promise<{ retainerId: string }> }) => Promise<Response>>>,
+  method: string,
+  path: string,
+  retainerId: string | null,
+  body?: unknown,
+) {
+  const mod = await load();
+  const handler = mod[method];
+  const req = new NextRequest(`${BASE_URL}${path}`, {
+    method,
+    headers: { "x-api-key": apiKey, "content-type": "application/json" },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+  const res = await handler(req, { params: Promise.resolve({ retainerId: retainerId ?? "" }) });
+  const json = (await res.json()) as Record<string, unknown>;
+  return res.ok ? json : { error: typeof json.error === "string" ? json.error : `request failed (${res.status})` };
+}
+
+async function toolScheduleAgent(args: Record<string, unknown>, apiKey: string | null) {
+  if (!apiKey) return NEEDS_KEY;
+  const body: Record<string, unknown> = {
+    agentId: args.agentId,
+    instructions: args.instructions,
+    schedule: args.schedule,
+  };
+  for (const k of ["payIn", "maxPrice", "maxRuns", "endsAt"]) if (args[k] !== undefined) body[k] = args[k];
+  const out = await retainerCall(apiKey, () => import("@/app/api/retainers/route") as never, "POST", "/api/retainers", null, body);
+  if ("error" in out) return out;
+  const r = out.retainer as Record<string, unknown>;
+  return {
+    retainer: r,
+    note:
+      `Scheduled: ${r.scheduleText}. First run ${r.nextRunAt}. Each run pays up to ${r.maxPrice} ETH from the allowance; use get_retainer_runs for results.` +
+      // Set up through this key, it pays through this key: tell the user when that stops.
+      (r.keyExpiresAt ? ` It runs through this connection's key, which expires ${r.keyExpiresAt}; tell the user, since the retainer pauses then until they resume it.` : ""),
+  };
+}
+
+async function toolListRetainers(apiKey: string | null) {
+  if (!apiKey) return NEEDS_KEY;
+  const out = await retainerCall(apiKey, () => import("@/app/api/retainers/route") as never, "GET", "/api/retainers", null);
+  if ("error" in out) return out;
+  // The latest result for each, so "how is my morning brief doing" is one call.
+  const withLatest = await Promise.all(
+    (out.retainers as { retainerId: string }[]).map(async (r) => {
+      const one = await retainerCall(apiKey, () => import("@/app/api/retainers/[retainerId]/route") as never, "GET", `/api/retainers/${r.retainerId}`, r.retainerId);
+      return "error" in one ? r : one.retainer;
+    }),
+  );
+  // The limits too, so an assistant can say "you have room for one more" before trying to add it.
+  return { retainers: withLatest, limits: out.limits };
+}
+
+async function toolGetRetainerRuns(args: Record<string, unknown>, apiKey: string | null) {
+  if (!apiKey) return NEEDS_KEY;
+  const id = String(args.retainerId ?? "");
+  if (!id) return { error: "retainerId is required" };
+  const limit = Math.min(20, Math.max(1, Number(args.limit) || 5));
+  return retainerCall(apiKey, () => import("@/app/api/retainers/[retainerId]/runs/route") as never, "GET", `/api/retainers/${id}/runs?limit=${limit}`, id);
+}
+
+async function toolManageRetainer(args: Record<string, unknown>, apiKey: string | null) {
+  if (!apiKey) return NEEDS_KEY;
+  const id = String(args.retainerId ?? "");
+  if (!id) return { error: "retainerId is required" };
+  switch (args.action) {
+    case "pause":
+      return retainerCall(apiKey, () => import("@/app/api/retainers/[retainerId]/pause/route") as never, "POST", `/api/retainers/${id}/pause`, id);
+    case "resume":
+      return retainerCall(apiKey, () => import("@/app/api/retainers/[retainerId]/resume/route") as never, "POST", `/api/retainers/${id}/resume`, id);
+    case "cancel":
+      return retainerCall(apiKey, () => import("@/app/api/retainers/[retainerId]/route") as never, "DELETE", `/api/retainers/${id}`, id);
+    default:
+      return { error: "action must be pause, resume or cancel" };
+  }
+}
+
 function toolGetTaskResult(args: Record<string, unknown>) {
   const taskId = String(args.taskId ?? "");
   const token = String(args.claimToken ?? "");
@@ -422,6 +569,14 @@ async function callTool(name: string, args: Record<string, unknown>, clientIp: s
       return toolHireAgent(args, clientIp, apiKey);
     case "get_allowance":
       return toolGetAllowance(apiKey);
+    case "schedule_agent":
+      return toolScheduleAgent(args, apiKey);
+    case "list_retainers":
+      return toolListRetainers(apiKey);
+    case "get_retainer_runs":
+      return toolGetRetainerRuns(args, apiKey);
+    case "manage_retainer":
+      return toolManageRetainer(args, apiKey);
     case "get_task_result":
       return toolGetTaskResult(args);
     case "get_receipt":
@@ -457,7 +612,7 @@ export async function handleMcpMessage(
         capabilities: { tools: {} },
         serverInfo: SERVER_INFO,
         instructions:
-          "Axon is an open agent marketplace: search_agents to discover, hire_agent to create a task, get_task_result with your claimToken for the output, get_receipt for the public verifiable proof. Paid agents: with an Axon allowance key on this connection, hire_agent pays from the owner's on-chain allowance automatically (get_allowance shows what is left); without one, it returns ETH payment requirements to pay with your own wallet and retry with paymentSignature.",
+          "Axon is an open agent marketplace: search_agents to discover, hire_agent to create a task, get_task_result with your claimToken for the output, get_receipt for the public verifiable proof. Paid agents: with an Axon allowance key on this connection, hire_agent pays from the owner's on-chain allowance automatically (get_allowance shows what is left); without one, it returns ETH payment requirements to pay with your own wallet and retry with paymentSignature. For anything recurring, schedule_agent puts an agent on a schedule paid from the same allowance; list_retainers and get_retainer_runs read what it did.",
       });
     }
     case "notifications/initialized":

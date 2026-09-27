@@ -23,10 +23,10 @@ export const WEBHOOK_EVENTS = [
 
 export type WebhookEventType = (typeof WEBHOOK_EVENTS)[number];
 
-const MAX_ATTEMPTS = 5;
+export const MAX_ATTEMPTS = 5;
 const MAX_PERMANENT_FAILURES = 3;
 // Retry delays in ms: immediate → 1 min → 5 min → 30 min → 2 hr
-const RETRY_DELAYS_MS = [0, 60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000];
+export const RETRY_DELAYS_MS = [0, 60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000];
 const DELIVERY_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BODY = 500;
 
@@ -326,10 +326,42 @@ export function queueWebhookEvent(
 
 // ── Delivery ──────────────────────────────────────────────────────────────────
 
-function sign(secret: string, timestamp: number, body: string): string {
+export function sign(secret: string, timestamp: number, body: string): string {
   return createHmac("sha256", secret)
     .update(`${timestamp}.${body}`)
     .digest("hex");
+}
+
+/**
+ * One signed POST: the headers every Axon webhook carries, the body as signed. Shared with retainer
+ * deliveries (retainerWebhooks.ts) so every receiver verifies one scheme.
+ */
+export async function postSigned(
+  url: string,
+  eventType: string,
+  deliveryId: string,
+  payload: string,
+  timestamp: number,
+  signature: string,
+): Promise<{ responseStatus?: number; responseBody?: string }> {
+  try {
+    const res = await publicHttpFetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Axon-Signature": `sha256=${signature}`,
+        "X-Axon-Event": eventType,
+        "X-Axon-Delivery": deliveryId,
+        "X-Axon-Timestamp": String(timestamp),
+      },
+      body: payload,
+      signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
+      maxResponseBytes: 64_000,
+    });
+    return { responseStatus: res.status, responseBody: (await res.text()).slice(0, MAX_RESPONSE_BODY) };
+  } catch (err) {
+    return { responseBody: (err instanceof Error ? err.message : "network error").slice(0, MAX_RESPONSE_BODY) };
+  }
 }
 
 async function sendDelivery(
@@ -354,28 +386,9 @@ async function sendDelivery(
   ).run(now, leaseUntil, delivery.delivery_id, now);
   if (claimed.changes !== 1) return; // another poller already claimed this row
 
-  let responseStatus: number | undefined;
-  let responseBody: string | undefined;
-
-  try {
-    const res = await publicHttpFetch(delivery.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Axon-Signature": `sha256=${signature}`,
-        "X-Axon-Event": delivery.event_type,
-        "X-Axon-Delivery": delivery.delivery_id,
-        "X-Axon-Timestamp": String(timestamp),
-      },
-      body: delivery.payload,
-      signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
-      maxResponseBytes: 64_000,
-    });
-    responseStatus = res.status;
-    responseBody = (await res.text()).slice(0, MAX_RESPONSE_BODY);
-  } catch (err) {
-    responseBody = (err instanceof Error ? err.message : "network error").slice(0, MAX_RESPONSE_BODY);
-  }
+  const { responseStatus, responseBody } = await postSigned(
+    delivery.url, delivery.event_type, delivery.delivery_id, delivery.payload, timestamp, signature,
+  );
 
   const succeeded = responseStatus !== undefined && responseStatus >= 200 && responseStatus < 300;
   const newAttempts = delivery.attempts + 1;

@@ -23,7 +23,7 @@ import { checkBudget } from "./budgets";
 import { getQuote, isExpired, createQuote, axonPaymentsEnabled } from "./axonQuote";
 import { getAgentById } from "./agents";
 import { axonPaymentRefusal, createAxonPayment } from "./axonPayment";
-import { isTransientRpcError } from "./evm";
+import { isTransientRpcError, isOutOfGas } from "./evm";
 import { keyLimitError } from "./allowanceKeys";
 import { logger } from "./logger";
 import {
@@ -153,6 +153,12 @@ export async function payFromAllowance(h: AllowanceHire): Promise<AllowancePaid>
     ({ txHash: reserveTx } = await reserveOnChain({ owner: h.owner, token, taskKey: tKey, agentKey: aKey, amount }));
   } catch (err) {
     if (err instanceof AllowancePaymentError) throw err;
+    // Axon's operator has no gas left. Nothing the owner did, and nothing was charged: say so, and
+    // shout about it, because every allowance payment is stopped until it is topped up.
+    if (isOutOfGas(err)) {
+      logger.error("allowance.operator_out_of_gas", "The allowance operator cannot pay gas; top it up", { taskId: h.taskId });
+      throw new AllowancePaymentError("Axon cannot take payments for a moment. Nothing was charged; try again shortly", 503);
+    }
     const refusal = contractRefusal(err);
     if (refusal) throw new AllowancePaymentError(refusal, refusal.includes("paused right now") ? 503 : 402);
     logger.warn("allowance.reserve_failed", "Could not reserve from an allowance", {
@@ -234,14 +240,16 @@ async function recordAxon(h: AllowanceHire, reserveTx: string): Promise<string> 
  * reservation consumes the quote it pays, so a shared quote would refuse the next person hiring the
  * same agent. Throws AllowancePaymentError with a reason a caller can show.
  */
-export async function freshAxonQuoteFor(agentId: string): Promise<string> {
+export async function freshAxonQuoteFor(agentId: string, ethWei?: bigint): Promise<string> {
   const agent = getAgentById(agentId);
   if (!agent) throw new AllowancePaymentError("Unknown agent");
   if (!axonPaymentsEnabled()) throw new AllowancePaymentError("$AXON payments are not available", 503);
   if (!agent.acceptsAxon) throw new AllowancePaymentError(`${agentId} does not accept $AXON; pay in ETH instead`);
   const parsed = agent.price ? parsePaymentAmount(agent.price) : null;
   if (!parsed) throw new AllowancePaymentError("This agent has no ETH price to quote in $AXON");
-  const quoted = await createQuote({ ethWei: parsed.wei, reference: `allowance:${agentId}`, discountBps: agent.axonDiscountBps ?? 0 });
+  // A retainer run passes its own ETH price (the agent's, less its retainer discount); the $AXON
+  // discount then applies on top of that, as it would to any hire.
+  const quoted = await createQuote({ ethWei: ethWei ?? parsed.wei, reference: `allowance:${agentId}`, discountBps: agent.axonDiscountBps ?? 0 });
   if (!quoted.ok) throw new AllowancePaymentError(`Could not quote this hire in $AXON (${quoted.reason})`, 503);
   return quoted.quote.quoteId;
 }

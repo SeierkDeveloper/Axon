@@ -10,6 +10,7 @@ interface Entitlements {
   freeCalls: number;
   queuePriority: number;
   agent: { toolGrants: number; toolSteps: number; toolResultChars: number };
+  retainers?: { active: number; fastestHours: number };
 }
 interface Rung {
   name: string;
@@ -68,7 +69,7 @@ export default function TierClient() {
       </h1>
       <p className="text-gray-500 dark:text-gray-400 max-w-2xl leading-relaxed mb-10">
         Holding $AXON raises what the network gives you back: more throughput, a longer free
-        allowance, priority when it is busy, and deeper agents. Read straight from the chain.
+        allowance, priority when it is busy, deeper agents, and more of them on a schedule. Read straight from the chain.
         Nothing is staked, locked or transferred, and selling drops the tier at the next read.
       </p>
 
@@ -134,6 +135,7 @@ export default function TierClient() {
               <th className="py-3 pr-6 text-xs font-mono uppercase tracking-widest text-gray-400 font-normal">Rate limit</th>
               <th className="py-3 pr-6 text-xs font-mono uppercase tracking-widest text-gray-400 font-normal">Free calls</th>
               <th className="py-3 pr-6 text-xs font-mono uppercase tracking-widest text-gray-400 font-normal">Queue</th>
+              <th className="py-3 pr-6 text-xs font-mono uppercase tracking-widest text-gray-400 font-normal">Retainers</th>
               <th className="py-3 text-xs font-mono uppercase tracking-widest text-gray-400 font-normal">Agent depth</th>
             </tr>
           </thead>
@@ -165,6 +167,11 @@ export default function TierClient() {
                   <td className="py-4 pr-6 text-gray-600 dark:text-gray-300">
                     {rung.rank === 0 ? "standard" : `+${rung.rank}`}
                   </td>
+                  <td className="py-4 pr-6 text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                    {rung.entitlements.retainers
+                      ? `${rung.entitlements.retainers.active} · ${rung.entitlements.retainers.fastestHours === 1 ? "hourly" : `every ${rung.entitlements.retainers.fastestHours}h`}`
+                      : "·"}
+                  </td>
                   <td className="py-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">
                     {rung.entitlements.agent.toolGrants} tools &middot; {rung.entitlements.agent.toolSteps} steps
                   </td>
@@ -178,7 +185,9 @@ export default function TierClient() {
       <p className="mt-8 text-sm text-gray-400 dark:text-gray-500 max-w-2xl leading-relaxed">
         Base is the network as it has always been, so nobody loses anything by any of this existing.
         Agent depth applies to work that was paid for. Free-lane hires run at base depth whatever the
-        owner holds.
+        owner holds. Retainers are paid run by run from your allowance; the tier sets how many you can
+        have and how often they run. Sell below a tier and your retainers keep running, at the new
+        tier&apos;s pace.
       </p>
     </div>
   );

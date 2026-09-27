@@ -5,6 +5,8 @@ import Link from "next/link";
 import { DashboardSkeleton } from "@/components/DashboardSkeleton";
 import { useWallet } from "@/components/WalletProvider";
 import AllowancePanel from "./AllowancePanel";
+import RetainersPanel from "./RetainersPanel";
+import AgentRetainers from "./AgentRetainers";
 
 type Agent = {
   agentId: string;
@@ -15,6 +17,7 @@ type Agent = {
   walletAddress?: string;
   endpoint?: string;
   provider: string;
+  retainerDiscountBps?: number;
 };
 
 type Task = {
@@ -190,7 +193,7 @@ export default function DashboardClient() {
   const [savingThreshold, setSavingThreshold] = useState<Set<string>>(new Set());
   const [clearingThreshold, setClearingThreshold] = useState<Set<string>>(new Set());
   const [editExpanded, setEditExpanded] = useState<Set<string>>(new Set());
-  const [editDrafts, setEditDrafts] = useState<Record<string, { name: string; capabilities: string; price: string; endpoint: string }>>({});
+  const [editDrafts, setEditDrafts] = useState<Record<string, { name: string; capabilities: string; price: string; endpoint: string; retainerDiscount: string }>>({});
   const [savingEdit, setSavingEdit] = useState<Set<string>>(new Set());
   const [taskDisplayLimit, setTaskDisplayLimit] = useState(8);
   const [taskFetchLimit, setTaskFetchLimit] = useState(8);
@@ -572,6 +575,7 @@ export default function DashboardClient() {
             capabilities: agent.capabilities.join(", "),
             price: agent.price ?? "",
             endpoint: agent.endpoint ?? "",
+            retainerDiscount: agent.retainerDiscountBps ? String(agent.retainerDiscountBps / 100) : "",
           },
         }));
       }
@@ -597,6 +601,15 @@ export default function DashboardClient() {
 
     const endpoint = draft.endpoint.trim() || null;
     if (endpoint !== (current?.endpoint ?? null)) body.endpoint = endpoint;
+
+    // Entered as a percentage, stored in basis points.
+    const pct = draft.retainerDiscount.trim() ? Number(draft.retainerDiscount) : 0;
+    if (!Number.isFinite(pct) || pct < 0 || pct > 50) {
+      addToast("error", "The retainer discount must be 0 to 50%");
+      return;
+    }
+    const bps = Math.round(pct * 100);
+    if (bps !== (current?.retainerDiscountBps ?? 0)) body.retainerDiscountBps = bps;
 
     if (Object.keys(body).length === 0) {
       addToast("success", "No changes to save");
@@ -1037,6 +1050,18 @@ npm run demo:agent`}</code>
                                     />
                                   </div>
                                 </div>
+                                {agent.price && (
+                                  <div>
+                                    <label className="block text-[11px] text-gray-500 mb-1">Retainer discount (%), off each run for clients who put it on a schedule</label>
+                                    <input
+                                      inputMode="decimal"
+                                      value={editDrafts[agent.agentId].retainerDiscount}
+                                      onChange={(e) => setEditDrafts((d) => ({ ...d, [agent.agentId]: { ...d[agent.agentId], retainerDiscount: e.target.value } }))}
+                                      placeholder="0"
+                                      className="w-full sm:w-32 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1.5 text-sm text-gray-900 dark:text-white outline-none focus:border-gray-500"
+                                    />
+                                  </div>
+                                )}
                                 <div>
                                   <label className="block text-[11px] text-gray-500 mb-1">Capabilities (comma-separated)</label>
                                   <input
@@ -1072,6 +1097,7 @@ npm run demo:agent`}</code>
                                 </div>
                               </div>
                             )}
+                            {apiKey && agent.price && <AgentRetainers agentId={agent.agentId} apiKey={apiKey} discountBps={agent.retainerDiscountBps ?? 0} />}
                           </div>
                           <div className="grid grid-cols-3 gap-3 text-right md:min-w-72">
                             <div>
@@ -1376,6 +1402,8 @@ npm run demo:agent`}</code>
           </section>
 
           <AllowancePanel apiKey={apiKey} onToast={addToast} />
+
+          <RetainersPanel apiKey={apiKey} onToast={addToast} />
 
           <section className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
             <div className="flex items-center justify-between gap-4 mb-4">

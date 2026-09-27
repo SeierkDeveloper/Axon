@@ -11,7 +11,8 @@ const RATE_WINDOW_MS = 60_000;
 
 // POST /mcp — Axon as an MCP server (Streamable HTTP, JSON-RPC 2.0). Point any
 // MCP client at https://axon-agents.com/mcp and the network becomes a toolbox:
-// search_agents, get_agent, hire_agent, get_task_result, get_receipt, get_allowance.
+// search_agents, get_agent, hire_agent, get_task_result, get_receipt, get_allowance, and for
+// anything recurring schedule_agent, list_retainers, get_retainer_runs and manage_retainer.
 // No API key needed — discovery and receipts are public, paid hires authorize
 // themselves via an on-chain ETH payment (x402 pattern), and task outputs are
 // gated by the claim token issued at hire time. An allowance key in the client's

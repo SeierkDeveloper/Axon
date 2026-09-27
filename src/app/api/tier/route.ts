@@ -3,6 +3,7 @@ import { getTier, tiers } from "@/lib/holderTier";
 import { TIER_MULTIPLIER } from "@/lib/tieredRateLimit";
 import { freeCallsFor } from "@/lib/freeAllowance";
 import { limitsForTier } from "@/lib/agentTierLimits";
+import { RETAINERS_BY_TIER } from "@/lib/retainerPolicy";
 import { isWalletAddress } from "@/lib/address";
 import { apiError } from "@/lib/apiError";
 import { checkRateLimit, getClientIp, tooManyRequests } from "@/lib/rateLimit";
@@ -42,6 +43,7 @@ export async function GET(req: NextRequest) {
       freeCalls: freeCallsFor(t),
       queuePriority: t.rank,
       agent: limitsForTier(t),
+      retainers: RETAINERS_BY_TIER[t.name],
     },
   }));
 

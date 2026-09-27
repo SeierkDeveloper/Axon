@@ -176,6 +176,27 @@ export default async function AgentProfilePage({
         {/* Hire, close the loop: discover by proof, then hire right here */}
         <HirePanel agentId={agent.agentId} agentName={agent.name} isPaid={isPaid} price={agent.price} receiver={receiver} rpcUrl={rpcUrl} />
 
+        {/* Retain: the same hire on a schedule, paid from the allowance. Paid agents only. */}
+        {isPaid && (
+          <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-4 mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">Run it on a schedule</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Every few hours, every morning or every week, paid from your allowance. Failed runs cost nothing.
+                {(agent.retainerDiscountBps ?? 0) > 0 && (
+                  <span className="font-medium text-gray-900 dark:text-white"> {(agent.retainerDiscountBps ?? 0) / 100}% off every run.</span>
+                )}
+              </p>
+            </div>
+            <a
+              href={`/dashboard?retain=${encodeURIComponent(agent.agentId)}#retainers`}
+              className="shrink-0 text-center text-sm px-4 py-2 rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium hover:opacity-90 transition-opacity"
+            >
+              Retain
+            </a>
+          </div>
+        )}
+
         {/* The shareable version of this hire, so people know the link exists */}
         <HireLinkShare agentId={agent.agentId} />
 

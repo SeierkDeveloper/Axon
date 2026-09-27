@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiError } from "./apiError";
 import { MAX_TOOL_GRANTS_CEILING } from "./agentToolLimits";
 import { MAX_AXON_DISCOUNT_BPS } from "./axonTerms";
+import { MAX_RETAINER_DISCOUNT_BPS } from "./retainerPolicy";
 
 // ── Shared primitives ─────────────────────────────────────────────────────────
 
@@ -66,6 +67,13 @@ export const updateAgentSchema = z
       .int("axonDiscountBps must be a whole number of basis points")
       .min(0)
       .max(MAX_AXON_DISCOUNT_BPS, `axonDiscountBps must be ${MAX_AXON_DISCOUNT_BPS} or fewer basis points`)
+      .optional(),
+    // What it knocks off for a standing client (a retainer). Refused out of range, like the $AXON one.
+    retainerDiscountBps: z
+      .number()
+      .int("retainerDiscountBps must be a whole number of basis points")
+      .min(0)
+      .max(MAX_RETAINER_DISCOUNT_BPS, `retainerDiscountBps must be ${MAX_RETAINER_DISCOUNT_BPS} or fewer basis points`)
       .optional(),
   })
   .refine((obj) => Object.keys(obj).length > 0, "At least one field must be provided");

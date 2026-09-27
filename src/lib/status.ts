@@ -9,6 +9,8 @@ import { getDb } from "./db";
 import { getNetworkStats } from "./analytics";
 import { getSyncHealth } from "./db-turso";
 import { jobHealth, type JobHealth } from "./cronRuns";
+import { allowancesEnabled } from "./allowancePolicy";
+import { operatorGasReading, LOW_GAS_WEI } from "./allowanceGas";
 
 export type ComponentStatus = "operational" | "degraded" | "down";
 
@@ -130,6 +132,16 @@ export function getSystemStatus(): SystemStatus {
     },
     { name: "Scheduled jobs", status: jobsComponent.status, detail: jobsComponent.detail },
   ];
+
+  // Allowance payments, retainers included, all run on one operator's gas. Shown once it has been read.
+  const gas = dbReadable && allowancesEnabled() ? operatorGasReading() : null;
+  if (gas) {
+    components.push({
+      name: "Allowance payments",
+      status: gas.wei === 0n ? "down" : gas.wei < LOW_GAS_WEI ? "degraded" : "operational",
+      detail: gas.wei < LOW_GAS_WEI ? `Low on gas: about ${gas.paymentsLeft} payments left` : `Gas for about ${gas.paymentsLeft} payments`,
+    });
+  }
 
   const overall = components.reduce<ComponentStatus>(
     (worst, c) => (SEVERITY.indexOf(c.status) > SEVERITY.indexOf(worst) ? c.status : worst),

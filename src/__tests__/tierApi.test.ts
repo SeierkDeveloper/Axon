@@ -41,6 +41,8 @@ describe("reading a tier", () => {
     expect(operator.entitlements.rateMultiplier).toBeGreaterThan(1);
     expect(operator.entitlements.freeCalls).toBeGreaterThan(3);
     expect(operator.entitlements.agent.toolGrants).toBeGreaterThan(0);
+    expect(operator.entitlements.retainers.active).toBeGreaterThan(body.ladder[0].entitlements.retainers.active);
+    expect(body.ladder[0].entitlements.retainers).toEqual({ active: 3, fastestHours: 4 });
   });
 
   it("shows base as worth exactly what the network already gives", async () => {
