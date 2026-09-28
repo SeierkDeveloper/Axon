@@ -65,8 +65,33 @@ export async function initTursoSync(): Promise<void> {
 let _lastSyncAt: number | null = null;
 let _lastSyncError: string | null = null;
 
+// One sync at a time. Callers fire this after every write burst and the worker every poll, so without a
+// guard the calls stacked up against the remote. A call made while a sync is running is folded into a
+// single follow-up sync that starts when the current one ends: nothing written is left unsynced, and at
+// most two syncs are ever outstanding.
+let _inFlight: Promise<void> | null = null;
+let _again: Promise<void> | null = null;
+
 // Push local writes to Turso. Safe to call fire-and-forget; errors are logged but not thrown.
-export async function syncToTurso(): Promise<void> {
+export function syncToTurso(): Promise<void> {
+  if (!_tursoClient) return Promise.resolve();
+  if (!_inFlight) {
+    _inFlight = runSync().finally(() => {
+      _inFlight = null;
+    });
+    return _inFlight;
+  }
+  // a sync is running and may have started before this caller's writes: queue exactly one more
+  if (!_again) {
+    _again = _inFlight.then(() => {
+      _again = null;
+      return syncToTurso();
+    });
+  }
+  return _again;
+}
+
+async function runSync(): Promise<void> {
   if (!_tursoClient) return;
   try {
     await _tursoClient.sync();
@@ -95,6 +120,11 @@ export function getSyncHealth(): SyncHealth {
     lastSyncAgeSeconds: _lastSyncAt === null ? null : Math.floor((Date.now() - _lastSyncAt) / 1000),
     lastError: _lastSyncError,
   };
+}
+
+/** Test hook: stand in a client (only its sync() is used by syncToTurso). */
+export function __setTursoClientForTest(client: Pick<Client, "sync"> | null): void {
+  _tursoClient = client as Client | null;
 }
 
 // Close the Turso client and stop its auto-sync interval.

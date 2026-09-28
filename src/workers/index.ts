@@ -25,6 +25,7 @@ import { allowancesEnabled } from "../lib/allowancePolicy";
 import { checkOperatorGas } from "../lib/allowanceGas";
 import { runDueRetainers, settleRetainerRuns, sweepStrandedRuns } from "../lib/retainerRunner";
 import { deliverRetainerWebhooks } from "../lib/retainerWebhooks";
+import { launch, drain, inFlightCount } from "./inflight";
 
 // Agents that append live market prices to their task message
 const PRICE_AGENTS = new Set(["crypto-agent", "trading-agent"]);
@@ -241,15 +242,18 @@ async function processTasks() {
         continue;
       }
 
-      await runWithTraceId(task.traceId ?? task.taskId, async () => {
-        const started = startTask(task.taskId, "worker");
-        if (!started) return;
-        logger.info("worker.task_picked", "Worker picked up task", {
-          agentId: agent.agentId,
-          taskId: task.taskId,
-          hasMcpHandler: Boolean(mcpHandler),
-        });
+      // Claimed here, in the poll, so the concurrency count above sees it before the next task is
+      // considered; executed on its own, so the poll moves straight on to the next agent.
+      const started = startTask(task.taskId, "worker");
+      if (!started) continue;
+      logger.info("worker.task_picked", "Worker picked up task", {
+        agentId: agent.agentId,
+        taskId: task.taskId,
+        hasMcpHandler: Boolean(mcpHandler),
+      });
 
+      launch(task.taskId, () => runWithTraceId(task.traceId ?? task.taskId, async () => {
+        let timeoutTimer: NodeJS.Timeout | undefined;
         try {
           const prices = PRICE_AGENTS.has(agent.agentId) ? livePrices : "";
           const fullMessage = task.task + formatContext(task.context) + prices;
@@ -258,12 +262,15 @@ async function processTasks() {
           // model call that's one wasted request; a tool loop is up to seven, so
           // the timeout also trips an abort the loop checks between rounds.
           const abort = new AbortController();
-          const taskTimeout = new Promise<never>((_, reject) =>
-            setTimeout(() => {
+          const taskTimeout = new Promise<never>((_, reject) => {
+            timeoutTimer = setTimeout(() => {
               abort.abort();
               reject(new Error(`Task timed out after ${TASK_TIMEOUT_MS / 1000}s`));
-            }, TASK_TIMEOUT_MS).unref()
-          );
+            }, TASK_TIMEOUT_MS);
+            timeoutTimer.unref();
+          });
+          // the race's loser is never awaited; keep a timeout that fires after a failure from surfacing as unhandled
+          taskTimeout.catch(() => {});
 
           // Granted tools: this agent may search, fetch, and call MCP tools before
           // it answers. Resolved per task so a newly synced MCP server is picked up
@@ -355,13 +362,16 @@ async function processTasks() {
             agentId: agent.agentId,
             taskId: task.taskId,
           });
+        } finally {
+          if (timeoutTimer) clearTimeout(timeoutTimer);
         }
-      });
+      }));
     }
   };
 
-  // Agents run CONCURRENTLY (each agent's own queue stays sequential): one
-  // slow inference must never serialize the whole network behind it.
+  // The poll only claims and starts work; execution runs in the background (see ./inflight), so one slow
+  // inference never holds up another agent, the heartbeat, or webhook delivery. Each agent still runs at
+  // most MAX_CONCURRENT_PER_AGENT tasks at once, counted from the tasks table.
   await Promise.allSettled(agents.map((a) => processAgent(a)));
 }
 
@@ -458,6 +468,8 @@ async function waitForActiveWork(): Promise<void> {
     activePoll ?? Promise.resolve(),
     activeHealthCheck ?? Promise.resolve(),
   ]);
+  // tasks started by earlier polls are still executing on their own
+  await drain(0);
 }
 
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
@@ -481,6 +493,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
         signal,
         timeoutMs: SHUTDOWN_TIMEOUT_MS,
         pollRunning,
+        tasksInFlight: inFlightCount(),
       });
       await syncToTurso(); // best-effort flush before forced exit
       process.exitCode = 1;
