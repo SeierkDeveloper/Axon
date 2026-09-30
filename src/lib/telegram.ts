@@ -165,10 +165,19 @@ export async function postSingleTask(toAgent: string, success: boolean, failReas
   await postToTelegram("activity", text);
 }
 
+/**
+ * Recent posts as the site shows them. The network stats show agents, tasks and success rate, so older posts are
+ * shown the same way: the ETH line is left out of them, and milestone posts about it are not listed. What was posted
+ * is kept as it was.
+ */
 export function getRecentPosts(
   limit = 20
 ): { post_id: string; type: string; content: string; created_at: string }[] {
-  return getDb()
-    .prepare("SELECT post_id, type, content, created_at FROM telegram_posts ORDER BY created_at DESC LIMIT ?")
+  const rows = getDb()
+    .prepare("SELECT post_id, type, content, created_at FROM telegram_posts WHERE type != 'usdc_milestone' ORDER BY created_at DESC LIMIT ?")
     .all(limit) as { post_id: string; type: string; content: string; created_at: string }[];
+  return rows.map((r) => ({ ...r, content: withoutEthLine(r.content) }));
 }
+
+export const withoutEthLine = (content: string) =>
+  content.split("\n").filter((line) => !/ETH transacted/i.test(line)).join("\n");

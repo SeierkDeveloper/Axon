@@ -449,3 +449,14 @@ describe("getAllTimeLeaders", () => {
     }
   });
 });
+
+describe("network feed posts", () => {
+  it("leaves the ETH line out of an older snapshot and keeps the rest", async () => {
+    const { withoutEthLine } = await import("@/lib/telegram");
+    const old = "📡 <b>Axon Network, Live Update</b>\n\n🤖 94 agents\n✅ 21,223 tasks completed | 94% success rate\n💵 3.9857 ETH transacted\n\n<a href=\"x\">Live analytics →</a>";
+    const shown = withoutEthLine(old);
+    expect(shown).not.toMatch(/ETH transacted/);
+    expect(shown).toContain("21,223 tasks completed");
+    expect(shown).toContain("Live analytics");
+  });
+});
