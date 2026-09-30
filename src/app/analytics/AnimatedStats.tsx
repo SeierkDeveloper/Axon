@@ -8,7 +8,7 @@ export function StatCards({ stats }: { stats: NetworkStats }) {
   const weeklySuccessPct = Math.round(stats.tasks.weeklySuccessRate * 100);
   const weeklyTotal = stats.tasks.weeklyCompleted + stats.tasks.weeklyFailed;
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
       {[
         { label: "Registered Agents", value: stats.agents.total, sub: `${stats.agents.active} active` },
         { label: "Tasks (7d)", value: weeklyTotal, sub: `${stats.tasks.weeklyCompleted} completed · ${stats.tasks.weeklyFailed} failed` },
@@ -20,7 +20,6 @@ export function StatCards({ stats }: { stats: NetworkStats }) {
           suffix: "%",
           sub: `${weeklySuccessPct}% over 7 days`,
         },
-        { label: "ETH (7d)", value: stats.payments.weeklyEthTransacted, decimals: 2, sub: `${stats.payments.weeklyTxns} txns this week` },
       ].map((s, i) => (
         <div
           key={s.label}
@@ -29,7 +28,7 @@ export function StatCards({ stats }: { stats: NetworkStats }) {
         >
           <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">{s.label}</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
-            <AnimatedCounter value={s.value} decimals={s.decimals ?? 0} suffix={s.suffix ?? ""} />
+            <AnimatedCounter value={s.value} decimals={0} suffix={s.suffix ?? ""} />
           </p>
           {s.sub && <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{s.sub}</p>}
         </div>

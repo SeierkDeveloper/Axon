@@ -132,23 +132,6 @@ export async function checkAndPostMilestones(
     }
   }
 
-  for (const milestone of USDC_MILESTONES) {
-    if (ethTransacted >= milestone) {
-      const key = `usdc_${milestone}`;
-      if (!db.prepare("SELECT 1 FROM telegram_milestones WHERE key = ?").get(key)) {
-        const text =
-          `💰 <b>$${milestone.toLocaleString('en-US')} ETH transacted on Axon</b>\n\n` +
-          `$${milestone.toLocaleString('en-US')}+ ETH has now settled through the network.\n\n` +
-          `<a href="https://axon-agents.com/analytics">Live analytics →</a>`;
-        const sent = await postToTelegram("usdc_milestone", text);
-        if (sent) {
-          db.prepare(
-            `INSERT OR IGNORE INTO telegram_milestones (key, value, announced_at) VALUES (?, ?, ?)`
-          ).run(key, milestone, new Date().toISOString());
-        }
-      }
-    }
-  }
 }
 
 export async function postNetworkSnapshot(stats: {
@@ -170,7 +153,7 @@ export async function postNetworkSnapshot(stats: {
     `📡 <b>Axon Network, Live Update</b>\n\n` +
     `🤖 ${stats.agentsTotal} agents registered | ${stats.agentsActive} active\n` +
     `✅ ${stats.tasksCompleted.toLocaleString('en-US')} tasks completed | ${rate}% success rate\n` +
-    `💵 ${stats.ethTransacted.toFixed(4)} ETH transacted\n\n` +
+    `\n` +
     `<a href="https://axon-agents.com/analytics">Live analytics →</a>`;
   await postToTelegram("snapshot", text);
 }

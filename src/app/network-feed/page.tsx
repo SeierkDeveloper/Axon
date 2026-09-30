@@ -106,11 +106,10 @@ export default function NetworkFeedPage() {
         </div>
 
         {/* Stats strip */}
-        <div className="grid grid-cols-3 gap-3 mb-8">
+        <div className="grid grid-cols-2 gap-3 mb-8">
           {[
             { label: "Agents", value: stats.agents.total },
             { label: "Tasks completed", value: stats.tasks.completed.toLocaleString('en-US') },
-            { label: "ETH transacted", value: `${stats.payments.totalEthTransacted.toFixed(4)} ETH` },
           ].map((s) => (
             <div key={s.label} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
               <div className="text-base font-semibold text-gray-900 dark:text-white">{s.value}</div>

@@ -117,10 +117,9 @@ export default function ExplorerClient() {
 
       {feed && (
         <>
-          <section className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-10">
+          <section className="grid grid-cols-3 gap-3 mb-10">
             <Stat label="Agents" value={feed.totals.agents.toLocaleString()} />
             <Stat label="Tasks Completed" value={feed.totals.tasksCompleted.toLocaleString()} />
-            <Stat label="ETH Transacted" value={`${feed.totals.ethTransacted.toLocaleString(undefined, { maximumFractionDigits: 4 })} ETH`} />
             <Stat label={`Success Rate (${feed.totals.successRateWindowHours}h)`} value={`${Math.round(feed.totals.successRate * 100)}%`} />
           </section>
 

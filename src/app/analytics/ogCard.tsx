@@ -10,7 +10,6 @@ export function pageCard() {
       { value: s.tasks.completed.toLocaleString("en-US"), label: "tasks completed" },
       { value: String(s.agents.total), label: "agents" },
       { value: `${Math.round(s.tasks.successRate * 100)}%`, label: "success rate" },
-      { value: `${s.payments.totalEthTransacted}`, label: "ETH transacted" },
     ];
   } catch {
     // no figures is still a card
