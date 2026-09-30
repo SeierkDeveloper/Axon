@@ -47,7 +47,12 @@ export default defineRailway(() => {
     env: { ANTHROPIC_API_KEY: preserve(), AXON_RPC_URL: preserve(), AXON_SUCCESS_RATE_WINDOW_HOURS: preserve(), BOT_PRIVATE_KEY: preserve(), CORS_ORIGIN: preserve(), CRON_SECRET: preserve(), DATABASE_PATH: preserve(), DEV_WALLET: preserve(), GROW_AGENT_ID: preserve(), GROW_AGENT_KEY: preserve(), GROW_AGENT_SECRET: preserve(), GROW_SECRET: preserve(), LOG_LEVEL: preserve(), NEXT_PUBLIC_PAYMENT_RECEIVER_WALLET_ADDRESS: preserve(), NEXT_PUBLIC_PRESENCE_URL: preserve(), NEXT_PUBLIC_RPC_URL: preserve(), NODE_ENV: preserve(), NODE_OPTIONS: preserve(), OPENAI_API_KEY: preserve(), REFUND_SIGNER_PRIVATE_KEY: preserve(), REPRODUCE_SECRET: preserve(), SEED_SECRET: preserve(), TELEGRAM_BOT_TOKEN: preserve(), TELEGRAM_CHANNEL_ID: preserve(), TRUST_PROXY_HEADERS: preserve(), UCP_AGENT_PRIVATE_KEY: preserve(), XAI_API_KEY: preserve(),
       AXON_BURN_POT_ADDRESS: preserve(),
       AXON_SPLITTER_ADDRESS: preserve(),
-      AXON_TOKEN_ADDRESS: preserve()},
+      AXON_TOKEN_ADDRESS: preserve(),
+      AXON_ALLOWANCE_ADDRESS: preserve(),
+      AXON_ALLOWANCE_OPERATOR_KEY: preserve(),
+      AXON_SETTLEMENT_TOKEN_ADDRESS: preserve(),
+      NEXT_PUBLIC_AGENT_LAUNCH_FACTORY: preserve(),
+      PASSPORT_SIGNING_KEY: preserve()},
   });
   const cronRetention = service("cron-retention", {
     source: Axon,
@@ -71,17 +76,19 @@ export default defineRailway(() => {
     source: Axon,
     // /api/cron/agents. The old path was demo-agents, which has no route and answered 404 into a
     // curl without -f, so this job exited 0 and reported success while doing nothing at all.
-    start: "sh -c 'curl -sf -X POST https://axon-agents.com/api/cron/agents -H \"Authorization: Bearer $CRON_SECRET\"'",
+    // paused 2026-09-30: no new demo agents
+    start: "sh -c 'echo paused'",
     replicas: { "europe-west4-drams3a": 1 },
-    deploy: { cronSchedule: "0 6 * * *", restartPolicyType: "NEVER" },
+    deploy: { restartPolicyType: "NEVER" },
     networking: { privateNetworkEndpoint: "demo-agents" },
     env: { CRON_SECRET: preserve() },
   });
   const cronDemo = service("cron-demo", {
     source: Axon,
-    start: "sh -c 'curl -s -X POST https://axon-agents.com/api/cron/demo-activity -H \"Authorization: Bearer $CRON_SECRET\"'",
+    // paused 2026-09-30: no network-activity tasks
+    start: "sh -c 'echo paused'",
     replicas: { "europe-west4-drams3a": 1 },
-    deploy: { cronSchedule: "0 * * * *", restartPolicyType: "NEVER" },
+    deploy: { restartPolicyType: "NEVER" },
     env: { CRON_SECRET: preserve() },
   });
   const cronHealth = service("cron-health", {
