@@ -18,7 +18,7 @@ import { sign, postSigned, MAX_ATTEMPTS, RETRY_DELAYS_MS } from "./webhooks";
 import { getRetainer, RetainerError } from "./retainers";
 import { sameAddress } from "./address";
 
-export const RETAINER_EVENTS = ["retainer.run.completed", "retainer.run.failed", "retainer.paused"] as const;
+export const RETAINER_EVENTS = ["retainer.run.completed", "retainer.run.failed", "retainer.paused", "retainer.ending"] as const;
 export type RetainerEvent = (typeof RETAINER_EVENTS)[number];
 
 /** Deliveries in a row that failed every retry before the webhook is switched off. */

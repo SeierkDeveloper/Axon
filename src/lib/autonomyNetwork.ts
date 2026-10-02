@@ -16,7 +16,9 @@ import { syncToTurso } from "./db-turso";
 import { computeOptimization, applyOptimization } from "./selfOptimize";
 import { runNetworkChecks } from "./networkChecks";
 import { routingActions, type Retest } from "./autonomyActions";
-import { isPublic, type FindingKind } from "./autonomyPolicy";
+import { upkeepActions, type Ping } from "./autonomyUpkeep";
+import { isPublic, PRICING, type FindingKind } from "./autonomyPolicy";
+import { parsePaymentAmount } from "./money";
 
 export interface NetworkObservation {
   kind: FindingKind;
@@ -147,15 +149,30 @@ function dormantListings(): NetworkObservation[] {
  * only new thing here is running it without being asked each time — and that
  * only for `auto_price` agents.
  */
-function applyAutoPricing(apply: boolean): NetworkChange[] {
+function applyAutoPricing(apply: boolean, now = Date.now()): NetworkChange[] {
   const db = getDb();
-  const opted = db.prepare("SELECT agent_id FROM agents WHERE auto_price = 1").all() as { agent_id: string }[];
+  // at most once a day per agent (autonomyPolicy.PRICING), however often the pass runs
+  let opted: { agent_id: string }[];
+  try {
+    opted = db
+      .prepare("SELECT agent_id FROM agents WHERE auto_price = 1 AND (price_auto_at IS NULL OR price_auto_at < ?)")
+      .all(new Date(now - 24 * 3_600_000 / PRICING.perAgentPerDay).toISOString()) as { agent_id: string }[];
+  } catch {
+    opted = db.prepare("SELECT agent_id FROM agents WHERE auto_price = 1").all() as { agent_id: string }[]; // before 078
+  }
   const changes: NetworkChange[] = [];
   for (const { agent_id } of opted) {
     const opt = computeOptimization(agent_id);
     if (!opt || opt.action === "hold" || !opt.suggestedPrice) continue;
     if (opt.suggestedPrice === opt.currentPrice) continue;
-    if (apply) applyOptimization(agent_id, opt.suggestedPrice);
+    // never a jump: a suggestion further than PRICING.maxStepShare from today's price is not applied
+    const cur = opt.currentPrice ? parsePaymentAmount(opt.currentPrice)?.amount ?? 0 : 0;
+    const next = parsePaymentAmount(opt.suggestedPrice)?.amount ?? 0;
+    if (cur > 0 && Math.abs(next - cur) / cur > PRICING.maxStepShare + 1e-9) continue;
+    if (apply) {
+      applyOptimization(agent_id, opt.suggestedPrice);
+      try { db.prepare("UPDATE agents SET price_auto_at = ? WHERE agent_id = ?").run(new Date(now).toISOString(), agent_id); } catch { /* before 078 */ }
+    }
     changes.push({
       agentId: agent_id,
       what: `${opt.action === "raise" ? "raised" : "lowered"} price ${opt.currentPrice ?? "free"} → ${opt.suggestedPrice} (${opt.rationale})`,
@@ -246,11 +263,15 @@ export function getLatestNetworkRun(): NetworkRun | null {
  * opted-in agents. A check that fails to run is named in the record rather than taking the pass down.
  */
 export async function runFullNetworkPass(
-  opts: { apply?: boolean; retest?: Retest } = {},
+  opts: { apply?: boolean; retest?: Retest; ping?: Ping; refresh?: (agentId: string) => Promise<boolean> } = {},
 ): Promise<NetworkRun & { checksUnavailable: string[] }> {
   const { findings, failed } = await runNetworkChecks();
-  // phase 3: act on what the checks found (routing), only when applying and with actions enabled
-  const actions = await routingActions(findings, { apply: opts.apply ?? false, retest: opts.retest });
+  // act on what the checks found, only when applying and with actions enabled: routing (phase 3), then upkeep (phase 4)
+  const apply = opts.apply ?? false;
+  const actions = [
+    ...(await routingActions(findings, { apply, retest: opts.retest })),
+    ...(await upkeepActions(findings, { apply, ping: opts.ping, refresh: opts.refresh })),
+  ];
   const run = runNetworkPass({ apply: opts.apply, extra: [...findings, ...actions] });
   return { ...run, checksUnavailable: failed };
 }

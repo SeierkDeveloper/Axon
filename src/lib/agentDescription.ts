@@ -162,6 +162,18 @@ export function scheduleAgentDescription(agent: Agent): void {
     .catch(() => {});
 }
 
+/** Write an agent's description again now, waiting for it: what autonomy does with one written for an older version. */
+export async function refreshDescription(agent: Agent): Promise<boolean> {
+  try {
+    const text = await generateDescription(agent);
+    if (!text) return false;
+    storeDescription(agent.agentId, text, describedFrom(agent));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Fill in the ones that predate this, a few at a time.
  *
