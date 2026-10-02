@@ -1,17 +1,14 @@
-import { randomUUID } from "node:crypto";
 import { MODEL_LOOKS_USABLE } from "@/lib/modelHealth";
 import { NextRequest, NextResponse } from "next/server";
 import { getAllAgents } from "@/lib/agents";
 import type { Agent } from "@/sdk/types";
 import { getDb } from "@/lib/db";
 import { createTask, startTask, completeTask, failTask } from "@/lib/tasks";
-import { parsePaymentAmount } from "@/lib/money";
 import { logger } from "@/lib/logger";
 import { postSingleTask } from "@/lib/telegram";
 import { safeAppendTraceEvent, hashContent, estimateCostUsd, captureModelStep } from "@/lib/traceEvents";
 import type { CapturedStep } from "@/lib/traceEvents";
 import { runWithProvider } from "@/lib/providers";
-import { UNPRICED_AGENT_ETH } from "@/lib/agentSeed";
 import { noteCronRun } from "@/lib/cronRuns";
 
 export const runtime = "nodejs";
@@ -150,8 +147,6 @@ export async function POST(req: NextRequest) {
   const generalAgents = getAllAgents().filter(
     (a) => !a.agentId.startsWith("build-") && !gatewayIds.has(a.agentId) && !modelBroken.has(a.agentId)
   );
-  // Settle each task at the worker agent's real listed price, not a flat amount.
-  const priceByAgent = new Map(generalAgents.map((a) => [a.agentId, a.price ?? null]));
   // Full agent records — needed to run each task on the provider that backs it.
   const agentById = new Map<string, Agent>(generalAgents.map((a) => [a.agentId, a]));
 
@@ -167,9 +162,9 @@ export async function POST(req: NextRequest) {
     poolByAgent.set(t.toAgent, list);
   }
 
-  // 3–8 real inferences per run — bounded so the whole batch finishes well
-  // inside the route budget even when the models are slow.
-  const batchSize = Math.floor(Math.random() * 6) + 3;
+  // 2 to 4 real inferences per run, about half of what it once ran, and bounded so the whole batch finishes
+  // well inside the route budget even when the models are slow.
+  const batchSize = Math.floor(Math.random() * 3) + 2;
   const batch: { toAgent: string; task: string; output: string }[] = [];
   for (let i = 0; i < batchSize; i++) {
     const agent = pickRandom(generalAgents);
@@ -255,37 +250,9 @@ export async function POST(req: NextRequest) {
         // which lack this marker, are inferred as estimated on read).
         meta: { basis: "measured" },
       });
-      // Only settle if the task actually flipped to completed — never write a
-      // settlement for a task that wasn't completed (mirrors the worker).
+      // Network activity is Axon's own agents working, not a hire anyone paid for: it completes the task and
+      // writes no payment row and no settlement, so no money figure anywhere can count it.
       if (completeTask(task.taskId, output)) {
-        const now = new Date().toISOString();
-        // Settlement amount = the worker agent's listed price (parsed from e.g. "0.0002 ETH").
-        //
-        // The fallback used to be a flat 0.10, from when that was a plausible price. Carried over
-        // to this chain unchanged it became 0.10 ETH, several hundred times what any agent here
-        // charges, and since most registered agents carry no listed price it was almost every
-        // settlement: it alone accounted for the reported weekly volume. A generated settlement
-        // for an agent that never named a price now uses the same figure the listed agents do,
-        // so the number on the page stays in the same order of magnitude as the marketplace.
-        const parsedPrice = (() => {
-          const p = priceByAgent.get(item.toAgent);
-          return p ? parsePaymentAmount(p) : null;
-        })();
-        const amount = parsedPrice?.amount ?? UNPRICED_AGENT_ETH;
-        const currency = parsedPrice?.currency ?? "ETH";
-        getDb().prepare(`
-          INSERT INTO transactions (tx_id, task_id, from_agent, to_agent, amount_eth, status, incoming_signature, fee_amount, currency, created_at, settled_at)
-          VALUES (?, ?, ?, ?, ?, 'completed', NULL, 0, ?, ?, ?)
-        `).run(randomUUID(), task.taskId, fromAgent, item.toAgent, amount, currency, now, now);
-        // Settlement into the trace — the real amount, closing the timeline.
-        safeAppendTraceEvent({
-          traceId: task.traceId ?? task.taskId,
-          taskId: task.taskId,
-          kind: "settlement.completed",
-          fromAgent,
-          toAgent: item.toAgent,
-          meta: { amount, currency },
-        });
         telegramQueue.push({ toAgent: item.toAgent, success: true });
       } else {
         logger.warn("cron.demo_activity_complete_noop", "Task did not flip to completed; skipping settlement", {

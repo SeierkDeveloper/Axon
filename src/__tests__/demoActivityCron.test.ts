@@ -3,7 +3,7 @@
 // artifact-size estimate. These tests drive the real route with a mocked
 // provider and assert the end-to-end contract:
 //   (1) a successful task's step.model carries the MEASURED tokens + a cost
-//       derived from them, and a settlement is written;
+//       derived from them, and NO payment row is written (nobody paid for it);
 //   (2) a failed inference fails the task and writes NO settlement (the guard).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -56,7 +56,7 @@ beforeEach(() => {
 });
 
 describe("network-activity cron — measured costs", () => {
-  it("executes live, records MEASURED tokens/cost, and settles", async () => {
+  it("executes live, records MEASURED tokens/cost, and writes no payment", async () => {
     seedAgent("0.00015 ETH");
     seedAgent("0.00015 ETH"); // a second so there's always a distinct sender
     runMock.mockImplementation(async () => {
@@ -88,9 +88,10 @@ describe("network-activity cron — measured costs", () => {
       // so it isn't inferred as estimated from being network activity).
       expect(trace.summary.costBasis).toBe("measured");
 
-      // …and exactly one settlement was written for it.
+      // …and no payment row, nor a settlement in its trace: network activity moves no money.
       const settle = db.prepare("SELECT COUNT(*) AS n FROM transactions WHERE task_id = ?").get(taskId) as { n: number };
-      expect(settle.n).toBe(1);
+      expect(settle.n).toBe(0);
+      expect(trace.events.some((e) => e.kind === "settlement.completed")).toBe(false);
     }
   }, 30_000);
 

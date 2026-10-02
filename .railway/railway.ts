@@ -85,10 +85,10 @@ export default defineRailway(() => {
   });
   const cronDemo = service("cron-demo", {
     source: Axon,
-    // paused 2026-09-30: no network-activity tasks
-    start: "sh -c 'echo paused'",
+    // network activity, every hour: 2 to 4 tasks a run (about half of before), and no payment rows
+    start: "sh -c 'curl -sf -X POST https://axon-agents.com/api/cron/demo-activity -H \"Authorization: Bearer $CRON_SECRET\"'",
     replicas: { "europe-west4-drams3a": 1 },
-    deploy: { restartPolicyType: "NEVER" },
+    deploy: { cronSchedule: "0 * * * *", restartPolicyType: "NEVER" },
     env: { CRON_SECRET: preserve() },
   });
   const cronHealth = service("cron-health", {
