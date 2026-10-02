@@ -1,15 +1,15 @@
 {
-  "startedAt": "2026-10-02T17:06:42.890Z",
-  "finishedAt": "2026-10-02T17:06:57.289Z",
-  "commit": "cbb0f93",
+  "startedAt": "2026-10-02T19:01:50.698Z",
+  "finishedAt": "2026-10-02T19:02:17.671Z",
+  "commit": "b346ef5",
   "checks": [
     {
       "id": "install-commands",
       "title": "Install commands resolve",
       "ok": true,
-      "checked": 10,
+      "checked": 13,
       "findings": [],
-      "ms": 9915
+      "ms": 17434
     },
     {
       "id": "links",
@@ -17,7 +17,7 @@
       "ok": true,
       "checked": 194,
       "findings": [],
-      "ms": 61
+      "ms": 79
     },
     {
       "id": "dead-exports",
@@ -25,7 +25,7 @@
       "ok": true,
       "checked": 673,
       "findings": [],
-      "ms": 596
+      "ms": 783
     },
     {
       "id": "api-reference",
@@ -33,7 +33,7 @@
       "ok": true,
       "checked": 265,
       "findings": [],
-      "ms": 38
+      "ms": 36
     },
     {
       "id": "sdk-routes",
@@ -41,7 +41,7 @@
       "ok": true,
       "checked": 124,
       "findings": [],
-      "ms": 24
+      "ms": 29
     },
     {
       "id": "examples",
@@ -49,7 +49,7 @@
       "ok": true,
       "checked": 35,
       "findings": [],
-      "ms": 10
+      "ms": 12
     },
     {
       "id": "packages",
@@ -59,20 +59,20 @@
       "findings": [
         {
           "severity": "warn",
-          "what": "1 critical and 5 high vulnerabilities in shipped packages",
+          "what": "0 critical and 3 high vulnerabilities in shipped packages",
           "why": "known holes in what runs in production",
           "where": [
             "package-lock.json"
           ]
         }
       ],
-      "ms": 3749
+      "ms": 2850
     },
     {
       "id": "migrations",
       "title": "Migrations are complete and in order",
       "ok": true,
-      "checked": 80,
+      "checked": 81,
       "findings": [],
       "ms": 1
     }
