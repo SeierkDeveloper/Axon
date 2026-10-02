@@ -19,7 +19,8 @@ export default function ApiReferencePage() {
       const SwaggerUIBundle = window.SwaggerUIBundle;
       SwaggerUIBundle({
         url: "/api/openapi",
-        dom_id: "swagger-ui",
+        // the element itself: dom_id is a CSS selector, and a bare "swagger-ui" matched nothing (React error #299)
+        domNode: containerRef.current,
         presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset],
         layout: "BaseLayout",
         deepLinking: true,
