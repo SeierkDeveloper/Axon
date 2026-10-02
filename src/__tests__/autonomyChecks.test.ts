@@ -246,3 +246,21 @@ describe("a package installed from a URL is not a PyPI package", () => {
     expect(pipPackagesIn("pip install requests numpy")).toEqual(["requests", "numpy"]);
   });
 });
+
+describe("the API, SDK and migration checks", async () => {
+  const { servedBy, migrationProblems } = await import("../../scripts/autonomy.mjs");
+  it("matches a documented or called path to the route that serves it", () => {
+    const routes = ["/agents", "/agents/[agentId]", "/agents/[agentId]/balance", "/mcp/tools/[toolId]/call"];
+    expect(servedBy("/agents/{agentId}", routes)).toBe(true);
+    expect(servedBy("/agents/${x}/balance", routes)).toBe(true);
+    expect(servedBy("/mcp/tools/${x}/call", routes)).toBe(true);
+    expect(servedBy("/agents/x/nothing", routes)).toBe(false);
+  });
+  it("names a migration numbered twice, and one skipped", () => {
+    expect(migrationProblems(["000_a.sql", "001_b.sql", "002_c.sql"])).toEqual([]);
+    expect(migrationProblems(["000_a.sql", "001_b.sql", "001_c.sql", "003_d.sql"])).toEqual([
+      "two migrations are numbered 001",
+      "no migration 002 between 1 and 3",
+    ]);
+  });
+});

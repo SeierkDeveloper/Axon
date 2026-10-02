@@ -9,6 +9,9 @@ import { getDb } from "@/lib/db";
 import { createAgent } from "@/lib/agents";
 import {
   failingAgents,
+  slowAgents,
+  pageHealth,
+  siteUrl,
   unreachableAgents,
   stuckTasks,
   failingWebhooks,
@@ -130,7 +133,8 @@ describe("network checks (report only)", () => {
 
   it("runs every check even when one of them fails, and names the one that did", async () => {
     burnLive.mockRejectedValue(new Error("node down"));
-    const { failed } = await runNetworkChecks(NOW);
+    const pagesOk = (async () => new Response("ok", { status: 200 })) as unknown as typeof fetch;
+    const { failed } = await runNetworkChecks(NOW, { fetchFn: pagesOk });
     expect(failed).toEqual(["fee flow"]);
   });
 
@@ -146,4 +150,21 @@ describe("network checks (report only)", () => {
     });
     expect(publicView(run).observations.map((o) => o.kind)).toEqual(["agent-restored"]);
   });
+
+  it("finds an agent far slower than others with the same skills", () => {
+    for (const id of ["s1", "s2", "s3", "slow"]) agent(id);
+    for (const id of ["s1", "s2", "s3"]) for (let i = 0; i < 10; i++) task(id, "completed", (i + 1) * HOUR, { startedAgo: (i + 1) * HOUR + 10_000 });
+    for (let i = 0; i < 10; i++) task("slow", "completed", (i + 1) * HOUR, { startedAgo: (i + 1) * HOUR + 120_000 });
+    expect(slowAgents(NOW).map((x) => x.subject)).toEqual(["slow"]);
+  });
+
+  it("checks the main pages load, and quickly, on this deployment's own domain", async () => {
+    expect(siteUrl({ RAILWAY_PUBLIC_DOMAIN: "axon-private-production.up.railway.app" })).toBe("https://axon-private-production.up.railway.app");
+    expect(siteUrl({ AUTONOMY_SITE_URL: "https://x.test/" })).toBe("https://x.test");
+    const fake = (async (url: string) => new Response("", { status: String(url).endsWith("/burn") ? 502 : 200 })) as unknown as typeof fetch;
+    const f = await pageHealth("https://x.test", fake);
+    expect(f.map((x) => x.what)).toEqual(["/burn answered 502"]);
+    expect(f[0].kind).toBe("page-check");
+  });
 });
+

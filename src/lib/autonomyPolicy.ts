@@ -139,6 +139,13 @@ export const OWNER_WARNINGS = {
 
 // ── Money flow (watched, never touched) ───────────────────────────────────────
 
+/** Pages the network pass loads every run, and how long one may take before it counts as slow. */
+export const PAGES = {
+  paths: ["/", "/agents", "/analytics", "/explorer", "/world", "/burn", "/docs", "/docs/mcp", "/autonomy", "/network-feed"],
+  slowMs: 2_000,
+  timeoutMs: 15_000,
+} as const;
+
 /** Admin alarms on the fee path: fees that stop arriving, and a pot that could burn but has not. */
 export const FEE_FLOW = {
   noSplitForHours: 6,
@@ -156,6 +163,7 @@ export type Visibility = "public" | "admin";
  */
 export const VISIBILITY = {
   "code-check": "public",
+  "page-check": "public",
   "agent-retested": "public",
   "agent-paused": "public",
   "agent-restored": "public",

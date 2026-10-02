@@ -17,6 +17,7 @@ import {
   DESCRIPTIONS,
   OWNER_WARNINGS,
   FEE_FLOW,
+  PAGES,
   isFailing,
   type FindingKind,
 } from "./autonomyPolicy";
@@ -230,8 +231,35 @@ export function paymentMismatches(now = Date.now()): Finding[] {
   return out;
 }
 
+/** Where this deployment answers: its own Railway domain, so the private site measures itself, not the live one. */
+export function siteUrl(env: Record<string, string | undefined> = process.env): string {
+  if (env.AUTONOMY_SITE_URL) return env.AUTONOMY_SITE_URL.replace(/\/$/, "");
+  if (env.RAILWAY_PUBLIC_DOMAIN) return `https://${env.RAILWAY_PUBLIC_DOMAIN}`;
+  return (env.NEXT_PUBLIC_SITE_URL || "https://axon-agents.com").replace(/\/$/, "");
+}
+
+/** Every main page loads, and quickly. */
+export async function pageHealth(base = siteUrl(), fetchFn: typeof fetch = fetch): Promise<Finding[]> {
+  const out: Finding[] = [];
+  for (const path of PAGES.paths) {
+    const t0 = Date.now();
+    try {
+      const res = await fetchFn(base + path, { signal: AbortSignal.timeout(PAGES.timeoutMs), cache: "no-store" });
+      const ms = Date.now() - t0;
+      if (!res.ok) out.push({ kind: "page-check", subject: path, what: `${path} answered ${res.status}` });
+      else if (ms > PAGES.slowMs) out.push({ kind: "page-check", subject: path, what: `${path} took ${(ms / 1000).toFixed(1)}s` });
+    } catch {
+      out.push({ kind: "page-check", subject: path, what: `${path} did not answer` });
+    }
+  }
+  return out;
+}
+
 /** Every check, each one isolated: a check that fails is reported as unavailable and the others still run. */
-export async function runNetworkChecks(now = Date.now()): Promise<{ findings: Finding[]; failed: string[] }> {
+export async function runNetworkChecks(
+  now = Date.now(),
+  deps: { fetchFn?: typeof fetch } = {},
+): Promise<{ findings: Finding[]; failed: string[] }> {
   const checks: [string, () => Finding[] | Promise<Finding[]>][] = [
     ["failing agents", () => failingAgents(now)],
     ["unreachable agents", () => unreachableAgents()],
@@ -244,6 +272,7 @@ export async function runNetworkChecks(now = Date.now()): Promise<{ findings: Fi
     ["expiring soon", () => expiringSoon(now)],
     ["fee flow", () => feeFlow(now)],
     ["payment mismatches", () => paymentMismatches(now)],
+    ["pages", () => pageHealth(siteUrl(), deps.fetchFn ?? fetch)],
   ];
   const findings: Finding[] = [];
   const failed: string[] = [];

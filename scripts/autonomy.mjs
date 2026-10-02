@@ -366,6 +366,172 @@ export function applyFixes(results, { write = true } = {}) {
   return applied;
 }
 
+// ── the API, the SDK and the examples ───────────────────────────────────────
+
+/** Every path the app serves under /api, as written in the route tree ("/agents/[agentId]"). */
+export function apiRoutes() {
+  return walk(join(ROOT, "src", "app", "api"), ["route.ts"]).map((p) =>
+    rel(p).replace(/^src\/app\/api/, "").replace(/\/route\.ts$/, "") || "/",
+  );
+}
+
+/** Whether `path` ("/agents/abc", "/agents/{agentId}", "/agents/${id}") is served by one of `routes`. */
+export function servedBy(path, routes) {
+  const parts = path.replace(/\/$/, "").split("/");
+  return routes.some((r) => {
+    const rp = r.split("/");
+    if (rp.length !== parts.length && !rp.some((s) => s.startsWith("[..."))) return false;
+    return rp.every((seg, i) => seg.startsWith("[") || seg === parts[i] || /^[{$]/.test(parts[i] ?? ""));
+  });
+}
+
+/** Routes nobody outside Axon calls, so the reference has no reason to list them. */
+const INTERNAL_ROUTE = /^\/(cron|admin|worker|seed|internal|test|debug)(\/|$)/;
+
+export function checkApiReference() {
+  const spec = read(join(ROOT, "src", "app", "api", "openapi", "route.ts"));
+  const pathsAt = spec.indexOf("paths:");
+  const documented = pathsAt < 0 ? [] : [...spec.slice(pathsAt).matchAll(/^\s{4}"(\/[^"]*)":\s*\{/gm)].map((m) => m[1]);
+  const routes = apiRoutes();
+  const findings = [];
+  for (const d of documented) {
+    if (!servedBy(d, routes)) findings.push({ severity: "error", what: `the API reference lists /api${d}, which no route serves`, why: "a developer following the reference gets a 404", where: ["src/app/api/openapi/route.ts"] });
+  }
+  const undocumented = routes.filter((r) => !INTERNAL_ROUTE.test(r) && !documented.some((d) => servedBy(d.replace(/\{[^}]+\}/g, "x"), [r]) || servedBy(r.replace(/\[[^\]]+\]/g, "{x}"), [d.replace(/\{[^}]+\}/g, "[x]")])));
+  if (undocumented.length) {
+    findings.push({ severity: "warn", what: `${undocumented.length} public routes are not in the API reference, e.g. ${undocumented.slice(0, 3).map((r) => `/api${r}`).join(", ")}`, why: "a route nobody can find is a route nobody uses", where: ["src/app/api/openapi/route.ts"] });
+  }
+  return { checked: documented.length + routes.length, findings };
+}
+
+export function checkSdkRoutes() {
+  const routes = apiRoutes();
+  const files = walk(join(ROOT, "packages", "sdk", "src"), [".ts"]).filter((f) => !rel(f).includes("__tests__"));
+  const findings = [];
+  let checked = 0;
+  for (const f of files) {
+    for (const m of read(f).matchAll(/["'`]\/api(\/[^"'`\s?]*)/g)) {
+      // a template part like ${pathPart(id)} is one segment, whatever it calls
+      const path = m[1]
+        .replace(/\$\{[^}]*\}/g, "${x}")
+        .replace(/\$\{[^}]*$/, "") // a query string built inside the template: not part of the path
+        .replace(/([^/])\$\{x\}/g, "$1") // nor is one glued to the end of a segment
+        .replace(/\/$/, "");
+      if (!path) continue;
+      checked++;
+      if (!servedBy(path.replace(/\$\{x\}$/, "") || "/", routes) && !servedBy(path, routes)) {
+        findings.push({ severity: "error", what: `the SDK calls /api${path}, which no route serves`, why: "every SDK user hits a 404 there", where: [rel(f)] });
+      }
+    }
+  }
+  return { checked, findings };
+}
+
+/** Names the SDK exports, from its sources. */
+export function sdkExports() {
+  const names = new Set();
+  for (const f of walk(join(ROOT, "packages", "sdk", "src"), [".ts"])) {
+    const src = read(f);
+    for (const m of src.matchAll(/export\s+(?:declare\s+)?(?:async\s+)?(?:function|const|let|class|interface|type|enum)\s+([A-Za-z0-9_$]+)/g)) names.add(m[1]);
+    for (const m of src.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}/g)) {
+      for (const part of m[1].split(",")) {
+        const name = part.trim().split(/\s+as\s+/).pop()?.replace(/^type\s+/, "").trim();
+        if (name) names.add(name);
+      }
+    }
+  }
+  return names;
+}
+
+export function checkExamples() {
+  const exported = sdkExports();
+  const files = [
+    ...walk(join(ROOT, "examples"), [".ts", ".js", ".mjs", ".md"]),
+    ...walk(join(ROOT, "src", "app", "docs"), [".tsx"]),
+    ...walk(join(ROOT, "packages", "sdk"), [".md"]),
+  ];
+  const findings = [];
+  let checked = 0;
+  for (const f of files) {
+    for (const m of read(f).matchAll(/import\s*\{([^}]*)\}\s*from\s*["']@axonprotocol\/sdk["']/g)) {
+      for (const part of m[1].split(",")) {
+        const name = part.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0].trim();
+        if (!name) continue;
+        checked++;
+        if (!exported.has(name)) findings.push({ severity: "error", what: `an example imports ${name} from the SDK, which does not export it`, why: "the example fails the moment someone copies it", where: [rel(f)] });
+      }
+    }
+  }
+  return { checked, findings };
+}
+
+// ── packages and the database ───────────────────────────────────────────────
+
+/** Packages the build needs without any file importing them by name. */
+const IMPLIED = /^(@types\/|eslint|typescript$|next$|react$|react-dom$|tailwindcss$|@tailwindcss\/|postcss$|autoprefixer$|vitest$|@vitejs\/|vite-tsconfig-paths$|tsx$|prettier)/;
+
+export function checkPackages() {
+  const pkg = JSON.parse(read(join(ROOT, "package.json")));
+  // only what ships: a dev tool is often run by name from a script rather than imported
+  const deps = Object.keys(pkg.dependencies ?? {});
+  // a package another installed package needs (a peer dependency) is used even if nothing imports it by name
+  const peers = new Set();
+  for (const d of deps) {
+    try {
+      for (const p of Object.keys(JSON.parse(read(join(ROOT, "node_modules", d, "package.json"))).peerDependencies ?? {})) peers.add(p);
+    } catch { /* not installed here: judged on imports alone */ }
+  }
+  const haystack = [
+    ...walk(join(ROOT, "src"), [".ts", ".tsx", ".css", ".mjs", ".js"]),
+    ...walk(join(ROOT, "scripts"), [".ts", ".mjs", ".js", ".sh"]),
+    ...readdirSync(ROOT).filter((f) => /\.(config\.|rc)/.test(f) || /^(next|vitest|tailwind|postcss|eslint)\./.test(f)).map((f) => join(ROOT, f)),
+  ].map(read).join("\n") + JSON.stringify(pkg.scripts ?? {});
+  const findings = [];
+  for (const d of deps) {
+    if (IMPLIED.test(d) || peers.has(d)) continue;
+    if (!haystack.includes(`"${d}"`) && !haystack.includes(`'${d}'`) && !haystack.includes(`"${d}/`) && !haystack.includes(`'${d}/`) && !haystack.includes(` ${d} `)) {
+      findings.push({ severity: "warn", what: `${d} is installed and nothing in Axon imports it`, why: "an unused package is install time and attack surface for nothing", where: ["package.json"] });
+    }
+  }
+  // known vulnerabilities in what ships (not dev tools); the audit needs the registry, so a failure says so
+  let audited = 0;
+  try {
+    const out = execFileSync("npm", ["audit", "--omit=dev", "--json"], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 60_000 });
+    audited = 1;
+    const v = JSON.parse(out).metadata?.vulnerabilities ?? {};
+    if ((v.high ?? 0) + (v.critical ?? 0) > 0) findings.push({ severity: "warn", what: `${v.critical ?? 0} critical and ${v.high ?? 0} high vulnerabilities in shipped packages`, why: "known holes in what runs in production", where: ["package-lock.json"] });
+  } catch (err) {
+    // npm audit exits non-zero when it finds something: its output is still the report
+    const out = err?.stdout;
+    if (typeof out === "string" && out.trim().startsWith("{")) {
+      audited = 1;
+      const v = JSON.parse(out).metadata?.vulnerabilities ?? {};
+      if ((v.high ?? 0) + (v.critical ?? 0) > 0) findings.push({ severity: "warn", what: `${v.critical ?? 0} critical and ${v.high ?? 0} high vulnerabilities in shipped packages`, why: "known holes in what runs in production", where: ["package-lock.json"] });
+    }
+  }
+  return { checked: deps.length + audited, findings };
+}
+
+/** Migrations numbered once each, in order, with nothing skipped: a gap or a twin is a schema someone cannot rebuild. */
+export function migrationProblems(files) {
+  const nums = files.map((f) => Number(f.split("_")[0])).filter((n) => Number.isInteger(n));
+  const problems = [];
+  const seen = new Set();
+  for (const n of nums) {
+    if (seen.has(n)) problems.push(`two migrations are numbered ${String(n).padStart(3, "0")}`);
+    seen.add(n);
+  }
+  const sorted = [...seen].sort((a, b) => a - b);
+  for (let i = 1; i < sorted.length; i++) if (sorted[i] !== sorted[i - 1] + 1) problems.push(`no migration ${String(sorted[i - 1] + 1).padStart(3, "0")} between ${sorted[i - 1]} and ${sorted[i]}`);
+  return problems;
+}
+
+export function checkMigrations() {
+  const files = readdirSync(join(ROOT, "migrations")).filter((f) => f.endsWith(".sql"));
+  const findings = migrationProblems(files).map((what) => ({ severity: "error", what, why: "the database cannot be rebuilt the same way twice", where: ["migrations/"] }));
+  return { checked: files.length, findings };
+}
+
 // ── runner ───────────────────────────────────────────────────────────────────
 // Wrapped so the module can be imported without running a pass. The checks above
 // edit source when asked, and until this guard existed they could not be tested
@@ -376,6 +542,11 @@ export async function main() {
     { id: "install-commands", title: "Install commands resolve", run: checkInstallCommands },
     { id: "links", title: "Internal links point at real pages", run: checkInternalLinks },
     { id: "dead-exports", title: "Exports are used", run: checkDeadExports },
+    { id: "api-reference", title: "The API reference matches the routes", run: checkApiReference },
+    { id: "sdk-routes", title: "The SDK calls routes that exist", run: checkSdkRoutes },
+    { id: "examples", title: "Examples import what the SDK exports", run: checkExamples },
+    { id: "packages", title: "Packages are used and free of known holes", run: checkPackages },
+    { id: "migrations", title: "Migrations are complete and in order", run: checkMigrations },
   ];
 
   const startedAt = new Date().toISOString();
