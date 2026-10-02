@@ -57,6 +57,9 @@ export default function AutonomyPage() {
   const latest = getLatestRun();
   const history = getRunHistory(20);
   const findings = openFindings(latest);
+  // a repair the proof rejected was put back, so it is not something the pass changed
+  const kept = (latest?.changes ?? []).filter((c) => c.status !== "reverted");
+  const putBack = (latest?.changes ?? []).filter((c) => c.status === "reverted");
   const latestNetwork = getLatestNetworkRun();
   // only what the policy marks public; the full record is admin-only
   const network = latestNetwork ? publicView(latestNetwork) : null;
@@ -149,15 +152,36 @@ export default function AutonomyPage() {
 
             {/* What it changed, before what it found, because an automated edit
                 deserves more of a reader's attention than an automated opinion. */}
-            {latest.changes && latest.changes.length > 0 && (
+            {kept.length > 0 && (
               <>
                 <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">What it changed</h2>
                 <ul className="rounded-lg border border-teal-200 dark:border-teal-900/50 divide-y divide-teal-100 dark:divide-teal-900/40 mb-10">
-                  {latest.changes.map((c, i) => (
+                  {kept.map((c, i) => (
                     <li key={`${c.where}-${i}`} className="px-5 py-3 flex items-start gap-3">
                       <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-teal-500" aria-hidden />
                       <span className="min-w-0">
                         <span className="block text-sm text-gray-800 dark:text-gray-200">{c.what}</span>
+                        <span className="block text-xs font-mono text-gray-400 dark:text-gray-500 mt-0.5">{c.where}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            {/* Repairs it tried and put back because the type check or the tests
+                failed with them. Shown, not hidden: a fixer that only ever
+                reports its successes is the kind this page exists to not be. */}
+            {putBack.length > 0 && (
+              <>
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">What it tried and put back</h2>
+                <ul className="rounded-lg border border-gray-200 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800 mb-10">
+                  {putBack.map((c, i) => (
+                    <li key={`${c.where}-${i}`} className="px-5 py-3 flex items-start gap-3">
+                      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-gray-400" aria-hidden />
+                      <span className="min-w-0">
+                        <span className="block text-sm text-gray-800 dark:text-gray-200">{c.what}</span>
+                        {c.reason && <span className="block text-sm text-gray-500 dark:text-gray-400 mt-0.5 break-words">{c.reason}</span>}
                         <span className="block text-xs font-mono text-gray-400 dark:text-gray-500 mt-0.5">{c.where}</span>
                       </span>
                     </li>

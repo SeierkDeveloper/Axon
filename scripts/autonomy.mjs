@@ -2,7 +2,7 @@
 //
 //   node scripts/autonomy.mjs            # check, write the log
 //   node scripts/autonomy.mjs --dry      # check and print, touch nothing
-//   node scripts/autonomy.mjs --fix      # check, then apply the safe fixes
+//   node scripts/autonomy.mjs --fix      # check, then repair what it can, each repair proven
 //   node scripts/autonomy.mjs --only=links
 //
 // Each check answers one question about whether the project still tells the
@@ -12,17 +12,23 @@
 // a commit rather than a number on a dashboard.
 //
 // Two tiers. Without --fix the pass only reports, and every run records
-// `changed: false`. With --fix it also applies the narrow class of repairs that
-// a compiler can prove: today that is dropping the `export` keyword from a
-// function nothing outside its own file uses.
+// `changed: false`. With --fix it also repairs: dropping `export` from a
+// function only its own file uses, pointing a link at the one page it can only
+// have meant, bringing the API reference in line with the public routes,
+// uninstalling a shipped package nothing imports, and `npm audit fix` without
+// --force. The SDK, example and migration checks only ever report.
 //
 // The line between them matters. The moment a pass writes code, "it found
-// nothing" and "it broke nothing" stop being the same statement — so fixes never
-// land on main. --fix runs on a branch, opens a pull request, and the ordinary
-// test suite decides. The thing making the change is not the thing certifying it.
+// nothing" and "it broke nothing" stop being the same statement. So every fix
+// is applied to the working tree on its own and then proven: the type check
+// (`tsc --noEmit`) and the full test suite (`vitest run`) must both pass, or that
+// one fix is put back and recorded as tried and reverted, with the reason. The
+// thing making the change is not the thing certifying it. The deploy script
+// (scripts/deploy-local.sh) runs this with --fix and commits the kept repairs
+// in a commit of their own, ahead of the log. Nothing opens a pull request.
 
 import { execFileSync } from "child_process";
-import { readFileSync, writeFileSync, appendFileSync, mkdirSync, readdirSync, statSync } from "fs";
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, readdirSync, statSync, rmSync } from "fs";
 import { fileURLToPath, pathToFileURL } from "url";
 import { join, resolve, relative } from "path";
 
@@ -269,7 +275,24 @@ export function checkInternalLinks() {
     if (prev) prev.where = [...new Set([...prev.where, ...f.where])].sort();
     else merged.set(f.what, f);
   }
+  // A link is repaired only when exactly one page could be what it meant: a page
+  // whose last segment is the broken link's last segment (a page that moved).
+  // Two candidates, or none, and the finding stays a report for a person.
+  const pages = [...routes].filter((r) => !r.includes("[") && !r.startsWith("/api"));
+  for (const f of merged.values()) {
+    const href = f.what.match(/^link to (\S+) has no page$/)?.[1];
+    const target = href && relinkTarget(href, pages);
+    if (target) f.fix = { kind: "relink", from: href, to: target, files: f.where };
+  }
   return { checked, findings: [...merged.values()] };
+}
+
+/** The one page `href` must have meant, or null when it is not exactly one. */
+export function relinkTarget(href, pages) {
+  const last = href.split("/").pop();
+  if (!last) return null;
+  const candidates = pages.filter((p) => p !== href && p.split("/").pop() === last);
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
 // ── check: exports nothing imports ───────────────────────────────────────────
@@ -343,27 +366,269 @@ export function checkDeadExports() {
   return { checked, findings };
 }
 
-// ── applying the safe fixes ──────────────────────────────────────────────────
-// Only what a compiler can check. Each edit is one keyword on one declaration,
-// re-read from disk and matched exactly, so a stale finding cannot make this
-// rewrite the wrong line.
-export function applyFixes(results, { write = true } = {}) {
-  const applied = [];
-  for (const f of results.flatMap((r) => r.findings)) {
-    if (!f.fix || f.fix.kind !== "de-export") continue;
-    const path = join(ROOT, f.fix.file);
-    const before = read(path);
-    const decl = new RegExp(`^export (async )?function ${f.fix.symbol}\\b`, "m");
-    if (!decl.test(before)) continue; // the file moved on; leave it to the next pass
-    const after = before.replace(decl, (_m, isAsync) => `${isAsync ?? ""}function ${f.fix.symbol}`);
-    if (after === before) continue;
-    // `write: false` reports what it would do and leaves the file alone, so
-    // --dry means what it says even when --fix is also passed. A flag that
-    // promises to touch nothing and then edits source is worse than no flag.
-    if (write) writeFileSync(path, after);
-    applied.push({ what: `${write ? "dropped" : "would drop"} the export from ${f.fix.symbol}()`, where: f.fix.file });
+// ── applying fixes, each one proven ──────────────────────────────────────────
+// A fix is a group: the files it may touch, how to make the edit, and how to say
+// what it did. Groups go one at a time. Each is applied to the working tree, then
+// the type check and the whole test suite run; if either fails, exactly that
+// group's files are put back (and node_modules re-synced when it changed
+// packages) and the attempt is recorded as tried and reverted. One bad fix costs
+// its own edit, never the others.
+//
+// Every planner re-reads what it is about to change and gives up when the
+// finding no longer matches the file, so a stale finding cannot rewrite the
+// wrong line.
+
+const PKG_FILES = ["package.json", "package-lock.json"];
+
+/** Run npm in `root`. Returns its output; throws on a non-zero exit, like execFileSync. */
+function runNpm(args, root) {
+  return execFileSync("npm", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 15 * 60_000, maxBuffer: 64 * 1024 * 1024 });
+}
+
+/** The first line of a failed command's output that says what went wrong. */
+function firstClue(out) {
+  const lines = String(out ?? "").replace(/\x1b\[[0-9;]*m/g, "").split("\n").map((l) => l.trim()).filter(Boolean);
+  const hit = lines.find((l) => /error TS\d+/.test(l)) ?? lines.find((l) => /^Tests?\s+.*\bfailed\b/.test(l)) ?? lines.find((l) => /\bfailed\b|^FAIL\b|Error:/.test(l)) ?? lines[lines.length - 1] ?? "no output";
+  return hit.replace(/[\u2014\u2013]/g, "-").slice(0, 200);
+}
+
+/**
+ * The proof a fix has to pass: the type check, then the full test suite.
+ *
+ * Telegram is blanked for the run: the suite runs on whatever machine deploys,
+ * and a laptop with the live token in its environment must never post from a
+ * test.
+ */
+export function runProof(root = ROOT) {
+  const env = { ...process.env, TELEGRAM_BOT_TOKEN: "", CI: "1" };
+  const steps = [
+    { name: "the type check", args: ["tsc", "--noEmit"] },
+    { name: "the test suite", args: ["vitest", "run"] },
+  ];
+  for (const step of steps) {
+    try {
+      execFileSync("npx", step.args, { cwd: root, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 30 * 60_000, maxBuffer: 256 * 1024 * 1024 });
+    } catch (err) {
+      return { ok: false, reason: `${step.name} failed: ${firstClue(`${err.stdout ?? ""}\n${err.stderr ?? ""}` || err.message)}` };
+    }
   }
-  return applied;
+  return { ok: true };
+}
+
+/** How many entries in a lockfile changed version between two copies of it. */
+function lockChanges(before, after) {
+  try {
+    const a = JSON.parse(before).packages ?? {};
+    const b = JSON.parse(after).packages ?? {};
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    return [...keys].filter((k) => k && a[k]?.version !== b[k]?.version).length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Each fix kind: from a finding's `fix`, a plan (or null when the finding has
+ * gone stale). A plan names the files it may touch, says what it will do and
+ * what it did, and `apply` makes the edit, returning whether anything changed.
+ */
+const PLANNERS = {
+  // dropping `export` from a function only its own file uses
+  "de-export": (fix, { root }) => {
+    const path = join(root, fix.file);
+    let before;
+    try { before = read(path); } catch { return null; }
+    const decl = new RegExp(`^export (async )?function ${fix.symbol}\\b`, "m");
+    if (!decl.test(before)) return null; // the file moved on; leave it to the next pass
+    return {
+      files: [fix.file],
+      where: fix.file,
+      verb: `drop the export from ${fix.symbol}()`,
+      done: `dropped the export from ${fix.symbol}()`,
+      apply: () => {
+        const after = before.replace(decl, (_m, isAsync) => `${isAsync ?? ""}function ${fix.symbol}`);
+        if (after === before) return false;
+        writeFileSync(path, after);
+        return true;
+      },
+    };
+  },
+
+  // a link to a page that moved, pointed at the one page it can only have meant
+  relink: (fix, { root }) => {
+    const from = new RegExp(`href="${fix.from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/?"`, "g");
+    const files = fix.files.filter((f) => { try { return from.test(read(join(root, f))); } catch { return false; } finally { from.lastIndex = 0; } });
+    if (!files.length) return null;
+    return {
+      files,
+      where: files.join(", "),
+      verb: `point links to ${fix.from} at ${fix.to}`,
+      done: `pointed links to ${fix.from} at ${fix.to}`,
+      apply: () => {
+        for (const f of files) writeFileSync(join(root, f), read(join(root, f)).replace(from, `href="${fix.to}"`));
+        return true;
+      },
+    };
+  },
+
+  // a path in the reference that no route serves
+  "api-reference-remove": (fix, { root }) => {
+    const path = join(root, SPEC_FILE);
+    const after = removeSpecPath(read(path), fix.path);
+    if (after == null) return null;
+    return {
+      files: [SPEC_FILE],
+      where: SPEC_FILE,
+      verb: `remove /api${fix.path} from the API reference`,
+      done: `removed /api${fix.path} from the API reference, since no route serves it`,
+      apply: () => { writeFileSync(path, after); return true; },
+    };
+  },
+
+  // public routes the reference does not list, each written from its route file
+  "api-reference-add": (fix, { root }) => {
+    const path = join(root, SPEC_FILE);
+    const spec = read(path);
+    // Re-asked, not trusted: the finding may be stale, and an internal route
+    // must never reach the public reference whatever a finding says.
+    const still = undocumentedRoutes(documentedPaths(spec), fix.routes).filter((r) => !isInternalRoute(r));
+    const entries = [];
+    for (const r of still) {
+      let src;
+      try { src = read(join(root, "src", "app", "api", r, "route.ts")); } catch { continue; }
+      const entry = openApiEntry(r, src);
+      if (entry) entries.push(entry);
+    }
+    const after = addSpecEntries(spec, entries);
+    if (after == null) return null;
+    const n = entries.length;
+    return {
+      files: [SPEC_FILE],
+      where: SPEC_FILE,
+      verb: `add ${n} public route${n === 1 ? "" : "s"} to the API reference`,
+      done: `added ${n} public route${n === 1 ? "" : "s"} to the API reference, written from their route files`,
+      apply: () => { writeFileSync(path, after); return true; },
+    };
+  },
+
+  // a shipped package nothing imports
+  uninstall: (fix, { root, npm }) => {
+    let pkg;
+    try { pkg = JSON.parse(read(join(root, "package.json"))); } catch { return null; }
+    if (!pkg.dependencies?.[fix.package]) return null;
+    return {
+      files: PKG_FILES,
+      packages: true,
+      where: "package.json",
+      verb: `remove the unused package ${fix.package}`,
+      done: `removed the unused package ${fix.package}`,
+      apply: () => { npm(["uninstall", fix.package, "--no-audit", "--no-fund"], root); return true; },
+    };
+  },
+
+  // known holes in shipped packages, patched within the ranges already allowed
+  "audit-fix": (_fix, { root, npm }) => {
+    const lockPath = join(root, "package-lock.json");
+    let before;
+    try { before = read(lockPath); } catch { return null; }
+    let n = 0;
+    return {
+      files: PKG_FILES,
+      packages: true,
+      where: "package-lock.json",
+      verb: "patch known holes in shipped packages with npm audit fix",
+      get done() { return `updated ${n} locked package${n === 1 ? "" : "s"} to patched versions with npm audit fix (no major-version bumps)`; },
+      apply: () => {
+        // Never --force: that is the flag that takes a major version, and a major
+        // version is a decision, not a repair. The lockfile is fixed first and
+        // node_modules brought to match it after, because `audit fix --omit=dev`
+        // on node_modules itself also strips the dev tools the proof runs on.
+        try {
+          npm(["audit", "fix", "--omit=dev", "--package-lock-only", "--no-fund"], root);
+        } catch {
+          /* exits non-zero while holes remain that it could not fix; the lockfile says what it did */
+        }
+        const after = read(lockPath);
+        n = lockChanges(before, after);
+        if (after === before) return false;
+        npm(["install", "--no-audit", "--no-fund"], root);
+        return true;
+      },
+    };
+  },
+};
+
+/** The current contents of `files` under `root`, null for one that does not exist. */
+function snapshot(files, root) {
+  return files.map((f) => {
+    try { return [f, readFileSync(join(root, f), "utf8")]; } catch { return [f, null]; }
+  });
+}
+
+/** Put `files` back exactly as `snapshot` found them. */
+function restore(snap, root) {
+  for (const [f, body] of snap) {
+    if (body == null) rmSync(join(root, f), { force: true });
+    else writeFileSync(join(root, f), body);
+  }
+}
+
+/**
+ * Apply every fix the findings carry, one group at a time, keeping only what
+ * passes the proof.
+ *
+ * `write: false` plans and reports without touching anything, so --dry means
+ * what it says even alongside --fix: a flag that promises to touch nothing and
+ * then edits source is worse than no flag. `prove`, `npm` and `root` exist so the
+ * gate can be tested without running the real suite or the real npm.
+ *
+ * Returns one change per group tried: `status` is "applied" when the proof
+ * passed and the edit was kept, "reverted" (with `reason`) when it was put back.
+ */
+export function applyFixes(results, { write = true, prove = runProof, npm = runNpm, root = ROOT, log = () => {} } = {}) {
+  const changes = [];
+  for (const f of results.flatMap((r) => r.findings)) {
+    const planner = f.fix && PLANNERS[f.fix.kind];
+    if (!planner) continue;
+    const plan = planner(f.fix, { root, npm });
+    if (!plan) continue;
+    if (!write) {
+      changes.push({ what: `would ${plan.verb}`, where: plan.where });
+      continue;
+    }
+    log(`      trying: ${plan.verb}`);
+    const snap = snapshot(plan.files, root);
+    const putBack = () => {
+      restore(snap, root);
+      if (plan.packages) {
+        try { npm(["install", "--no-audit", "--no-fund"], root); } catch { /* the files are back; the next install settles node_modules */ }
+      }
+    };
+    let changed;
+    try {
+      changed = plan.apply();
+    } catch (err) {
+      putBack();
+      changes.push({ what: `tried to ${plan.verb}, put it back`, where: plan.where, files: plan.files, status: "reverted", reason: `it could not be applied: ${firstClue(err.stderr || err.message)}` });
+      log(`        put back: it could not be applied`);
+      continue;
+    }
+    if (!changed) {
+      restore(snap, root);
+      log(`        nothing to change`);
+      continue;
+    }
+    const proof = prove(root);
+    if (proof.ok) {
+      changes.push({ what: plan.done, where: plan.where, files: plan.files, status: "applied" });
+      log(`        kept: the type check and the test suite pass`);
+    } else {
+      putBack();
+      changes.push({ what: `tried to ${plan.verb}, put it back`, where: plan.where, files: plan.files, status: "reverted", reason: proof.reason });
+      log(`        put back: ${proof.reason}`);
+    }
+  }
+  return changes;
 }
 
 // ── the API, the SDK and the examples ───────────────────────────────────────
@@ -385,23 +650,263 @@ export function servedBy(path, routes) {
   });
 }
 
-/** Routes nobody outside Axon calls, so the reference has no reason to list them. */
-const INTERNAL_ROUTE = /^\/(cron|admin|worker|seed|internal|test|debug)(\/|$)/;
+/**
+ * Routes nobody outside Axon calls, so the reference has no reason to list them.
+ *
+ * The reference is public, and listing a route there is a statement that a
+ * developer may build on it. So the bar runs the other way from the fixer's: a
+ * route only gets documented when it is plainly a developer's tool, and anything
+ * operational, UI-only or in doubt is named here instead. Each pattern says why.
+ */
+const INTERNAL_ROUTES = [
+  // scheduled jobs, the operator's own tools, the worker, seeding, tests, debugging,
+  // demo and network-activity traffic, Telegram, and share images
+  /^\/(cron|admin|worker|seed|internal|test|debug|demo|network-activity|telegram|og)(\/|$)/,
+  // the reference itself: documenting the document is noise
+  /^\/openapi$/,
+  // the site's own wallet sign-in session; developers authenticate with API keys (/auth/keys is documented)
+  /^\/auth\/(challenge|login|logout|me|verify)$/,
+  // the burn pot and the site's headline figures: money flows the site shows, not an interface
+  /^\/(burn|analytics)(\/|$)/,
+  // operational health and volume: the network feed, worker timings, Prometheus scrapes, the failure monitor
+  /^\/(network-feed|worker-metrics|metrics|failures)$/,
+  // the $AXON holder pages: tiers, handles and the token launch board, all driven by the site's wallet UI
+  /^\/(tier|handles)$/,
+  /^\/(agent-launch|launches)\//,
+  // the site's "try this agent" box: three free calls per visitor, a demo rather than an API
+  /^\/agents\/\[[^\]]+\]\/test$/,
+  // the grow experiment and its missions page: operator-guarded setup and a UI built on top
+  /^\/grow(\/|$)/,
+  // Axon Build, the site's game builder: a product page, not an interface
+  /^\/build(\/|$)/,
+  // the Open World game: avatars, arcade, inventory and the city model the 3D page draws
+  /^\/world(\/|$)/,
+];
+
+/** Methods a route exports that the reference must still not list, by route. */
+const INTERNAL_METHODS = {
+  // re-running a receipt spends model tokens and is operator-gated; reading one stays public
+  "/receipts/[taskId]/reproduce": ["POST"],
+};
+
+/** Whether `route` ("/world/epoch") is one the reference never lists. */
+export const isInternalRoute = (route) => INTERNAL_ROUTES.some((re) => re.test(route));
+
+const SPEC_FILE = join("src", "app", "api", "openapi", "route.ts");
+
+/** The paths the reference documents, as written in the spec ("/agents/{agentId}"). */
+export function documentedPaths(spec) {
+  const pathsAt = spec.indexOf("paths:");
+  return pathsAt < 0 ? [] : [...spec.slice(pathsAt).matchAll(/^ {4}"(\/[^"]*)":\s*\{/gm)].map((m) => m[1]);
+}
+
+/** Public routes in `routes` that no documented path covers. */
+export function undocumentedRoutes(documented, routes) {
+  return routes.filter((r) => !isInternalRoute(r) && !documented.some((d) => servedBy(d.replace(/\{[^}]+\}/g, "x"), [r]) || servedBy(r.replace(/\[[^\]]+\]/g, "{x}"), [d.replace(/\{[^}]+\}/g, "[x]")])));
+}
 
 export function checkApiReference() {
-  const spec = read(join(ROOT, "src", "app", "api", "openapi", "route.ts"));
-  const pathsAt = spec.indexOf("paths:");
-  const documented = pathsAt < 0 ? [] : [...spec.slice(pathsAt).matchAll(/^\s{4}"(\/[^"]*)":\s*\{/gm)].map((m) => m[1]);
+  const spec = read(join(ROOT, SPEC_FILE));
+  const documented = documentedPaths(spec);
   const routes = apiRoutes();
   const findings = [];
   for (const d of documented) {
-    if (!servedBy(d, routes)) findings.push({ severity: "error", what: `the API reference lists /api${d}, which no route serves`, why: "a developer following the reference gets a 404", where: ["src/app/api/openapi/route.ts"] });
+    if (!servedBy(d, routes)) findings.push({ severity: "error", what: `the API reference lists /api${d}, which no route serves`, why: "a developer following the reference gets a 404", where: [SPEC_FILE], fix: { kind: "api-reference-remove", path: d } });
   }
-  const undocumented = routes.filter((r) => !INTERNAL_ROUTE.test(r) && !documented.some((d) => servedBy(d.replace(/\{[^}]+\}/g, "x"), [r]) || servedBy(r.replace(/\[[^\]]+\]/g, "{x}"), [d.replace(/\{[^}]+\}/g, "[x]")])));
+  const undocumented = undocumentedRoutes(documented, routes);
   if (undocumented.length) {
-    findings.push({ severity: "warn", what: `${undocumented.length} public routes are not in the API reference, e.g. ${undocumented.slice(0, 3).map((r) => `/api${r}`).join(", ")}`, why: "a route nobody can find is a route nobody uses", where: ["src/app/api/openapi/route.ts"] });
+    findings.push({ severity: "warn", what: `${undocumented.length} public routes are not in the API reference, e.g. ${undocumented.slice(0, 3).map((r) => `/api${r}`).join(", ")}`, why: "a route nobody can find is a route nobody uses", where: [SPEC_FILE], fix: { kind: "api-reference-add", routes: undocumented } });
   }
   return { checked: documented.length + routes.length, findings };
+}
+
+// ── writing the reference ───────────────────────────────────────────────────
+// An entry is written only from what the route file says: the methods it
+// exports, the parameters in its path, a summary from its own comment, and
+// whether the handler asks for a key. No request or response shapes are guessed:
+// a reference that invents a field is worse than one that is short.
+
+const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+
+/** The HTTP methods a route file exports, in a stable order. */
+export function routeMethods(src) {
+  const found = new Set();
+  for (const m of src.matchAll(/export\s+(?:async\s+)?(?:function|const|let)\s+(GET|POST|PUT|PATCH|DELETE)\b/g)) found.add(m[1]);
+  for (const m of src.matchAll(/export\s*\{([^}]*)\}/g)) {
+    for (const part of m[1].split(",")) {
+      const name = part.trim().split(/\s+as\s+/).pop()?.trim();
+      if (HTTP_METHODS.includes(name)) found.add(name);
+    }
+  }
+  return HTTP_METHODS.filter((m) => found.has(m));
+}
+
+/** Comment text on one line, or null when the line is code. */
+const commentText = (line) => {
+  const m = line.match(/^\s*(?:\/\/+|\/\*+|\*+(?!\/))\s?(.*?)\s*(?:\*\/)?\s*$/);
+  return m ? m[1].trim() : null;
+};
+
+/** A comment fragment cut down to a short plain summary, or null. */
+function tidySummary(text) {
+  let s = text.replace(/\s*[—–]\s*/g, ", ").replace(/`/g, "").replace(/\s+/g, " ").trim();
+  // the first clause: up to a sentence end, a colon, or an aside in brackets
+  s = s.split(/(?<=[a-z0-9)\]'"])[.:;](?:\s|$)|\s\(/i)[0].replace(/[,.\s]+$/, "").trim();
+  if (s.length < 4) return null;
+  if (s.length > 100) {
+    const comma = s.lastIndexOf(",", 100);
+    s = comma > 30 ? s.slice(0, comma) : s.slice(0, 100).replace(/\s+\S*$/, "");
+  }
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+const METHOD_LINE = /^(GET|POST|PUT|PATCH|DELETE)\s/;
+/** A heading such as "Body: {...}" or "SSE event types:", which describes a shape rather than the route. */
+const LABEL_LINE = /^[A-Za-z][\w -]{0,24}:(\s|$)/;
+
+/** Comment text from line `i` on, joined until a blank comment line, a new method line or code. */
+function proseFrom(lines, i, first) {
+  const parts = [first];
+  for (let j = i + 1; j < lines.length; j++) {
+    const c = commentText(lines[j]);
+    if (!c || METHOD_LINE.test(c) || /^→/.test(c)) break;
+    // a capital after an unfinished line is a new sentence, not the rest of this one
+    if (/^[A-Z]/.test(c) && !/[,(]$/.test(parts[parts.length - 1])) break;
+    parts.push(c);
+  }
+  return parts.join(" ");
+}
+
+/**
+ * A summary for `method` taken from the route's own comments, or null.
+ *
+ * Four forms, most specific first: `GET /api/x, what it does` on one line; for
+ * a route that serves one method, the comment the file opens with; a bare
+ * `GET /api/x` with the prose on the following comment lines; and the comment
+ * directly above the handler. Nothing found means no summary: a blank is
+ * honest, a guess is not.
+ */
+export function routeSummary(src, method, { single = false } = {}) {
+  const lines = src.split("\n");
+  const head = new RegExp(`^${method}\\s+/api/\\S+`);
+  const heads = [];
+  for (let i = 0; i < lines.length; i++) {
+    const c = commentText(lines[i]);
+    if (c == null || !head.test(c)) continue;
+    const rest = c.replace(head, "").trim();
+    const inline = rest.match(/^[—–-]+\s*(.+)$/);
+    if (inline) return tidySummary(proseFrom(lines, i, inline[1]));
+    heads.push(i);
+  }
+  if (single) {
+    // the file's own opening comment, before any import or code
+    let i = 0;
+    while (i < lines.length && !lines[i].trim()) i++;
+    for (; i < lines.length && commentText(lines[i]) != null; i++) {
+      const c = commentText(lines[i]);
+      if (!c || /^(GET|POST|PUT|PATCH|DELETE)\s/.test(c) || LABEL_LINE.test(c)) continue;
+      return tidySummary(proseFrom(lines, i, c));
+    }
+  }
+  for (const i of heads) {
+    for (let j = i + 1; j < lines.length; j++) {
+      const next = commentText(lines[j]);
+      if (next == null || METHOD_LINE.test(next)) break;
+      if (!next || LABEL_LINE.test(next)) continue;
+      const arrow = next.match(/^→\s*(.+)$/);
+      return tidySummary(proseFrom(lines, j, arrow ? arrow[1] : next));
+    }
+  }
+  if (!single) return null;
+  const at = lines.findIndex((l) => new RegExp(`export\\s+(?:async\\s+)?function\\s+${method}\\b`).test(l));
+  if (at < 0) return null;
+  let top = at;
+  while (top > 0 && commentText(lines[top - 1]) != null) top--;
+  for (let j = top; j < at; j++) {
+    const c = commentText(lines[j]);
+    if (c && !METHOD_LINE.test(c) && !LABEL_LINE.test(c)) return tidySummary(proseFrom(lines, j, c));
+  }
+  return null;
+}
+
+const AUTH_MARK = /require(ApiKey|AgentOwner)\(|authorization|x-api-key/i;
+
+/** The source of one exported handler, so auth is judged per method. */
+function handlerSource(src, method) {
+  const at = src.search(new RegExp(`export\\s+(?:async\\s+)?(?:function|const|let)\\s+${method}\\b`));
+  if (at < 0) return src; // re-exported from elsewhere: judge on the whole file
+  const next = src.slice(at + 1).search(/\nexport\s/);
+  return next < 0 ? src.slice(at) : src.slice(at, at + 1 + next);
+}
+
+/**
+ * Whether `method` asks the caller for a key, in its own body or through a
+ * helper in the same file. Either way the answer leans to "yes": a reference
+ * that says a key is needed when it is not costs a caller a header, one that
+ * says the opposite costs them a 401 and an afternoon.
+ */
+function handlerNeedsKey(src, method) {
+  const body = handlerSource(src, method);
+  if (AUTH_MARK.test(body)) return true;
+  for (const m of src.matchAll(/^(?:async\s+)?function\s+(\w+)\s*\([\s\S]*?^\}/gm)) {
+    if (AUTH_MARK.test(m[0]) && new RegExp(`\\b${m[1]}\\(`).test(body)) return true;
+  }
+  for (const m of src.matchAll(/^const\s+(\w+)\s*=\s*(?:async\s*)?\([^)]*\)\s*(?::[^=]+)?=>[\s\S]*?;\s*$/gm)) {
+    if (AUTH_MARK.test(m[0]) && new RegExp(`\\b${m[1]}\\(`).test(body)) return true;
+  }
+  return false;
+}
+
+const TAGS = { agents: "Agents", tasks: "Tasks", receipts: "Receipts", webhooks: "Webhooks", commerce: "Commerce", auth: "Auth", mcp: "MCP", mpp: "MPP" };
+
+/** One `paths` entry for `route`, as source text in the spec's own style. */
+export function openApiEntry(route, src) {
+  const internal = INTERNAL_METHODS[route] ?? [];
+  const methods = routeMethods(src).filter((m) => !internal.includes(m));
+  if (!methods.length) return null;
+  const params = [...route.matchAll(/\[(?:\.\.\.)?([^\]]+)\]/g)].map((m) => m[1]);
+  const path = route.replace(/\[(?:\.\.\.)?([^\]]+)\]/g, "{$1}");
+  const seg = route.split("/")[1] ?? "";
+  const tag = TAGS[seg] ?? seg.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  const out = [`    ${JSON.stringify(path)}: {`];
+  if (params.length) {
+    out.push(`      parameters: [${params.map((p) => `{ name: ${JSON.stringify(p)}, in: "path", required: true, schema: { type: "string" } }`).join(", ")}],`);
+  }
+  for (const m of methods) {
+    const summary = routeSummary(src, m, { single: methods.length === 1 });
+    // The spec's default is a key. A handler that never asks for one is open,
+    // and saying so stops the reference telling people to send a key for nothing.
+    const open = !handlerNeedsKey(src, m);
+    const fields = [summary ? `summary: ${JSON.stringify(summary)}` : null, `tags: [${JSON.stringify(tag)}]`, open ? "security: []" : null].filter(Boolean);
+    out.push(`      ${m.toLowerCase()}: { ${fields.join(", ")} },`);
+  }
+  out.push("    },");
+  return out.join("\n");
+}
+
+/** `spec` with the entry for `path` taken out, or null when it is not there in the expected shape. */
+export function removeSpecPath(spec, path) {
+  const start = spec.search(new RegExp(`^ {4}${JSON.stringify(path).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\\s*\\{`, "m"));
+  if (start < 0) return null;
+  const close = spec.slice(start).search(/\n {4}\},?[ \t]*(\n|$)/);
+  if (close < 0) return null;
+  let from = start;
+  let end = start + close + spec.slice(start + close).match(/\n {4}\},?[ \t]*/)[0].length;
+  if (spec[end] === "\n") end++; // its own line break
+  // and one blank line that separated it, before it if there is one, else after
+  if (spec.slice(from - 2, from) === "\n\n") from--;
+  else if (spec[end] === "\n") end++;
+  return spec.slice(0, from) + spec.slice(end);
+}
+
+/** `spec` with `entries` appended to the end of `paths`, or null when `paths` cannot be found. */
+export function addSpecEntries(spec, entries) {
+  const pathsAt = spec.indexOf("paths:");
+  if (pathsAt < 0 || !entries.length) return null;
+  const close = spec.slice(pathsAt).search(/\n {2}\},?[ \t]*\n/);
+  if (close < 0) return null;
+  const at = pathsAt + close;
+  return `${spec.slice(0, at)}\n\n${entries.join("\n\n")}${spec.slice(at)}`;
 }
 
 export function checkSdkRoutes() {
@@ -481,16 +986,22 @@ export function checkPackages() {
       for (const p of Object.keys(JSON.parse(read(join(ROOT, "node_modules", d, "package.json"))).peerDependencies ?? {})) peers.add(p);
     } catch { /* not installed here: judged on imports alone */ }
   }
+  // Wide on purpose, now that this finding can uninstall: a package named only in
+  // the Dockerfile, a root file such as instrumentation.ts, or one of the
+  // packages/ that resolve through this node_modules is in use, and missing it
+  // here would delete something production needs. The gate would likely catch
+  // that, but a check should not lean on the gate to be right.
   const haystack = [
     ...walk(join(ROOT, "src"), [".ts", ".tsx", ".css", ".mjs", ".js"]),
     ...walk(join(ROOT, "scripts"), [".ts", ".mjs", ".js", ".sh"]),
-    ...readdirSync(ROOT).filter((f) => /\.(config\.|rc)/.test(f) || /^(next|vitest|tailwind|postcss|eslint)\./.test(f)).map((f) => join(ROOT, f)),
-  ].map(read).join("\n") + JSON.stringify(pkg.scripts ?? {});
+    ...walk(join(ROOT, "packages"), [".ts", ".tsx", ".mjs", ".js", ".cjs"]),
+    ...readdirSync(ROOT).filter((f) => /\.(config\.|rc)/.test(f) || /^(next|vitest|tailwind|postcss|eslint)\./.test(f) || /\.(ts|mts|mjs|js|cjs)$/.test(f) || /^Dockerfile/.test(f)).map((f) => join(ROOT, f)),
+  ].filter((f) => statSync(f).isFile()).map(read).join("\n") + JSON.stringify(pkg.scripts ?? {});
   const findings = [];
   for (const d of deps) {
     if (IMPLIED.test(d) || peers.has(d)) continue;
     if (!haystack.includes(`"${d}"`) && !haystack.includes(`'${d}'`) && !haystack.includes(`"${d}/`) && !haystack.includes(`'${d}/`) && !haystack.includes(` ${d} `)) {
-      findings.push({ severity: "warn", what: `${d} is installed and nothing in Axon imports it`, why: "an unused package is install time and attack surface for nothing", where: ["package.json"] });
+      findings.push({ severity: "warn", what: `${d} is installed and nothing in Axon imports it`, why: "an unused package is install time and attack surface for nothing", where: ["package.json"], fix: { kind: "uninstall", package: d } });
     }
   }
   // known vulnerabilities in what ships (not dev tools); the audit needs the registry, so a failure says so
@@ -499,14 +1010,14 @@ export function checkPackages() {
     const out = execFileSync("npm", ["audit", "--omit=dev", "--json"], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 60_000 });
     audited = 1;
     const v = JSON.parse(out).metadata?.vulnerabilities ?? {};
-    if ((v.high ?? 0) + (v.critical ?? 0) > 0) findings.push({ severity: "warn", what: `${v.critical ?? 0} critical and ${v.high ?? 0} high vulnerabilities in shipped packages`, why: "known holes in what runs in production", where: ["package-lock.json"] });
+    if ((v.high ?? 0) + (v.critical ?? 0) > 0) findings.push({ severity: "warn", what: `${v.critical ?? 0} critical and ${v.high ?? 0} high vulnerabilities in shipped packages`, why: "known holes in what runs in production", where: ["package-lock.json"], fix: { kind: "audit-fix" } });
   } catch (err) {
     // npm audit exits non-zero when it finds something: its output is still the report
     const out = err?.stdout;
     if (typeof out === "string" && out.trim().startsWith("{")) {
       audited = 1;
       const v = JSON.parse(out).metadata?.vulnerabilities ?? {};
-      if ((v.high ?? 0) + (v.critical ?? 0) > 0) findings.push({ severity: "warn", what: `${v.critical ?? 0} critical and ${v.high ?? 0} high vulnerabilities in shipped packages`, why: "known holes in what runs in production", where: ["package-lock.json"] });
+      if ((v.high ?? 0) + (v.critical ?? 0) > 0) findings.push({ severity: "warn", what: `${v.critical ?? 0} critical and ${v.high ?? 0} high vulnerabilities in shipped packages`, why: "known holes in what runs in production", where: ["package-lock.json"], fix: { kind: "audit-fix" } });
     }
   }
   return { checked: deps.length + audited, findings };
@@ -549,27 +1060,41 @@ export async function main() {
     { id: "migrations", title: "Migrations are complete and in order", run: checkMigrations },
   ];
 
-  const startedAt = new Date().toISOString();
-  const results = [];
-  for (const check of CHECKS) {
-    if (ONLY && ONLY !== check.id) continue;
-    process.stdout.write(`  ${check.id} … `);
-    const t0 = Date.now();
-    try {
-      const { checked, findings } = await check.run();
-      results.push({ id: check.id, title: check.title, ok: findings.filter((f) => f.severity === "error").length === 0, checked, findings, ms: Date.now() - t0 });
-      console.log(`${checked} checked, ${findings.length} finding(s), ${Date.now() - t0}ms`);
-      for (const f of findings) console.log(`      ${f.severity === "error" ? "ERROR" : "warn "} ${f.what}  [${f.where.join(", ")}]`);
-    } catch (err) {
-      results.push({ id: check.id, title: check.title, ok: false, checked: 0, findings: [{ severity: "error", what: `the check itself failed: ${err.message}`, why: "a check that cannot run proves nothing", where: [] }], ms: Date.now() - t0 });
-      console.log(`FAILED — ${err.message}`);
+  const runChecks = async () => {
+    const results = [];
+    for (const check of CHECKS) {
+      if (ONLY && ONLY !== check.id) continue;
+      process.stdout.write(`  ${check.id} … `);
+      const t0 = Date.now();
+      try {
+        const { checked, findings } = await check.run();
+        results.push({ id: check.id, title: check.title, ok: findings.filter((f) => f.severity === "error").length === 0, checked, findings, ms: Date.now() - t0 });
+        console.log(`${checked} checked, ${findings.length} finding(s), ${Date.now() - t0}ms`);
+        for (const f of findings) console.log(`      ${f.severity === "error" ? "ERROR" : "warn "} ${f.what}  [${f.where.join(", ")}]`);
+      } catch (err) {
+        results.push({ id: check.id, title: check.title, ok: false, checked: 0, findings: [{ severity: "error", what: `the check itself failed: ${err.message}`, why: "a check that cannot run proves nothing", where: [] }], ms: Date.now() - t0 });
+        console.log(`FAILED: ${err.message}`);
+      }
     }
-  }
+    return results;
+  };
 
-  const changes = FIX ? applyFixes(results, { write: !DRY }) : [];
+  const startedAt = new Date().toISOString();
+  let results = await runChecks();
+
+  const changes = FIX ? applyFixes(results, { write: !DRY, log: console.log }) : [];
+  const kept = changes.filter((c) => c.status === "applied");
   if (FIX) {
-    console.log(`\n${DRY ? "would apply" : "applied"} ${changes.length} fix(es):`);
-    for (const c of changes) console.log(`      ${c.what}  [${c.where}]`);
+    const reverted = changes.filter((c) => c.status === "reverted");
+    console.log(DRY ? `\nwould try ${changes.length} fix(es):` : `\nkept ${kept.length} fix(es), put back ${reverted.length}:`);
+    for (const c of changes) console.log(`      ${c.status === "reverted" ? "put back" : c.status === "applied" ? "kept    " : ""} ${c.what}  [${c.where}]${c.reason ? `  (${c.reason})` : ""}`);
+  }
+  // What was found is recorded about the tree as it is left, not as it was
+  // found: a log that lists a problem next to the change that fixed it says
+  // two contradictory things at once.
+  if (kept.length) {
+    console.log("\nchecking again after the kept fixes:");
+    results = await runChecks();
   }
 
   const errors = results.flatMap((r) => r.findings).filter((f) => f.severity === "error").length;
@@ -583,7 +1108,7 @@ export async function main() {
     warnings,
     // Recorded explicitly rather than inferred, so a reader can always tell a pass
     // that looked from a pass that also edited.
-    changed: changes.length > 0,
+    changed: kept.length > 0,
     changes,
   };
 

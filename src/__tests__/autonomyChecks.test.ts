@@ -48,6 +48,9 @@ describe("codeOf: what counts as code when looking for uses", () => {
 });
 
 describe("applyFixes: the only thing here that edits source", () => {
+  // The proof is injected as passing: these cases are about the edit itself,
+  // and the real proof is the whole test suite, which this file is part of.
+  const pass = () => ({ ok: true });
   const finding = (file: string, symbol: string) => [
     { findings: [{ severity: "warn", what: "", why: "", where: [file], fix: { kind: "de-export", file, symbol } }] },
   ];
@@ -64,7 +67,7 @@ describe("applyFixes: the only thing here that edits source", () => {
   it("drops the export keyword and nothing else", () => {
     const f = inRepo("src/lib/__fixprobe_a.ts", "export function keepMe(a: number) {\n  return a;\n}\n");
     try {
-      const applied = applyFixes(finding(f.rel, "keepMe"));
+      const applied = applyFixes(finding(f.rel, "keepMe"), { prove: pass });
       expect(applied).toHaveLength(1);
       expect(readFileSync(f.abs, "utf8")).toBe("function keepMe(a: number) {\n  return a;\n}\n");
     } finally {
@@ -75,7 +78,7 @@ describe("applyFixes: the only thing here that edits source", () => {
   it("keeps async where it is — the riskiest edit it makes", () => {
     const f = inRepo("src/lib/__fixprobe_b.ts", "export async function later(): Promise<void> {}\n");
     try {
-      applyFixes(finding(f.rel, "later"));
+      applyFixes(finding(f.rel, "later"), { prove: pass });
       expect(readFileSync(f.abs, "utf8")).toBe("async function later(): Promise<void> {}\n");
     } finally {
       rmSync(f.abs, { force: true });
@@ -85,7 +88,7 @@ describe("applyFixes: the only thing here that edits source", () => {
   it("will not touch a symbol whose name merely starts the same", () => {
     const f = inRepo("src/lib/__fixprobe_c.ts", "export function getThresholdExtra() {}\n");
     try {
-      expect(applyFixes(finding(f.rel, "getThreshold"))).toHaveLength(0);
+      expect(applyFixes(finding(f.rel, "getThreshold"), { prove: pass })).toHaveLength(0);
       expect(readFileSync(f.abs, "utf8")).toContain("export function getThresholdExtra");
     } finally {
       rmSync(f.abs, { force: true });
@@ -97,7 +100,7 @@ describe("applyFixes: the only thing here that edits source", () => {
     // edited. Rewriting on a guess is how an automated fixer corrupts a file.
     const f = inRepo("src/lib/__fixprobe_d.ts", "function alreadyLocal() {}\n");
     try {
-      expect(applyFixes(finding(f.rel, "alreadyLocal"))).toHaveLength(0);
+      expect(applyFixes(finding(f.rel, "alreadyLocal"), { prove: pass })).toHaveLength(0);
       expect(readFileSync(f.abs, "utf8")).toBe("function alreadyLocal() {}\n");
     } finally {
       rmSync(f.abs, { force: true });
@@ -105,7 +108,7 @@ describe("applyFixes: the only thing here that edits source", () => {
   });
 
   it("ignores findings that carry no fix, so reporting stays reporting", () => {
-    expect(applyFixes([{ findings: [{ severity: "error", what: "x", why: "y", where: [] }] }])).toEqual([]);
+    expect(applyFixes([{ findings: [{ severity: "error", what: "x", why: "y", where: [] }] }], { prove: pass })).toEqual([]);
   });
 });
 

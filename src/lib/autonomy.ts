@@ -55,6 +55,16 @@ export interface Change {
   what: string;
   /** The file it was applied to. */
   where: string;
+  /** Every file the repair touched, so the deploy can commit exactly those. */
+  files?: string[];
+  /**
+   * "applied" when the type check and the test suite passed with it and it was
+   * kept, "reverted" when either failed and it was put back. Absent on entries
+   * written before repairs were gated, all of which were applied.
+   */
+  status?: "applied" | "reverted";
+  /** Why a reverted repair was put back. */
+  reason?: string;
 }
 
 // Resolved per call rather than at module load: the log directory is relative to
