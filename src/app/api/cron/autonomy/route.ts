@@ -8,7 +8,7 @@
 // pass is trusted to act.
 
 import { NextRequest, NextResponse } from "next/server";
-import { runNetworkPass, getLatestNetworkRun } from "@/lib/autonomyNetwork";
+import { runNetworkPass, runFullNetworkPass, getLatestNetworkRun, publicView } from "@/lib/autonomyNetwork";
 import { noteCronRun } from "@/lib/cronRuns";
 
 export const runtime = "nodejs";
@@ -24,22 +24,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   noteCronRun("autonomy");
-  const run = runNetworkPass({ apply: true });
+  const run = await runFullNetworkPass({ apply: true });
   return NextResponse.json({
     runId: run.runId,
     agentsSeen: run.agentsSeen,
     observations: run.observations.length,
+    checksUnavailable: run.checksUnavailable,
     changed: run.changes.length,
     changes: run.changes,
   });
 }
 
-// A dry pass, and the last recorded one. Public: it says what the network looks
-// like, which is already public, and nothing about who owns what.
+// A dry pass, and the last recorded one. Public, so it shows only what autonomyPolicy marks public: the
+// checks behind it (money, listings, agents' health) are read in full at /api/admin/autonomy.
 export async function GET() {
-  const preview = runNetworkPass({ apply: false });
+  const preview = publicView(runNetworkPass({ apply: false }));
+  const latest = getLatestNetworkRun();
   return NextResponse.json(
-    { preview, latest: getLatestNetworkRun() },
+    { preview, latest: latest ? publicView(latest) : null },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

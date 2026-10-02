@@ -1,7 +1,7 @@
 import Link from "next/link";
 import SiteNav from "@/components/SiteNav";
 import { getLatestRun, getRunHistory, openFindings, type Finding } from "@/lib/autonomy";
-import { getLatestNetworkRun } from "@/lib/autonomyNetwork";
+import { getLatestNetworkRun, publicView } from "@/lib/autonomyNetwork";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +57,9 @@ export default function AutonomyPage() {
   const latest = getLatestRun();
   const history = getRunHistory(20);
   const findings = openFindings(latest);
-  const network = getLatestNetworkRun();
+  const latestNetwork = getLatestNetworkRun();
+  // only what the policy marks public; the full record is admin-only
+  const network = latestNetwork ? publicView(latestNetwork) : null;
 
   return (
     <div className="bg-white dark:bg-[#0a0a0a] min-h-screen text-[#0a0a0a] dark:text-white">

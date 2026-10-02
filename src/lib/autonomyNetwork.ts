@@ -14,13 +14,17 @@ import { randomUUID } from "crypto";
 import { getDb } from "./db";
 import { syncToTurso } from "./db-turso";
 import { computeOptimization, applyOptimization } from "./selfOptimize";
+import { runNetworkChecks } from "./networkChecks";
+import { isPublic, type FindingKind } from "./autonomyPolicy";
 
 export interface NetworkObservation {
-  kind: "capability-gap" | "dormant-listing";
+  kind: FindingKind;
+  /** The agent, task, webhook or retainer it is about, when there is one. */
+  subject?: string;
   /** One line, in the terms a reader cares about. */
   what: string;
   /** Why it is worth knowing — a signal is useless without its meaning. */
-  why: string;
+  why?: string;
 }
 
 export interface NetworkChange {
@@ -166,12 +170,12 @@ function applyAutoPricing(apply: boolean): NetworkChange[] {
  * inspected before it is trusted — the same split the codebase pass has between
  * checking and fixing.
  */
-export function runNetworkPass(opts: { apply?: boolean } = {}): NetworkRun {
+export function runNetworkPass(opts: { apply?: boolean; extra?: NetworkObservation[] } = {}): NetworkRun {
   const apply = opts.apply ?? false;
   const startedAt = new Date().toISOString();
   const db = getDb();
 
-  const observations = [...capabilityGaps(), ...dormantListings()];
+  const observations = [...capabilityGaps(), ...dormantListings(), ...(opts.extra ?? [])];
   const changes = applyAutoPricing(apply);
   const { n: agentsSeen } = db.prepare("SELECT COUNT(*) n FROM agents").get() as { n: number };
 
@@ -235,3 +239,19 @@ export function getLatestNetworkRun(): NetworkRun | null {
     agentsSeen: row.agents_seen,
   };
 }
+
+/**
+ * The whole pass: the phase 1 checks (report only), then the long-standing pass that observes and re-prices the
+ * opted-in agents. A check that fails to run is named in the record rather than taking the pass down.
+ */
+export async function runFullNetworkPass(opts: { apply?: boolean } = {}): Promise<NetworkRun & { checksUnavailable: string[] }> {
+  const { findings, failed } = await runNetworkChecks();
+  const run = runNetworkPass({ apply: opts.apply, extra: findings });
+  return { ...run, checksUnavailable: failed };
+}
+
+/** A run as the public may see it: only what autonomyPolicy marks public, and nothing about money or listings. */
+export function publicView(run: NetworkRun): NetworkRun {
+  return { ...run, observations: run.observations.filter((o) => isPublic(o.kind)) };
+}
+
