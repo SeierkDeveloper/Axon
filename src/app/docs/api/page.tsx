@@ -8,9 +8,11 @@ export default function ApiReferencePage() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Dynamically load Swagger UI from CDN — avoids a large bundle dependency
+    // Swagger UI is served from this site (public/vendor/swagger-ui, version pinned in VERSION) and loaded only on
+    // this page. It was loaded from unpkg, which the site's content security policy (script-src 'self') blocks, so
+    // the reference never rendered.
     const script = document.createElement("script");
-    script.src = "https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js";
+    script.src = "/vendor/swagger-ui/swagger-ui-bundle.js";
     script.onload = () => {
       if (!containerRef.current) return;
       // @ts-expect-error SwaggerUIBundle injected by script tag
@@ -29,7 +31,7 @@ export default function ApiReferencePage() {
 
     const link = document.createElement("link");
     link.rel = "stylesheet";
-    link.href = "https://unpkg.com/swagger-ui-dist@5/swagger-ui.css";
+    link.href = "/vendor/swagger-ui/swagger-ui.css";
     document.head.appendChild(link);
 
     return () => {
