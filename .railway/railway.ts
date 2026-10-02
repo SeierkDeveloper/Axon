@@ -63,13 +63,12 @@ export default defineRailway(() => {
   });
   const cronAutonomy = service("cron-autonomy", {
     source: Axon,
-    // sh -c, because without a shell the start command is exec'd directly and $CRON_SECRET is never
-    // expanded: curl then sends the literal text "Bearer $CRON_SECRET" and the endpoint answers 401.
-    // The retries are for the other failure, a deploy window or a cold start, which -f turns into a
-    // crashed service that never tries again under restartPolicyType NEVER.
-    start: "sh -c 'curl -fsS --retry 5 --retry-all-errors --retry-delay 15 -X POST -H \"Authorization: Bearer $CRON_SECRET\" https://axon-agents.com/api/cron/autonomy'",
+    // every hour at :30, off the hour the network activity job runs on. node's fetch, which every image has (some
+    // cron images have no curl), reading CRON_SECRET from its own environment; five tries 15 s apart cover a
+    // deploy window or a cold start, which would otherwise cost the hour under restartPolicyType NEVER.
+    start: "node -e \"const go=n=>fetch('https://axon-agents.com/api/cron/autonomy',{method:'POST',headers:{Authorization:'Bearer '+process.env.CRON_SECRET}}).then(async r=>{console.log(r.status,(await r.text()).slice(0,300));if(r.ok)process.exit(0);if(n>0)return setTimeout(()=>go(n-1),15000);process.exit(1)}).catch(e=>{console.error(e.message);if(n>0)return setTimeout(()=>go(n-1),15000);process.exit(1)});go(5)\"",
     replicas: { "europe-west4-drams3a": 1 },
-    deploy: { cronSchedule: "0 7 * * *", restartPolicyType: "NEVER" },
+    deploy: { cronSchedule: "30 * * * *", restartPolicyType: "NEVER" },
     env: { CRON_SECRET: preserve() },
   });
   const cronAgents = service("cron-agents", {

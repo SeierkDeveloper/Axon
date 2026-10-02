@@ -272,7 +272,7 @@ export async function pageHealth(base = siteUrl(), fetchFn: typeof fetch = fetch
 export async function runNetworkChecks(
   now = Date.now(),
   deps: { fetchFn?: typeof fetch } = {},
-): Promise<{ findings: Finding[]; failed: string[] }> {
+): Promise<{ findings: Finding[]; failed: string[]; ran: number }> {
   const checks: [string, () => Finding[] | Promise<Finding[]>][] = [
     ["failing agents", () => failingAgents(now)],
     ["unreachable agents", () => unreachableAgents()],
@@ -296,5 +296,5 @@ export async function runNetworkChecks(
       failed.push(name);
     }
   }
-  return { findings, failed };
+  return { findings, failed, ran: checks.length };
 }

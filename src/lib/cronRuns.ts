@@ -29,7 +29,7 @@ export interface CronRun {
  * here is at least twice the interval it covers.
  */
 export const EXPECTED_SILENCE_SECONDS: Record<string, number> = {
-  autonomy: 60 * 60 * 30, // daily at 07:00
+  autonomy: 60 * 60 * 3, // hourly at :30
   retention: 60 * 60 * 30, // daily at 02:00
   reproducibility: 60 * 60 * 18, // twice a day
   agents: 60 * 60 * 30, // daily at 06:00

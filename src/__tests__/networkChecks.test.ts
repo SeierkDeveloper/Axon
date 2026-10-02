@@ -23,7 +23,7 @@ import {
   paymentMismatches,
   runNetworkChecks,
 } from "@/lib/networkChecks";
-import { publicView, runNetworkPass } from "@/lib/autonomyNetwork";
+import { publicSummary, publicDay, runNetworkPass, getNetworkRunsSince, type NetworkRun } from "@/lib/autonomyNetwork";
 import type { Agent } from "@/sdk/types";
 
 const HOUR = 3_600_000;
@@ -138,17 +138,46 @@ describe("network checks (report only)", () => {
     expect(failed).toEqual(["fee flow"]);
   });
 
-  it("shows the public none of it: every phase 1 finding is admin-only", () => {
+  it("shows the public counts of upkeep only: no subjects, no wording, nothing admin-only", () => {
     const run = runNetworkPass({
       apply: false,
       extra: [
-        { kind: "agent-failing", subject: "x", what: "x" },
-        { kind: "payment-mismatch", what: "x" },
-        { kind: "fee-flow", what: "x" },
-        { kind: "agent-restored", subject: "y", what: "y" },
+        { kind: "agent-failing", subject: "secret-agent", what: "failing 9 of 10" },
+        { kind: "payment-mismatch", what: "0.5 ETH unaccounted" },
+        { kind: "fee-flow", what: "pot unburned" },
+        { kind: "agent-restored", subject: "agent-y", what: "back in routing" },
+        { kind: "task-freed", subject: "task-1", what: "put back in the queue" },
+        { kind: "task-freed", subject: "task-2", what: "closed" },
       ],
     });
-    expect(publicView(run).observations.map((o) => o.kind)).toEqual(["agent-restored"]);
+    const pub = publicSummary(run);
+    expect(pub.upkeep["agent-restored"]).toBe(1);
+    expect(pub.upkeep["task-freed"]).toBe(2);
+    expect(pub.upkeep["agent-paused"]).toBe(0);
+    const text = JSON.stringify(pub);
+    for (const leak of ["secret-agent", "agent-y", "task-1", "ETH", "pot", "failing", "routing"]) expect(text).not.toContain(leak);
+  });
+
+  it("records how many checks a pass ran and which could not, and reads the last day back", () => {
+    const run = runNetworkPass({ apply: true, checks: { run: 12, unavailable: ["fee flow"] } });
+    const back = getNetworkRunsSince(1).find((r) => r.runId === run.runId);
+    expect(back?.checksRun).toBe(12);
+    expect(back?.checksUnavailable).toEqual(["fee flow"]);
+    expect(publicSummary(back!).checksUnavailable).toBe(1);
+  });
+
+  it("lays the last day out hour by hour, marking hours where a check could not run", () => {
+    const at = (h: number, unavailable: string[] = []): NetworkRun => ({
+      runId: randomUUID(), startedAt: ago(h * HOUR - 60_000), finishedAt: ago(h * HOUR - 90_000),
+      observations: [{ kind: "agent-retested", subject: "a", what: "x" }], changes: [], agentsSeen: 3,
+      checksRun: 12, checksUnavailable: unavailable,
+    });
+    const day = publicDay([at(0), at(2, ["pages"]), at(30)], NOW);
+    expect(day.hours).toHaveLength(24);
+    expect(day.hours.at(-1)).toMatchObject({ ran: true, complete: true });
+    expect(day.hours.at(-3)).toMatchObject({ ran: true, complete: false });
+    expect(day.hours.at(-2)).toMatchObject({ ran: false });
+    expect(day.passes).toBe(3); // what it was given; the caller passes the last day
   });
 
   it("finds an agent far slower than others with the same skills", () => {

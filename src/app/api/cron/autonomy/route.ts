@@ -1,14 +1,13 @@
 // POST /api/cron/autonomy
 //
-// Tier 3: the pass over the live network. Observes the marketplace and applies
-// price self-optimization to the agents whose owners opted in — and to no others.
+// Tier 3: the pass over the live network, every hour. Checks the whole network, acts within the caps in
+// autonomyPolicy, and re-prices only the agents whose owners opted in.
 //
-// Railway cron: POST https://axon-agents.com/api/cron/autonomy, daily.
-// GET runs the same pass without writing, so the result can be read before the
-// pass is trusted to act.
+// Railway cron: POST https://axon-agents.com/api/cron/autonomy, hourly at :30.
+// GET is public and returns counts only (publicSummary, publicDay); the full record is /api/admin/autonomy.
 
 import { NextRequest, NextResponse } from "next/server";
-import { runNetworkPass, runFullNetworkPass, getLatestNetworkRun, publicView } from "@/lib/autonomyNetwork";
+import { runFullNetworkPass, getLatestNetworkRun, getNetworkRunsSince, publicSummary, publicDay } from "@/lib/autonomyNetwork";
 import { noteCronRun } from "@/lib/cronRuns";
 
 export const runtime = "nodejs";
@@ -31,17 +30,14 @@ export async function POST(req: NextRequest) {
     observations: run.observations.length,
     checksUnavailable: run.checksUnavailable,
     changed: run.changes.length,
-    changes: run.changes,
   });
 }
 
-// A dry pass, and the last recorded one. Public, so it shows only what autonomyPolicy marks public: the
-// checks behind it (money, listings, agents' health) are read in full at /api/admin/autonomy.
+// The last pass and the last day, as counts. Reads the record only: a public request never starts a pass.
 export async function GET() {
-  const preview = publicView(runNetworkPass({ apply: false }));
   const latest = getLatestNetworkRun();
   return NextResponse.json(
-    { preview, latest: latest ? publicView(latest) : null },
+    { latest: latest ? publicSummary(latest) : null, day: publicDay(getNetworkRunsSince(24)) },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

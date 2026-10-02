@@ -19,7 +19,7 @@
 
 /** Areas no check may act on, whatever it finds. A finding here is reported to the admin view and left alone. */
 export const NEVER_TOUCHES = [
-  "payments and payment verification",
+  "payments and payment verification (the one exception: a stuck task it closes is refunded the way the worker refunds one)",
   "sign-in, API keys and allowance keys",
   "receipts and the receipt hash chain",
   "the treasury, the burn pot and the fee splitter",

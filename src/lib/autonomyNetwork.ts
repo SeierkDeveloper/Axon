@@ -1,14 +1,12 @@
-// Tier 3 — the pass over the network itself, rather than the code.
+// Tier 3: the pass over the network itself, rather than the code. It runs every hour.
 //
-// The codebase pass reads files and writes its log to git. This one reads live
-// state, so its record lives in the database; /autonomy shows both and says
-// which is which.
+// The codebase pass reads files and writes its log to git. This one reads live state, so its record lives in the
+// database. The pass checks the whole network (networkChecks), acts within the caps in autonomyPolicy (routing in
+// autonomyActions, upkeep in autonomyUpkeep), and re-prices only agents whose owner turned on auto_price.
 //
-// The rule that shapes this file: it observes every agent and acts on almost
-// none. An agent's price is its owner's business decision, so the pass adjusts
-// it only where the owner set `auto_price`. Everything else it notices, it
-// reports. Automation that quietly edits other people's listings would buy a
-// little tidiness at the cost of the only thing making any of this credible.
+// Who sees what: the admin page reads every pass in full. The public page and the public API read publicSummary and
+// publicDay, which are counts of upkeep and nothing else: no agent, task or webhook named, no amounts, nothing about
+// money or volumes.
 
 import { randomUUID } from "crypto";
 import { getDb } from "./db";
@@ -42,6 +40,9 @@ export interface NetworkRun {
   observations: NetworkObservation[];
   changes: NetworkChange[];
   agentsSeen: number;
+  /** How many checks the pass ran, and the names of any that could not run. Absent on passes before migration 079. */
+  checksRun?: number;
+  checksUnavailable?: string[];
 }
 
 /** Listed this long without finishing anything counts as dormant. */
@@ -188,7 +189,9 @@ function applyAutoPricing(apply: boolean, now = Date.now()): NetworkChange[] {
  * inspected before it is trusted — the same split the codebase pass has between
  * checking and fixing.
  */
-export function runNetworkPass(opts: { apply?: boolean; extra?: NetworkObservation[] } = {}): NetworkRun {
+export function runNetworkPass(
+  opts: { apply?: boolean; extra?: NetworkObservation[]; checks?: { run: number; unavailable: string[] } } = {},
+): NetworkRun {
   const apply = opts.apply ?? false;
   const startedAt = new Date().toISOString();
   const db = getDb();
@@ -204,16 +207,23 @@ export function runNetworkPass(opts: { apply?: boolean; extra?: NetworkObservati
     observations,
     changes,
     agentsSeen,
+    ...(opts.checks ? { checksRun: opts.checks.run, checksUnavailable: opts.checks.unavailable } : {}),
   };
 
   if (apply) {
-    db.prepare(`
-      INSERT INTO autonomy_network_runs (run_id, started_at, finished_at, observations, changes, agents_seen)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      run.runId, run.startedAt, run.finishedAt,
-      JSON.stringify(run.observations), JSON.stringify(run.changes), run.agentsSeen,
-    );
+    const base = [run.runId, run.startedAt, run.finishedAt, JSON.stringify(run.observations), JSON.stringify(run.changes), run.agentsSeen];
+    try {
+      db.prepare(`
+        INSERT INTO autonomy_network_runs (run_id, started_at, finished_at, observations, changes, agents_seen, checks_run, checks_unavailable)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(...base, run.checksRun ?? null, run.checksUnavailable ? JSON.stringify(run.checksUnavailable) : null);
+    } catch {
+      // before migration 079: the pass is still recorded, without its check counts
+      db.prepare(`
+        INSERT INTO autonomy_network_runs (run_id, started_at, finished_at, observations, changes, agents_seen)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(...base);
+    }
     void syncToTurso();
   }
   return run;
@@ -228,34 +238,52 @@ export function runNetworkPass(opts: { apply?: boolean; extra?: NetworkObservati
  * down at exactly the moment someone came to look at it. The same rule the file
  * log follows: a missing record costs the section, never the page.
  */
-export function getLatestNetworkRun(): NetworkRun | null {
-  let row;
+type RunRow = {
+  run_id: string; started_at: string; finished_at: string; observations: string; changes: string; agents_seen: number;
+  checks_run?: number | null; checks_unavailable?: string | null;
+};
+
+function parseList<T>(s: string | null | undefined): T[] {
   try {
-    row = getDb()
-      .prepare("SELECT * FROM autonomy_network_runs ORDER BY started_at DESC LIMIT 1")
-      .get() as
-    | { run_id: string; started_at: string; finished_at: string; observations: string; changes: string; agents_seen: number }
-      | undefined;
+    const v = JSON.parse(s ?? "[]");
+    return Array.isArray(v) ? (v as T[]) : [];
   } catch {
-    return null; // table not migrated yet
+    return [];
   }
-  if (!row) return null;
-  const parse = <T>(s: string): T[] => {
-    try {
-      const v = JSON.parse(s);
-      return Array.isArray(v) ? (v as T[]) : [];
-    } catch {
-      return [];
-    }
-  };
+}
+
+function fromRow(row: RunRow): NetworkRun {
   return {
     runId: row.run_id,
     startedAt: row.started_at,
     finishedAt: row.finished_at,
-    observations: parse<NetworkObservation>(row.observations),
-    changes: parse<NetworkChange>(row.changes),
+    observations: parseList<NetworkObservation>(row.observations),
+    changes: parseList<NetworkChange>(row.changes),
     agentsSeen: row.agents_seen,
+    ...(row.checks_run != null ? { checksRun: row.checks_run, checksUnavailable: parseList<string>(row.checks_unavailable) } : {}),
   };
+}
+
+export function getLatestNetworkRun(): NetworkRun | null {
+  let row: RunRow | undefined;
+  try {
+    row = getDb().prepare("SELECT * FROM autonomy_network_runs ORDER BY started_at DESC LIMIT 1").get() as RunRow | undefined;
+  } catch {
+    return null; // table not migrated yet
+  }
+  return row ? fromRow(row) : null;
+}
+
+/** The passes recorded in the last `hours`, newest first. Empty rather than throwing before the table exists. */
+export function getNetworkRunsSince(hours: number, now = Date.now()): NetworkRun[] {
+  try {
+    const rows = getDb()
+      .prepare("SELECT * FROM autonomy_network_runs WHERE started_at >= ? ORDER BY started_at DESC")
+      .all(new Date(now - hours * 3_600_000).toISOString()) as RunRow[];
+    return rows.map(fromRow);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -265,19 +293,86 @@ export function getLatestNetworkRun(): NetworkRun | null {
 export async function runFullNetworkPass(
   opts: { apply?: boolean; retest?: Retest; ping?: Ping; refresh?: (agentId: string) => Promise<boolean> } = {},
 ): Promise<NetworkRun & { checksUnavailable: string[] }> {
-  const { findings, failed } = await runNetworkChecks();
+  const { findings, failed, ran } = await runNetworkChecks();
   // act on what the checks found, only when applying and with actions enabled: routing (phase 3), then upkeep (phase 4)
   const apply = opts.apply ?? false;
   const actions = [
     ...(await routingActions(findings, { apply, retest: opts.retest })),
     ...(await upkeepActions(findings, { apply, ping: opts.ping, refresh: opts.refresh })),
   ];
-  const run = runNetworkPass({ apply: opts.apply, extra: [...findings, ...actions] });
+  const run = runNetworkPass({ apply: opts.apply, extra: [...findings, ...actions], checks: { run: ran, unavailable: failed } });
   return { ...run, checksUnavailable: failed };
 }
 
-/** A run as the public may see it: only what autonomyPolicy marks public, and nothing about money or listings. */
-export function publicView(run: NetworkRun): NetworkRun {
-  return { ...run, observations: run.observations.filter((o) => isPublic(o.kind)) };
+// ── What the public sees: counts, never items ───────────────────────────────
+
+/** The upkeep the public page counts, in the order it shows them. Each is a kind autonomyPolicy marks public. */
+export const PUBLIC_UPKEEP = [
+  "agent-retested",
+  "agent-paused",
+  "agent-restored",
+  "task-freed",
+  "webhook-paused",
+  "webhook-restored",
+  "description-refreshed",
+  "price-adjusted",
+] as const satisfies readonly FindingKind[];
+export type PublicUpkeep = (typeof PUBLIC_UPKEEP)[number];
+
+export interface PublicSummary {
+  finishedAt: string;
+  agentsSeen: number;
+  checksRun: number | null;
+  checksUnavailable: number;
+  /** How many of each kind of upkeep the pass did. Nothing about which agent, task or webhook, nor any amount. */
+  upkeep: Record<PublicUpkeep, number>;
+}
+
+function countUpkeep(runs: NetworkRun[]): Record<PublicUpkeep, number> {
+  const counts = Object.fromEntries(PUBLIC_UPKEEP.map((k) => [k, 0])) as Record<PublicUpkeep, number>;
+  for (const run of runs) {
+    for (const o of run.observations) {
+      if (isPublic(o.kind) && o.kind in counts) counts[o.kind as PublicUpkeep]++;
+    }
+    counts["price-adjusted"] += run.changes.length; // re-pricing is recorded as a change, counted as upkeep
+  }
+  return counts;
+}
+
+/** A pass as the public may see it: when, how much it looked at, and how many of each kind of upkeep. */
+export function publicSummary(run: NetworkRun): PublicSummary {
+  return {
+    finishedAt: run.finishedAt,
+    agentsSeen: run.agentsSeen,
+    checksRun: run.checksRun ?? null,
+    checksUnavailable: run.checksUnavailable?.length ?? 0,
+    upkeep: countUpkeep([run]),
+  };
+}
+
+export interface PublicDay {
+  passes: number;
+  /** One entry per hour, oldest first: whether a pass ran in it, and whether every check could run. */
+  hours: { hour: string; ran: boolean; complete: boolean }[];
+  upkeep: Record<PublicUpkeep, number>;
+}
+
+/** The last day as the public may see it: one slot per hour, and the upkeep totals. */
+export function publicDay(runs: NetworkRun[], now = Date.now()): PublicDay {
+  const HOUR = 3_600_000;
+  const top = Math.floor(now / HOUR) * HOUR;
+  const hours = Array.from({ length: 24 }, (_, i) => {
+    const from = top - (23 - i) * HOUR;
+    const inHour = runs.filter((r) => {
+      const t = Date.parse(r.startedAt);
+      return t >= from && t < from + HOUR;
+    });
+    return {
+      hour: new Date(from).toISOString(),
+      ran: inHour.length > 0,
+      complete: inHour.length > 0 && inHour.every((r) => (r.checksUnavailable?.length ?? 0) === 0),
+    };
+  });
+  return { passes: runs.length, hours, upkeep: countUpkeep(runs) };
 }
 

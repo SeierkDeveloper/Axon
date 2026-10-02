@@ -103,7 +103,7 @@ describe("the scheduled job ledger", () => {
     // two days before anyone is told, which is the exact failure this table exists to catch.
     // These are the intervals from .railway/railway.ts.
     const schedule: Record<string, number> = {
-      autonomy: 86400, retention: 86400, reproducibility: 43200, agents: 86400,
+      autonomy: 3600, retention: 86400, reproducibility: 43200, agents: 86400,
       "demo-activity": 3600, "telegram-feed": 3600, health: 300, webhooks: 300,
     };
     for (const job of TRACKED_JOBS) {
