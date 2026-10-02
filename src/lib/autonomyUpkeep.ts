@@ -45,10 +45,10 @@ export function freeStuckTasks(findings: Finding[]): Finding[] {
     if (t.status === "running" && t.started_by === "worker") continue;
     if (t.status === "running" && (t.stuck_count ?? 0) < STUCK.retries) {
       const changed = db
-        .prepare("UPDATE tasks SET status='queued', started_at=NULL, started_by=NULL, stuck_count=COALESCE(stuck_count,0)+1 WHERE task_id=? AND status='running'")
-        .run(f.subject).changes;
+        .prepare("UPDATE tasks SET status='queued', started_at=NULL, started_by=NULL, stuck_count=COALESCE(stuck_count,0)+1, requeued_at=? WHERE task_id=? AND status='running'")
+        .run(new Date().toISOString(), f.subject).changes;
       if (changed) out.push({ kind: "task-freed", subject: f.subject, what: "put back in the queue" });
-    } else if (failAndRelease(f.subject!, t.status === "queued" ? "Nobody picked this task up in time" : "Task stopped and could not be resumed")) {
+    } else if (failAndRelease(f.subject!, t.status === "queued" ? STUCK.reasons.notPickedUp : STUCK.reasons.stopped)) {
       out.push({ kind: "task-freed", subject: f.subject, what: "closed, and anything paid released" });
     }
   }

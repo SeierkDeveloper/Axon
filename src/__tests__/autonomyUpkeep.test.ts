@@ -4,7 +4,8 @@ import { getDb } from "@/lib/db";
 import { createAgent } from "@/lib/agents";
 import { freeStuckTasks, webhookUpkeep, refreshStaleDescriptions, warnRetainerOwners, upkeepActions, AUTONOMY_DISABLED } from "@/lib/autonomyUpkeep";
 import { runNetworkPass } from "@/lib/autonomyNetwork";
-import type { Finding } from "@/lib/networkChecks";
+import { stuckTasks, failingAgents, type Finding } from "@/lib/networkChecks";
+import { STUCK } from "@/lib/autonomyPolicy";
 import type { Agent } from "@/sdk/types";
 
 const HOUR = 3_600_000;
@@ -42,6 +43,22 @@ describe("stuck work", () => {
     getDb().prepare("UPDATE tasks SET status = 'running', started_by = 'cron', started_at = ? WHERE task_id = ?").run(ago(HOUR), id);
     expect(freeStuckTasks([stuck(id)])[0].what).toMatch(/closed/);
     expect(statusOf(id).status).toBe("failed");
+  });
+
+  it("gives a task it put back a real second chance: queued time counts from the requeue, not from creation", () => {
+    const id = task("running", "api");
+    freeStuckTasks([stuck(id)]);
+    expect(stuckTasks(NOW).map((f) => f.subject)).not.toContain(id); // created 3 h ago, but requeued just now
+    expect(stuckTasks(NOW + (STUCK.queuedMinutes + 5) * 60_000).map((f) => f.subject)).toContain(id);
+  });
+
+  it("never counts the work it closed itself against the agent", () => {
+    const db = getDb();
+    for (let i = 0; i < 4; i++) {
+      db.prepare("INSERT INTO tasks (task_id, from_agent, to_agent, task, status, created_at, completed_at, error) VALUES (?, 'x', 'w', 't', 'failed', ?, ?, ?)")
+        .run(randomUUID(), ago(3 * HOUR), ago(HOUR - i * 1000), STUCK.reasons.notPickedUp);
+    }
+    expect(failingAgents(NOW).map((f) => f.subject)).not.toContain("w");
   });
 
   it("leaves what the worker started to the worker, and closes work nobody picked up", () => {

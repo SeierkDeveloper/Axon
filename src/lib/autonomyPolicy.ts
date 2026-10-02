@@ -103,6 +103,11 @@ export const STUCK = {
   /** a stuck task is retried once; a second time it is failed, which releases or refunds it the usual way */
   retries: 1,
   maxPerRun: 25,
+  /** the reasons a task autonomy closes carries; they never count against the agent (networkChecks.failingAgents) */
+  reasons: {
+    notPickedUp: "Nobody picked this task up in time",
+    stopped: "Task stopped and could not be resumed",
+  },
 } as const;
 
 // ── Webhooks ──────────────────────────────────────────────────────────────────

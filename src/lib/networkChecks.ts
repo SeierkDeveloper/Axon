@@ -53,9 +53,12 @@ export function failingAgents(now = Date.now()): Finding[] {
     .prepare(
       `SELECT to_agent AS agent, status, completed_at FROM tasks
        WHERE status IN ('completed', 'failed') AND completed_at >= ?
+         -- work autonomy closed itself is its own cleanup, not the agent failing: counting it would pause an agent
+         -- for tasks the pass just shut, the next hour
+         AND NOT (status = 'failed' AND COALESCE(error, '') IN (?, ?))
        ORDER BY to_agent, completed_at DESC`,
     )
-    .all(iso(now - FAILING.windowHours * HOUR)) as { agent: string; status: string; completed_at: string }[];
+    .all(iso(now - FAILING.windowHours * HOUR), STUCK.reasons.notPickedUp, STUCK.reasons.stopped) as { agent: string; status: string; completed_at: string }[];
   // an agent put back in routing is judged only on what it did since
   let restored = new Map<string, string>();
   try {
@@ -105,7 +108,7 @@ export function stuckTasks(now = Date.now()): Finding[] {
   const rows = getDb()
     .prepare(
       `SELECT task_id, status, to_agent FROM tasks
-       WHERE (status = 'running' AND started_at < ?) OR (status = 'queued' AND created_at < ?)
+       WHERE (status = 'running' AND started_at < ?) OR (status = 'queued' AND COALESCE(requeued_at, created_at) < ?)
        ORDER BY created_at LIMIT 200`,
     )
     .all(iso(now - STUCK.runningMinutes * 60_000), iso(now - STUCK.queuedMinutes * 60_000)) as

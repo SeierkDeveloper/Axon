@@ -493,8 +493,8 @@ export function failTask(taskId: string, rawError: string): Task | null {
 export function requeueTask(taskId: string): Task | null {
   const db = getDb();
   const changes = db
-    .prepare("UPDATE tasks SET status='queued', error=NULL, started_at=NULL, started_by=NULL, completed_at=NULL, stuck_count=0 WHERE task_id=? AND status='failed'")
-    .run(taskId).changes;
+    .prepare("UPDATE tasks SET status='queued', error=NULL, started_at=NULL, started_by=NULL, completed_at=NULL, stuck_count=0, requeued_at=? WHERE task_id=? AND status='failed'")
+    .run(new Date().toISOString(), taskId).changes;
   if (changes === 0) return null;
   const task = getTaskById(taskId)!;
   queueTaskQueuedWebhook(task);
