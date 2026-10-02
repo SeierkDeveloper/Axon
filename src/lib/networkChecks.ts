@@ -48,15 +48,28 @@ const capsOf = (raw: string | null): string[] => {
 
 /** Agents whose last day of finished work makes them failing (autonomyPolicy.FAILING). */
 export function failingAgents(now = Date.now()): Finding[] {
-  const rows = getDb()
+  const db = getDb();
+  const rows = db
     .prepare(
-      `SELECT to_agent AS agent, status FROM tasks
+      `SELECT to_agent AS agent, status, completed_at FROM tasks
        WHERE status IN ('completed', 'failed') AND completed_at >= ?
        ORDER BY to_agent, completed_at DESC`,
     )
-    .all(iso(now - FAILING.windowHours * HOUR)) as { agent: string; status: string }[];
+    .all(iso(now - FAILING.windowHours * HOUR)) as { agent: string; status: string; completed_at: string }[];
+  // an agent put back in routing is judged only on what it did since
+  let restored = new Map<string, string>();
+  try {
+    restored = new Map(
+      (db.prepare("SELECT agent_id, routing_restored_at FROM agents WHERE routing_restored_at IS NOT NULL").all() as
+        { agent_id: string; routing_restored_at: string }[]).map((r) => [r.agent_id, r.routing_restored_at]),
+    );
+  } catch { /* before migration 077 */ }
   const by = new Map<string, string[]>();
-  for (const r of rows) (by.get(r.agent) ?? by.set(r.agent, []).get(r.agent)!).push(r.status);
+  for (const r of rows) {
+    const since = restored.get(r.agent);
+    if (since && r.completed_at <= since) continue;
+    (by.get(r.agent) ?? by.set(r.agent, []).get(r.agent)!).push(r.status);
+  }
   const out: Finding[] = [];
   for (const [agent, statuses] of by) {
     const succeeded = statuses.filter((s) => s === "completed").length;

@@ -85,6 +85,21 @@ function gatewayAgentIds(db: ReturnType<typeof getDb>): Set<string> {
   }
 }
 
+/** Agents autonomy has paused, and the routing weight of any it has turned down. */
+function routingState(db: ReturnType<typeof getDb>): { paused: Set<string>; weight: Map<string, number> } {
+  try {
+    const rows = db
+      .prepare("SELECT agent_id, routing_paused_at, routing_weight FROM agents WHERE routing_paused_at IS NOT NULL OR routing_weight < 1")
+      .all() as { agent_id: string; routing_paused_at: string | null; routing_weight: number }[];
+    return {
+      paused: new Set(rows.filter((r) => r.routing_paused_at).map((r) => r.agent_id)),
+      weight: new Map(rows.filter((r) => r.routing_weight < 1).map((r) => [r.agent_id, r.routing_weight])),
+    };
+  } catch {
+    return { paused: new Set(), weight: new Map() }; // before migration 077: nobody is paused
+  }
+}
+
 /**
  * Rank the eligible agents for a job, best first. Reused by selectAgent (top 1)
  * and quorum-by-default (top N). Returns [] when nothing qualifies.
@@ -117,8 +132,11 @@ export function rankAgents(opts: RouteOptions): Candidate[] {
     }
   }
 
+  // Autonomy keeps failing agents out of routing while it re-tests them, and sends slow ones less work: a paused
+  // agent is skipped here (it can still be hired by name), and a weight below 1 lowers its score.
+  const { paused, weight } = routingState(db);
   const eligible = pool.filter(
-    (a) => !exclude.has(a.agentId) && !gatewayIds.has(a.agentId) && (!allowed || allowed.has(a.agentId)),
+    (a) => !exclude.has(a.agentId) && !gatewayIds.has(a.agentId) && !paused.has(a.agentId) && (!allowed || allowed.has(a.agentId)),
   );
   if (eligible.length === 0) return [];
 
@@ -137,7 +155,7 @@ export function rankAgents(opts: RouteOptions): Candidate[] {
     const nProof = r.proofScore / 1000;
     const nPriceGood = maxPrice > 0 ? 1 - r.price / maxPrice : 1; // cheaper → higher
     const nLoadGood = maxLoad > 0 ? 1 - r.load / maxLoad : 1; // idler → higher
-    const score = W_PROOF * nProof + W_PRICE * nPriceGood + W_LOAD * nLoadGood;
+    const score = (W_PROOF * nProof + W_PRICE * nPriceGood + W_LOAD * nLoadGood) * (weight.get(r.agent.agentId) ?? 1);
     return { ...r, score };
   });
 

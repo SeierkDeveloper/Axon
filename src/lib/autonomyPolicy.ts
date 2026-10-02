@@ -61,6 +61,8 @@ export const ROUTING_PAUSE = {
   retestEveryHours: 3,
   /** and goes back into routing after this many passes in a row */
   passesToRestore: 2,
+  /** most paused agents re-tested in one run: a hosted agent's test is a small real model call */
+  maxRetestsPerRun: 10,
 } as const;
 
 /** Slow agents are routed to less, not removed: their weight drops while they are this much slower than peers. */
@@ -178,6 +180,7 @@ export const VISIBILITY = {
   "webhook-failing": "admin",
   "stale-description": "admin",
   "slow-agent": "admin",
+  "agent-reweighted": "admin",
   "price-outlier": "admin",
   "duplicate-listing": "admin",
   "dormant-listing": "admin",

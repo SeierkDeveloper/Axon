@@ -15,6 +15,7 @@ import { getDb } from "./db";
 import { syncToTurso } from "./db-turso";
 import { computeOptimization, applyOptimization } from "./selfOptimize";
 import { runNetworkChecks } from "./networkChecks";
+import { routingActions, type Retest } from "./autonomyActions";
 import { isPublic, type FindingKind } from "./autonomyPolicy";
 
 export interface NetworkObservation {
@@ -244,9 +245,13 @@ export function getLatestNetworkRun(): NetworkRun | null {
  * The whole pass: the phase 1 checks (report only), then the long-standing pass that observes and re-prices the
  * opted-in agents. A check that fails to run is named in the record rather than taking the pass down.
  */
-export async function runFullNetworkPass(opts: { apply?: boolean } = {}): Promise<NetworkRun & { checksUnavailable: string[] }> {
+export async function runFullNetworkPass(
+  opts: { apply?: boolean; retest?: Retest } = {},
+): Promise<NetworkRun & { checksUnavailable: string[] }> {
   const { findings, failed } = await runNetworkChecks();
-  const run = runNetworkPass({ apply: opts.apply, extra: findings });
+  // phase 3: act on what the checks found (routing), only when applying and with actions enabled
+  const actions = await routingActions(findings, { apply: opts.apply ?? false, retest: opts.retest });
+  const run = runNetworkPass({ apply: opts.apply, extra: [...findings, ...actions] });
   return { ...run, checksUnavailable: failed };
 }
 
