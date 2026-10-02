@@ -1,15 +1,15 @@
 {
-  "startedAt": "2026-10-02T12:29:51.768Z",
-  "finishedAt": "2026-10-02T12:30:09.119Z",
-  "commit": "15bf3cd",
+  "startedAt": "2026-10-02T17:06:42.890Z",
+  "finishedAt": "2026-10-02T17:06:57.289Z",
+  "commit": "cbb0f93",
   "checks": [
     {
       "id": "install-commands",
       "title": "Install commands resolve",
       "ok": true,
-      "checked": 13,
+      "checked": 10,
       "findings": [],
-      "ms": 16594
+      "ms": 9915
     },
     {
       "id": "links",
@@ -17,19 +17,68 @@
       "ok": true,
       "checked": 194,
       "findings": [],
-      "ms": 67
+      "ms": 61
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 641,
+      "checked": 673,
       "findings": [],
-      "ms": 686
+      "ms": 596
+    },
+    {
+      "id": "api-reference",
+      "title": "The API reference matches the routes",
+      "ok": true,
+      "checked": 265,
+      "findings": [],
+      "ms": 38
+    },
+    {
+      "id": "sdk-routes",
+      "title": "The SDK calls routes that exist",
+      "ok": true,
+      "checked": 124,
+      "findings": [],
+      "ms": 24
+    },
+    {
+      "id": "examples",
+      "title": "Examples import what the SDK exports",
+      "ok": true,
+      "checked": 35,
+      "findings": [],
+      "ms": 10
+    },
+    {
+      "id": "packages",
+      "title": "Packages are used and free of known holes",
+      "ok": true,
+      "checked": 24,
+      "findings": [
+        {
+          "severity": "warn",
+          "what": "1 critical and 5 high vulnerabilities in shipped packages",
+          "why": "known holes in what runs in production",
+          "where": [
+            "package-lock.json"
+          ]
+        }
+      ],
+      "ms": 3749
+    },
+    {
+      "id": "migrations",
+      "title": "Migrations are complete and in order",
+      "ok": true,
+      "checked": 80,
+      "findings": [],
+      "ms": 1
     }
   ],
   "errors": 0,
-  "warnings": 0,
+  "warnings": 1,
   "changed": false,
   "changes": []
 }

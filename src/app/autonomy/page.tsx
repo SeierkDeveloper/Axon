@@ -69,7 +69,7 @@ function FindingRow({ f }: { f: Finding }) {
 
 export default function AutonomyPage() {
   const latest = getLatestRun();
-  const history = getRunHistory(20);
+  const history = getRunHistory(6);
   const findings = openFindings(latest);
   // a repair the proof rejected was put back, so it is not something the pass changed
   const kept = (latest?.changes ?? []).filter((c) => c.status !== "reverted");
