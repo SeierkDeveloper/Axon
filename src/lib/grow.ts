@@ -191,11 +191,6 @@ export function getGrowEvents(runId: string): GrowEvent[] {
     .map(rowToEvent);
 }
 
-export function listGrowRuns(limit = 20): GrowRun[] {
-  return (getDb().prepare("SELECT * FROM grow_runs ORDER BY started_at DESC LIMIT ?").all(limit) as GrowRunRow[])
-    .map(rowToRun);
-}
-
 export function getLatestGrowRun(): GrowRun | null {
   const row = getDb().prepare("SELECT * FROM grow_runs ORDER BY started_at DESC LIMIT 1").get() as GrowRunRow | undefined;
   return row ? rowToRun(row) : null;

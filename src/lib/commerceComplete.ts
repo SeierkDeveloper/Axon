@@ -278,8 +278,3 @@ export async function refreshOrderStatus(intentId: string): Promise<string | nul
   }
   return intent.orderStatus ?? null;
 }
-
-/** Mark an intent failed from a caller that already knows why. */
-export function abandonPurchase(intentId: string, reason: string): void {
-  failPurchaseIntent(intentId, reason);
-}

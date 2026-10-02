@@ -9,7 +9,7 @@ import { CHAIN_ID_HEX, CHAIN_PARAMS, type Eip1193 } from "./chain";
 const hex = (v: bigint) => `0x${v.toString(16)}`;
 
 /** Switch the wallet to Robinhood Chain, adding it if the wallet does not know it. */
-export async function ensureRobinhoodChain(p: Eip1193): Promise<void> {
+async function ensureRobinhoodChain(p: Eip1193): Promise<void> {
   const chain = (await p.request({ method: "eth_chainId" })) as string;
   if (chain?.toLowerCase() === CHAIN_ID_HEX) return;
   try {

@@ -68,8 +68,8 @@ export default function AutonomyPage() {
           Axon checks itself.
         </h1>
         <p className="text-gray-500 dark:text-gray-400 leading-relaxed mb-3">
-          On a schedule, and on every push, Axon runs a set of checks over its own repository and
-          records what it found. This page is that record.
+          Every time its code changes, Axon runs a set of checks over its own repository and records
+          what it found. This page is that record.
         </p>
         <p className="text-gray-500 dark:text-gray-400 leading-relaxed mb-10">
           The log is committed to the repository rather than kept in a database, so you can read the

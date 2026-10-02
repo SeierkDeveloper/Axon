@@ -8,7 +8,7 @@
 
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
-import { settleQuote, consumeQuoteForReservation, getQuote, type SettleFailure } from "./axonQuote";
+import { settleQuote, consumeQuoteForReservation, type SettleFailure } from "./axonQuote";
 import { getSplitsForTask } from "./escrowSplits";
 import { getSlaForTask } from "./sla";
 import { getBudget } from "./budgets";
@@ -172,14 +172,6 @@ export async function createAxonPayment(opts: {
       txHash: opts.txHash,
     },
   };
-}
-
-/** The quote a payment came from, so a refund can be explained in the terms it was agreed in. */
-export function quoteForPayment(txHash: string) {
-  const row = getDb()
-    .prepare("SELECT quote_id FROM axon_quotes WHERE tx_hash = ?")
-    .get(txHash) as { quote_id: string } | undefined;
-  return row ? getQuote(row.quote_id) : null;
 }
 
 /** Is this ledger row denominated in something other than the reporting currency. */
