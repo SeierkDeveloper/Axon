@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-02T19:01:50.698Z",
-  "finishedAt": "2026-10-02T19:02:17.671Z",
-  "commit": "b346ef5",
+  "startedAt": "2026-10-02T21:36:38.982Z",
+  "finishedAt": "2026-10-02T21:37:04.483Z",
+  "commit": "c78128e",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 17434
+      "ms": 15343
     },
     {
       "id": "links",
@@ -17,15 +17,24 @@
       "ok": true,
       "checked": 194,
       "findings": [],
-      "ms": 79
+      "ms": 58
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 673,
-      "findings": [],
-      "ms": 783
+      "checked": 676,
+      "findings": [
+        {
+          "severity": "warn",
+          "what": "clearBurnLastGood() is exported and never used",
+          "why": "dead code reads exactly like live code",
+          "where": [
+            "src/lib/burnLive.ts"
+          ]
+        }
+      ],
+      "ms": 624
     },
     {
       "id": "api-reference",
@@ -33,7 +42,7 @@
       "ok": true,
       "checked": 265,
       "findings": [],
-      "ms": 36
+      "ms": 34
     },
     {
       "id": "sdk-routes",
@@ -41,7 +50,7 @@
       "ok": true,
       "checked": 124,
       "findings": [],
-      "ms": 29
+      "ms": 25
     },
     {
       "id": "examples",
@@ -49,7 +58,7 @@
       "ok": true,
       "checked": 35,
       "findings": [],
-      "ms": 12
+      "ms": 11
     },
     {
       "id": "packages",
@@ -66,7 +75,7 @@
           ]
         }
       ],
-      "ms": 2850
+      "ms": 3994
     },
     {
       "id": "migrations",
@@ -78,7 +87,7 @@
     }
   ],
   "errors": 0,
-  "warnings": 1,
+  "warnings": 2,
   "changed": false,
   "changes": []
 }
