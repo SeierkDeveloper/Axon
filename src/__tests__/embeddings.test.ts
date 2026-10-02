@@ -5,7 +5,9 @@ import {
   storeAgentEmbedding,
   getAgentEmbedding,
   semanticSearchAgents,
+  clearQueryEmbeddings,
 } from "@/lib/embeddings";
+import { clearReadCache } from "@/lib/readCache";
 import { createAgent } from "@/lib/agents";
 import { getDb } from "@/lib/db";
 
@@ -203,6 +205,9 @@ describe("semanticSearchAgents", () => {
   // create agents with stored embeddings, which would otherwise pollute results.
   beforeEach(() => {
     getDb().prepare("UPDATE agents SET embedding = NULL").run();
+    // searches share the agents' vectors and a query's embedding for a while; each test starts fresh
+    clearReadCache();
+    clearQueryEmbeddings();
   });
   it("returns null when generateEmbedding returns null (no API key)", async () => {
     delete process.env.OPENAI_API_KEY;

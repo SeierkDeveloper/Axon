@@ -11,6 +11,7 @@
 // run that dies mid-flight leaves them claimed with the hash in the log, which is recoverable;
 // re-reading them as pending would send the same earnings a second time.
 
+import { cachedRead } from "./readCache";
 import { encodeFunctionData } from "viem";
 import { getDb } from "./db";
 import { syncToTurso } from "./db-turso";
@@ -238,12 +239,16 @@ export async function getBurnStats(): Promise<BurnStats> {
   const pot = burnPotAddress();
   if (!pot) return stats;
   try {
-    const client = publicClient();
-    const [ethBurned, tokensBurned, count] = await Promise.all([
-      client.readContract({ address: pot as `0x${string}`, abi: POT_ABI, functionName: "totalEthBurned" }),
-      client.readContract({ address: pot as `0x${string}`, abi: POT_ABI, functionName: "totalTokensBurned" }),
-      client.readContract({ address: pot as `0x${string}`, abi: POT_ABI, functionName: "burnCount" }),
-    ]);
+    // the chain half is shared like the burn page's own read: one call to the node per window, however many
+    // people open the analytics at once
+    const [ethBurned, tokensBurned, count] = await cachedRead(`burn:totals:${pot}`, 15_000, () => {
+      const client = publicClient();
+      return Promise.all([
+        client.readContract({ address: pot as `0x${string}`, abi: POT_ABI, functionName: "totalEthBurned" }),
+        client.readContract({ address: pot as `0x${string}`, abi: POT_ABI, functionName: "totalTokensBurned" }),
+        client.readContract({ address: pot as `0x${string}`, abi: POT_ABI, functionName: "burnCount" }),
+      ]);
+    });
     stats.onChain = {
       totalEthBurned: weiToEth(ethBurned as bigint),
       totalTokensBurned: weiToEth(tokensBurned as bigint),

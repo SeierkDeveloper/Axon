@@ -6,6 +6,7 @@
 // Model: text-embedding-3-small (1536 dims, cheap, fast).
 // Embeddings are stored as a JSON array in agents.embedding.
 
+import { cachedRead } from "./readCache";
 import { getDb } from "./db";
 import { syncToTurso } from "./db-turso";
 import { logger } from "./logger";
@@ -159,22 +160,28 @@ interface AgentEmbeddingRow {
   embedding: string | null;
 }
 
-export async function semanticSearchAgents(
-  query: string,
-  opts: SearchOptions & { q: string }
-): Promise<Agent[] | null> {
-  const queryEmbedding = await generateEmbedding(query.slice(0, MAX_TEXT_CHARS));
-  if (!queryEmbedding) return null; // no API key or error, caller falls back
+/** How long one read of the agents' vectors and success rates is shared between searches. */
+const SEARCH_SHARE_MS = 60_000;
 
-  const db = getDb();
-  const rows = db
-    .prepare("SELECT * FROM agents WHERE embedding IS NOT NULL")
-    .all() as AgentEmbeddingRow[];
+/** Every agent with an embedding, its vector parsed once. */
+function agentVectors(): { row: AgentEmbeddingRow; vec: number[] }[] {
+  const rows = getDb().prepare("SELECT * FROM agents WHERE embedding IS NOT NULL").all() as AgentEmbeddingRow[];
+  const out: { row: AgentEmbeddingRow; vec: number[] }[] = [];
+  for (const row of rows) {
+    if (!row.embedding) continue;
+    try {
+      const vec = JSON.parse(row.embedding) as number[];
+      if (Array.isArray(vec) && vec.length === EMBEDDING_DIMS) out.push({ row, vec });
+    } catch {
+      // a broken vector leaves that agent out of semantic search, as before
+    }
+  }
+  return out;
+}
 
-  if (rows.length === 0) return [];
-
-  // Pull task success rates for all agents in one query — new agents default to 0.5 (neutral)
-  const taskStats = db.prepare(`
+/** Task success rate per agent, in one query; agents without finished work default to 0.5 (neutral). */
+function successRates(): Map<string, number> {
+  const rows = getDb().prepare(`
     SELECT
       to_agent AS agentId,
       CAST(COUNT(*) FILTER (WHERE status = 'completed') AS REAL)
@@ -183,19 +190,49 @@ export async function semanticSearchAgents(
     WHERE status IN ('completed', 'failed')
     GROUP BY to_agent
   `).all() as { agentId: string; successRate: number | null }[];
-  const successRateMap = new Map(taskStats.map((s) => [s.agentId, s.successRate ?? 0.5]));
+  return new Map(rows.map((s) => [s.agentId, s.successRate ?? 0.5]));
+}
+
+// The same words always embed to the same vector, so a query's embedding is kept for a day: an assistant
+// asking for "research" again does not wait on the embeddings API. Bounded, oldest first out.
+const QUERY_EMBEDDING_MS = 24 * 3_600_000;
+const QUERY_EMBEDDING_MAX = 500;
+const queryEmbeddings = new Map<string, { at: number; vec: number[] }>();
+
+async function embedQuery(text: string): Promise<number[] | null> {
+  const key = text.trim().toLowerCase();
+  const hit = queryEmbeddings.get(key);
+  if (hit && Date.now() - hit.at < QUERY_EMBEDDING_MS) return hit.vec;
+  const vec = await generateEmbedding(text);
+  if (vec) {
+    queryEmbeddings.delete(key);
+    queryEmbeddings.set(key, { at: Date.now(), vec });
+    if (queryEmbeddings.size > QUERY_EMBEDDING_MAX) queryEmbeddings.delete(queryEmbeddings.keys().next().value!);
+  }
+  return vec;
+}
+
+/** Test seam: forget remembered query embeddings. */
+export function clearQueryEmbeddings() {
+  queryEmbeddings.clear();
+}
+
+export async function semanticSearchAgents(
+  query: string,
+  opts: SearchOptions & { q: string }
+): Promise<Agent[] | null> {
+  const queryEmbedding = await embedQuery(query.slice(0, MAX_TEXT_CHARS));
+  if (!queryEmbedding) return null; // no API key or error, caller falls back
+
+  // The agents' vectors and their success rates are the same for every search in a minute: read and parsed
+  // once, not on every call (they were most of a search's time, with the embedding call)
+  const vectors = await cachedRead("search:agent-vectors", SEARCH_SHARE_MS, async () => agentVectors());
+  if (vectors.length === 0) return [];
+  const successRateMap = await cachedRead("search:success-rates", SEARCH_SHARE_MS, async () => successRates());
 
   // Blended score: similarity (primary) + success rate + price signal
   const scored: { agent: AgentEmbeddingRow; score: number }[] = [];
-  for (const row of rows) {
-    if (!row.embedding) continue;
-    let vec: number[];
-    try {
-      vec = JSON.parse(row.embedding) as number[];
-    } catch {
-      continue;
-    }
-    if (!Array.isArray(vec) || vec.length !== EMBEDDING_DIMS) continue;
+  for (const { row, vec } of vectors) {
     const similarity = cosineSimilarity(queryEmbedding, vec);
     const successRate = successRateMap.get(row.agent_id) ?? 0.5;
     const priceScore = row.price ? 0.8 : 1.0;

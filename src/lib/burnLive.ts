@@ -7,6 +7,7 @@
 // Everything here comes off the chain. The pot's own preview() is the authority on the schedule,
 // so the page never has to reimplement the interval rules and then disagree with the contract.
 
+import { cachedRead } from "./readCache";
 import { publicClient } from "./evm";
 import { burnPotAddress } from "./burn";
 import { weiToEth } from "./money";
@@ -96,14 +97,39 @@ const empty = (pot: string | null): BurnLive => ({
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
+/** A read of the pot that reached nothing: carried out of the cache so it is never stored as the answer. */
+class PotUnreadable extends Error {
+  constructor(readonly result: BurnLive) {
+    super("burn pot unreadable");
+  }
+}
+
 /**
  * Read the pot. Returns `live: false` rather than throwing when there is no pot yet or the node is
  * unreachable, because a burn page that 500s is worse than one that says it cannot reach the chain.
+ *
+ * Shared for BURN_READ_TTL_MS: one read of the node serves everyone looking in that window, and `readAt`
+ * says when it was taken, so the page's countdown stays right. An unreadable pot is never cached: the last
+ * good read is answered instead while the node comes back.
  */
 export async function getBurnLive(): Promise<BurnLive> {
   const pot = burnPotAddress();
   if (!pot) return empty(null);
+  try {
+    return await cachedRead(`burn:live:${pot}`, BURN_READ_TTL_MS, async () => {
+      const r = await readBurnLive(pot);
+      if (!r.live) throw new PotUnreadable(r);
+      return r;
+    });
+  } catch (err) {
+    return err instanceof PotUnreadable ? err.result : empty(pot);
+  }
+}
 
+/** How long one read of the pot is shared. The pot changes at most once per burn, 30 minutes apart. */
+export const BURN_READ_TTL_MS = 10_000;
+
+async function readBurnLive(pot: string): Promise<BurnLive> {
   try {
     const client = publicClient();
     const address = pot as `0x${string}`;
