@@ -139,11 +139,6 @@ export const BURN_READ_TTL_MS = 10_000;
 let lastGood: { at: number; value: BurnLive } | null = null;
 const LAST_GOOD_MAX_AGE_MS = 6 * 3_600_000;
 
-/** For tests: forget the last good reading. */
-export function clearBurnLastGood(): void {
-  lastGood = null;
-}
-
 async function readBurnLive(pot: string): Promise<BurnLive> {
   try {
     const client = publicClient();
