@@ -39,6 +39,8 @@ const POT_ABI = [
 export interface BurnLive {
   /** false before the pot is deployed and configured: the page says so rather than showing zeros. */
   live: boolean;
+  /** true when some or all of these figures are the last good reading, because the chain did not answer just now. */
+  stale?: boolean;
   /** set once the token has launched through the pot. */
   launched: boolean;
   potAddress: string | null;
@@ -129,6 +131,19 @@ export async function getBurnLive(): Promise<BurnLive> {
 /** How long one read of the pot is shared. The pot changes at most once per burn, 30 minutes apart. */
 export const BURN_READ_TTL_MS = 10_000;
 
+/**
+ * The last reading that came back whole. A node that stops answering for a minute must not turn 294 burns into
+ * "0 burns" on the page every burn post links to: a failed read falls back to the last good figure instead, and
+ * says it is a last reading. Kept for a few hours; past that, saying "cannot reach the chain" is the honest answer.
+ */
+let lastGood: { at: number; value: BurnLive } | null = null;
+const LAST_GOOD_MAX_AGE_MS = 6 * 3_600_000;
+
+/** For tests: forget the last good reading. */
+export function clearBurnLastGood(): void {
+  lastGood = null;
+}
+
 async function readBurnLive(pot: string): Promise<BurnLive> {
   try {
     const client = publicClient();
@@ -159,9 +174,10 @@ async function readBurnLive(pot: string): Promise<BurnLive> {
 
     // Every read failing means the node is unreachable, and nothing here would be a fact. That case
     // still shows nothing, but it says why rather than making a claim about the pot.
+    const prev = lastGood && lastGood.value.potAddress === pot && Date.now() - lastGood.at < LAST_GOOD_MAX_AGE_MS ? lastGood.value : null;
     if (!settled.some((r) => r.status === "fulfilled")) {
       logger.warn("burn.live_unreadable", "Every burn pot read failed", { pot });
-      return empty(pot);
+      return prev ? { ...prev, stale: true } : empty(pot);
     }
 
     const [amount, nextAt, ready] = got<readonly [bigint, bigint, boolean]>(preview, [0n, 0n, false]);
@@ -175,7 +191,7 @@ async function readBurnLive(pot: string): Promise<BurnLive> {
     // existed.
     const [pending, cadence] = await Promise.allSettled([getPendingAtPons(), getBurnCadence(lastBurn, BURN_RULES.minIntervalSeconds)]);
 
-    return {
+    const result: BurnLive = {
       live: true,
       // Unknown is not the same as no. If the token read is the one that failed, a pot that has
       // already burned is plainly launched, and the counter can say so by itself.
@@ -200,8 +216,31 @@ async function readBurnLive(pot: string): Promise<BurnLive> {
       pendingEth: pending.status === "fulfilled" ? pending.value : null,
       cadence: cadence.status === "fulfilled" ? cadence.value : UNKNOWN_CADENCE,
     };
+
+    // A read that failed keeps the last good figure rather than falling to zero: the totals only ever grow, and
+    // a balance or schedule a minute old is closer to the truth than none.
+    const failed = (r: PromiseSettledResult<unknown>) => r.status === "rejected";
+    if (prev) {
+      if (failed(burnCount)) result.burnCount = prev.burnCount;
+      if (failed(lastBurnAt)) result.lastBurnAt = prev.lastBurnAt;
+      if (failed(ethBurned)) result.totalEthBurned = prev.totalEthBurned;
+      if (failed(tokensBurned)) result.totalTokensBurned = prev.totalTokensBurned;
+      if (failed(balance)) result.potBalanceEth = prev.potBalanceEth;
+      if (failed(token)) result.tokenAddress = prev.tokenAddress;
+      if (failed(preview)) {
+        result.nextBurnEth = prev.nextBurnEth;
+        result.nextBurnAt = prev.nextBurnAt;
+        result.ready = prev.ready;
+      }
+      result.launched = result.launched || prev.launched;
+    }
+    if (settled.some(failed)) result.stale = Boolean(prev);
+    // only a reading where the running totals all came back is good enough to fall back on later
+    if (!failed(burnCount) && !failed(ethBurned) && !failed(tokensBurned)) lastGood = { at: Date.now(), value: { ...result, stale: false } };
+    return result;
   } catch (err) {
     logger.warn("burn.live_unreadable", "Could not read the burn pot", { err, pot });
-    return empty(pot);
+    const prev = lastGood && lastGood.value.potAddress === pot && Date.now() - lastGood.at < LAST_GOOD_MAX_AGE_MS ? lastGood.value : null;
+    return prev ? { ...prev, stale: true } : empty(pot);
   }
 }

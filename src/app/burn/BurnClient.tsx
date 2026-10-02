@@ -195,6 +195,7 @@ function Countdown({ remaining, data, now }: { remaining: number | null; data: B
           <div className="flex-1 text-center lg:text-left">
             <p className="text-xs font-mono uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-3">
               Next burn
+              {data.stale && <span className="normal-case tracking-normal ml-2">· last reading, refreshing</span>}
             </p>
             {!data.live && data.potAddress ? (
               // A pot is configured and the chain could not be read. Saying the burn has not started

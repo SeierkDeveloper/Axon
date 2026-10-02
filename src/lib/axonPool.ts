@@ -11,7 +11,7 @@
 // not throw, it quotes the wrong price.
 
 import { encodeAbiParameters, keccak256, encodePacked, parseAbi, encodeFunctionData } from "viem";
-import { RPC_URL } from "./chain";
+import { rpcCall } from "./evm";
 import { LAUNCHPAD_FACTORY } from "./launchIndex";
 import { AXON_TOKEN_ADDRESS } from "./money";
 
@@ -29,14 +29,8 @@ const MEME_HOOK = parseAbi(["function memeHook() view returns (address)"]);
 
 async function ethCall(to: string, data: `0x${string}`): Promise<string | null> {
   try {
-    const res = await fetch(RPC_URL, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
-      signal: AbortSignal.timeout(6000),
-    });
-    const body = (await res.json()) as { result?: string };
-    return typeof body.result === "string" && body.result !== "0x" ? body.result : null;
+    const result = await rpcCall<string>("eth_call", [{ to, data }, "latest"]);
+    return typeof result === "string" && result !== "0x" ? result : null;
   } catch {
     return null;
   }

@@ -27,6 +27,24 @@ export function rpcUrl(): string {
   return process.env.AXON_RPC_URL?.trim() || RPC_URL;
 }
 
+/**
+ * Every node to try, in order: AXON_RPC_URL (a dedicated provider such as Alchemy), then any in
+ * AXON_RPC_FALLBACK_URLS (comma separated), then the public node, so one node rate-limiting or
+ * stalling never takes Axon's chain reads down with it.
+ */
+export function rpcUrls(): string[] {
+  const list = [rpcUrl(), ...(process.env.AXON_RPC_FALLBACK_URLS ?? "").split(","), RPC_URL]
+    .map((u) => u.trim())
+    .filter(Boolean);
+  return [...new Set(list)];
+}
+
+/** A node saying it is busy or limited rather than giving an answer: the next node may well answer. */
+function isBusyNode(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return /\b(429|502|503|504)\b|rate.?limit|too many requests|capacity|unavailable|temporarily|try again|timeout|fetch failed|econnreset|etimedout|econnrefused|socket hang up|aborted/i.test(err.message);
+}
+
 // ── Circuit breaker ───────────────────────────────────────────────────────────
 // After 5 consecutive failures the circuit opens and calls fail fast for 60s. After that window one
 // probe is allowed: on success the circuit closes, on failure the recovery window restarts.
@@ -56,6 +74,8 @@ export function isTransientRpcError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message;
   if (/econnreset|etimedout|econnrefused|socket hang up|fetch failed|aborted|timeout/i.test(msg)) return true;
+  // a node naming its own limit is busy, not broken
+  if (/rate.?limit|too many requests|over capacity/i.test(msg)) return true;
   return /\b(429|502|503|504)\b/.test(msg);
 }
 
@@ -96,18 +116,41 @@ function advanceCircuitState(): CircuitState {
   return _circuit.state;
 }
 
-/** One JSON-RPC call, with no retry and no circuit. The thing `withRpc` retries. */
-async function rawRpc<T>(method: string, params: unknown[]): Promise<T> {
-  const r = await fetch(rpcUrl(), {
+/** One JSON-RPC call to one node, with no retry and no circuit. */
+async function rpcAt<T>(url: string, method: string, params: unknown[]): Promise<T> {
+  const r = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(12_000),
   });
-  if (!r.ok) throw new Error(`node returned HTTP ${r.status}`);
+  if (r.ok === false) throw new Error(`node returned HTTP ${r.status}`);
   const j = (await r.json()) as { result?: T; error?: { message?: string; code?: number } };
   if (j.error) throw new Error(j.error.message ?? "the node refused the call");
   return j.result as T;
+}
+
+/** One call across every node, with no retry and no circuit: for light reads that handle their own failure. */
+export function rpcCall<T>(method: string, params: unknown[]): Promise<T> {
+  return rawRpc<T>(method, params);
+}
+
+/**
+ * One JSON-RPC call, tried on each node in turn until one answers. The thing `withRpc` retries. A node that is
+ * busy, limited or unreachable hands over to the next; a real answer (a revert, a bad query) comes straight back,
+ * since another node would say the same.
+ */
+async function rawRpc<T>(method: string, params: unknown[]): Promise<T> {
+  let lastErr: unknown;
+  for (const url of rpcUrls()) {
+    try {
+      return await rpcAt<T>(url, method, params);
+    } catch (err) {
+      lastErr = err;
+      if (!isBusyNode(err)) throw err;
+    }
+  }
+  throw lastErr;
 }
 
 /**
@@ -195,11 +238,11 @@ export async function withRpc<T>(
   throw lastErr;
 }
 
-/** An RPC error as a short loggable line, with the node URL taken out in case it carries a key. */
+/** An RPC error as a short loggable line, with every node URL taken out in case one carries a key. */
 export function describeRpcError(err: unknown): string {
-  const msg = err instanceof Error ? err.message : String(err);
-  const url = rpcUrl();
-  return (url ? msg.split(url).join("<rpc>") : msg).slice(0, 200);
+  let msg = err instanceof Error ? err.message : String(err);
+  for (const url of rpcUrls()) msg = msg.split(url).join("<rpc>");
+  return msg.replace(/https?:\/\/[^\s"']*alchemy\.com[^\s"']*/gi, "<rpc>").slice(0, 200);
 }
 
 export function getRpcCircuitState(): { state: CircuitState; consecutiveFailures: number } {

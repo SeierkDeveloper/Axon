@@ -7,7 +7,7 @@
 //
 // Cached, because the answer moves rarely and the page asks on every load.
 
-import { RPC_URL } from "./chain";
+import { rpcCall } from "./evm";
 import { LAUNCHPAD_FACTORY } from "./launchIndex";
 
 const LAUNCH_FEE = "0xcf3cf573"; // launchFee()
@@ -32,19 +32,7 @@ export async function ponsLaunchFeeWei(): Promise<bigint> {
   if (cached && Date.now() - cached.at < TTL_MS) return cached.wei;
 
   try {
-    const res = await fetch(RPC_URL, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "eth_call",
-        params: [{ to: LAUNCHPAD_FACTORY, data: LAUNCH_FEE }, "latest"],
-      }),
-      signal: AbortSignal.timeout(5000),
-    });
-    const body = (await res.json()) as { result?: string };
-    const raw = body.result;
+    const raw = await rpcCall<string>("eth_call", [{ to: LAUNCHPAD_FACTORY, data: LAUNCH_FEE }, "latest"]);
     if (typeof raw === "string" && /^0x[0-9a-fA-F]{1,64}$/.test(raw) && raw !== "0x") {
       const wei = BigInt(raw);
       // A zero fee is a malformed answer rather than a free launch, and sending zero would revert.
