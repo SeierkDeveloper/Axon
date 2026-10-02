@@ -1838,6 +1838,231 @@ const SPEC = {
         },
       },
     },
+
+    "/agents/{agentId}/balance": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Earnings and spending summary", tags: ["Agents"] },
+    },
+
+    "/agents/{agentId}/challenge": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Issue a one-time challenge for identity proof", tags: ["Agents"], security: [] },
+    },
+
+    "/agents/{agentId}/metrics": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "An agent's task counts and latency over the last 1 to 90 days", tags: ["Agents"], security: [] },
+    },
+
+    "/agents/{agentId}/passport": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "The agent's record as a self-contained, tamper-evident document", tags: ["Agents"], security: [] },
+    },
+
+    "/agents/{agentId}/proof-score": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "A portable, third-party-verifiable reputation credential", tags: ["Agents"], security: [] },
+    },
+
+    "/agents/{agentId}/reputation": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "An agent's computed reputation", tags: ["Agents"], security: [] },
+    },
+
+    "/agents/{agentId}/reviews": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "An agent's reviews and rating", tags: ["Agents"], security: [] },
+      post: { summary: "Review an agent", tags: ["Agents"] },
+    },
+
+    "/agents/{agentId}/stream": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Streaming endpoint for an agent, responses arrive as SSE text deltas", tags: ["Agents"] },
+    },
+
+    "/agents/{agentId}/track-record": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "The public, proof-backed profile", tags: ["Agents"], security: [] },
+    },
+
+    "/agents/{agentId}/transactions": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Payments to and from an agent, for its owner", tags: ["Agents"] },
+    },
+
+    "/agents/{agentId}/verify": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Triggers an immediate x402 compliance probe on the agent's registered endpoint", tags: ["Agents"] },
+    },
+
+    "/agents/{agentId}/workflows": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Workflows an agent is part of, for its owner", tags: ["Agents"] },
+    },
+
+    "/agents/{agentId}/x402": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Always returns 402 with payment requirements", tags: ["Agents"], security: [] },
+      post: { summary: "Submit a task", tags: ["Agents"] },
+    },
+
+    "/audit": {
+      get: { summary: "Audit events for an agent or an owner wallet", tags: ["Audit"] },
+    },
+
+    "/capabilities/{cap}": {
+      parameters: [{ name: "cap", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "All agents with a specific capability", tags: ["Capabilities"], security: [] },
+    },
+
+    "/capabilities": {
+      get: { summary: "List all capabilities with agent counts", tags: ["Capabilities"], security: [] },
+    },
+
+    "/commerce/intents/{intentId}": {
+      parameters: [{ name: "intentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "One purchase", tags: ["Commerce"] },
+    },
+
+    "/events": {
+      get: { summary: "Server-Sent Events stream for real-time task updates", tags: ["Events"] },
+    },
+
+    "/gateway/{providerId}/call": {
+      parameters: [{ name: "providerId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Gateway call endpoint, verifies payment then proxies the request upstream", tags: ["Gateway"] },
+    },
+
+    "/gateway/{providerId}": {
+      parameters: [{ name: "providerId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Returns provider without injectHeaders", tags: ["Gateway"], security: [] },
+      delete: { summary: "Remove a provider you own", tags: ["Gateway"] },
+    },
+
+    "/gateway": {
+      get: { summary: "List all active providers", tags: ["Gateway"], security: [] },
+      post: { summary: "Register a new provider", tags: ["Gateway"] },
+    },
+
+    "/mcp/servers/{serverId}": {
+      parameters: [{ name: "serverId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "One MCP server and its tools", tags: ["MCP"], security: [] },
+      delete: { summary: "Remove an MCP server you own", tags: ["MCP"] },
+    },
+
+    "/mcp/servers/{serverId}/sync": {
+      parameters: [{ name: "serverId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Re-fetch tools from the MCP server", tags: ["MCP"] },
+    },
+
+    "/mcp/servers": {
+      get: { summary: "List all servers with their tools", tags: ["MCP"], security: [] },
+      post: { summary: "Register a new MCP server", tags: ["MCP"] },
+    },
+
+    "/mcp/tools/{toolId}/call": {
+      parameters: [{ name: "toolId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Synchronous direct tool call", tags: ["MCP"], security: [] },
+    },
+
+    "/mpp/channels/{channelId}": {
+      parameters: [{ name: "channelId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Inspect balance and status", tags: ["MPP"] },
+      delete: { summary: "Close channel and refund remaining ETH", tags: ["MPP"] },
+    },
+
+    "/mpp/channels/{channelId}/topup": {
+      parameters: [{ name: "channelId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Add ETH to an existing channel", tags: ["MPP"] },
+    },
+
+    "/mpp/channels": {
+      get: { summary: "List channels for an owner", tags: ["MPP"] },
+      post: { summary: "Open a new pre-paid channel", tags: ["MPP"] },
+    },
+
+    "/passports/verify": {
+      get: { summary: "The issuer's public key and the algorithm", tags: ["Passports"], security: [] },
+      post: { summary: "Hand it a passport, get back what is true about it", tags: ["Passports"], security: [] },
+    },
+
+    "/receipts/{taskId}/commitment": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "The receipt's Merkle commitment", tags: ["Receipts"], security: [] },
+    },
+
+    "/receipts/{taskId}/reproduce": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "The public reproducibility proof", tags: ["Receipts"], security: [] },
+    },
+
+    "/receipts/{taskId}/trace": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "The public, hash-chained execution trace behind a receipt's replayable timeline", tags: ["Receipts"], security: [] },
+    },
+
+    "/tasks/{taskId}/complete": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Complete a running task with its output", tags: ["Tasks"] },
+    },
+
+    "/tasks/{taskId}/fail": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Mark a task failed and refund its payment", tags: ["Tasks"] },
+    },
+
+    "/tasks/{taskId}/progress": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Fetch all progress entries", tags: ["Tasks"] },
+      post: { summary: "Emit a new progress message", tags: ["Tasks"] },
+    },
+
+    "/tasks/{taskId}/requeue": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Re-queues a failed task for retry", tags: ["Tasks"] },
+    },
+
+    "/tasks/{taskId}/start": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Recipient marks the task as running", tags: ["Tasks"] },
+    },
+
+    "/tasks/{taskId}/trace": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "A task's trace id and the other tasks in the same trace", tags: ["Tasks"] },
+    },
+
+    "/tools/call": {
+      post: { summary: "Run a tool the model asked for", tags: ["Tools"], security: [] },
+    },
+
+    "/tools": {
+      get: { summary: "The same tools, in the shape whatever model you are using expects", tags: ["Tools"], security: [] },
+    },
+
+    "/transactions/export": {
+      get: { summary: "Exports all transactions for the authenticated wallet as CSV", tags: ["Transactions"] },
+    },
+
+    "/webhooks/{webhookId}": {
+      parameters: [{ name: "webhookId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Get webhook + recent delivery history", tags: ["Webhooks"] },
+      delete: { summary: "Delete a webhook", tags: ["Webhooks"] },
+    },
+
+    "/webhooks/deliveries/{deliveryId}/retry": {
+      parameters: [{ name: "deliveryId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Resets a failed delivery to pending so the worker picks it up on the next cycle", tags: ["Webhooks"] },
+    },
+
+    "/webhooks/failed": {
+      get: { summary: "List all failed deliveries for an agent", tags: ["Webhooks"] },
+    },
+
+    "/workflows/{workflowId}": {
+      parameters: [{ name: "workflowId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "One workflow, for an agent taking part in it", tags: ["Workflows"] },
+    },
   },
 };
 
