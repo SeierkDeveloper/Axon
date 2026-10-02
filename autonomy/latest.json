@@ -1,132 +1,35 @@
 {
-  "startedAt": "2026-09-25T11:58:05.720Z",
-  "finishedAt": "2026-09-25T11:58:11.288Z",
-  "commit": "54af7ac",
+  "startedAt": "2026-10-02T12:18:49.253Z",
+  "finishedAt": "2026-10-02T12:19:02.022Z",
+  "commit": "150e75f",
   "checks": [
     {
       "id": "install-commands",
       "title": "Install commands resolve",
       "ok": true,
-      "checked": 10,
+      "checked": 13,
       "findings": [],
-      "ms": 5245
+      "ms": 12139
     },
     {
       "id": "links",
       "title": "Internal links point at real pages",
       "ok": true,
-      "checked": 181,
+      "checked": 194,
       "findings": [],
-      "ms": 36
+      "ms": 58
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 551,
-      "findings": [
-        {
-          "severity": "warn",
-          "what": "displayAddress() is exported but only used inside its own file",
-          "why": "the export widens the surface without a caller to justify it",
-          "where": [
-            "src/lib/address.ts"
-          ]
-        },
-        {
-          "severity": "warn",
-          "what": "storeDescription() is exported but only used inside its own file",
-          "why": "the export widens the surface without a caller to justify it",
-          "where": [
-            "src/lib/agentDescription.ts"
-          ]
-        },
-        {
-          "severity": "warn",
-          "what": "noteAttempt() is exported but only used inside its own file",
-          "why": "the export widens the surface without a caller to justify it",
-          "where": [
-            "src/lib/agentDescription.ts"
-          ]
-        },
-        {
-          "severity": "warn",
-          "what": "generateDescription() is exported but only used inside its own file",
-          "why": "the export widens the surface without a caller to justify it",
-          "where": [
-            "src/lib/agentDescription.ts"
-          ]
-        },
-        {
-          "severity": "warn",
-          "what": "quoteForPayment() is exported and never used",
-          "why": "dead code reads exactly like live code",
-          "where": [
-            "src/lib/axonPayment.ts"
-          ]
-        },
-        {
-          "severity": "warn",
-          "what": "clampDiscountBps() is exported but only used inside its own file",
-          "why": "the export widens the surface without a caller to justify it",
-          "where": [
-            "src/lib/axonQuote.ts"
-          ]
-        },
-        {
-          "severity": "warn",
-          "what": "lastQuote() is exported but only used inside its own file",
-          "why": "the export widens the surface without a caller to justify it",
-          "where": [
-            "src/lib/axonQuote.ts"
-          ]
-        },
-        {
-          "severity": "warn",
-          "what": "callDistribute() is exported but only used inside its own file",
-          "why": "the export widens the surface without a caller to justify it",
-          "where": [
-            "src/lib/burn.ts"
-          ]
-        },
-        {
-          "severity": "warn",
-          "what": "abandonPurchase() is exported and never used",
-          "why": "dead code reads exactly like live code",
-          "where": [
-            "src/lib/commerceComplete.ts"
-          ]
-        },
-        {
-          "severity": "warn",
-          "what": "listGrowRuns() is exported and never used",
-          "why": "dead code reads exactly like live code",
-          "where": [
-            "src/lib/grow.ts"
-          ]
-        },
-        {
-          "severity": "warn",
-          "what": "buildSignInMessage() is exported but only used inside its own file",
-          "why": "the export widens the surface without a caller to justify it",
-          "where": [
-            "src/lib/identity.ts"
-          ]
-        },
-        {
-          "severity": "warn",
-          "what": "detectProxy() is exported but only used inside its own file",
-          "why": "the export widens the surface without a caller to justify it",
-          "where": [
-            "src/lib/tokenScan.ts"
-          ]
-        }
-      ],
-      "ms": 283
+      "checked": 638,
+      "findings": [],
+      "ms": 567
     }
   ],
   "errors": 0,
-  "warnings": 12,
+  "warnings": 0,
   "changed": false,
   "changes": []
 }
