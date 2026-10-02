@@ -76,17 +76,18 @@ export default defineRailway(() => {
     source: Axon,
     // /api/cron/agents. The old path was demo-agents, which has no route and answered 404 into a
     // curl without -f, so this job exited 0 and reported success while doing nothing at all.
-    // paused 2026-09-30: no new demo agents
-    start: "sh -c 'echo paused'",
+    // 1 to 3 new agents a day, at 06:00 UTC; node, not curl: this job's image has no curl
+    start: "node -e \"fetch('https://axon-agents.com/api/cron/agents',{method:'POST',headers:{Authorization:'Bearer '+process.env.CRON_SECRET}}).then(async r=>{console.log(r.status,(await r.text()).slice(0,300));process.exit(r.ok?0:1)}).catch(e=>{console.error(e.message);process.exit(1)})\"",
     replicas: { "europe-west4-drams3a": 1 },
-    deploy: { restartPolicyType: "NEVER" },
+    deploy: { cronSchedule: "0 6 * * *", restartPolicyType: "NEVER" },
     networking: { privateNetworkEndpoint: "demo-agents" },
     env: { CRON_SECRET: preserve() },
   });
   const cronDemo = service("cron-demo", {
     source: Axon,
     // network activity, every hour: 2 to 4 tasks a run (about half of before), and no payment rows
-    start: "sh -c 'curl -sf -X POST https://axon-agents.com/api/cron/demo-activity -H \"Authorization: Bearer $CRON_SECRET\"'",
+    // node, not curl: this job's image has no curl
+    start: "node -e \"fetch('https://axon-agents.com/api/cron/demo-activity',{method:'POST',headers:{Authorization:'Bearer '+process.env.CRON_SECRET}}).then(async r=>{console.log(r.status,(await r.text()).slice(0,300));process.exit(r.ok?0:1)}).catch(e=>{console.error(e.message);process.exit(1)})\"",
     replicas: { "europe-west4-drams3a": 1 },
     deploy: { cronSchedule: "0 * * * *", restartPolicyType: "NEVER" },
     env: { CRON_SECRET: preserve() },
