@@ -32,6 +32,8 @@ interface WalletCtx {
   apiKey: string | null;
   connect: () => Promise<void>;
   disconnect: () => void;
+  /** sign out and pick an account again: the wallet shows its account picker, then this page signs in as that one */
+  switchWallet: () => Promise<void>;
   switchChain: () => Promise<void>;
   /** connect if needed, then sign the challenge and return the issued key */
   signIn: () => Promise<SignInResult | null>;
@@ -308,7 +310,26 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     clearFlag(CONNECTED_KEY);
     clearFlag(API_KEY_KEY);
+    // MetaMask can also be asked to drop this site's permission, so the next connect asks which account; other
+    // wallets refuse the call, which changes nothing here
+    void provider()?.request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] }).catch(() => {});
   }, []);
+
+  // Switching: the account picker first (wallet_requestPermissions shows it even when this site is already
+  // allowed), and only then is this page signed out and connected again, so a closed picker leaves you as you were.
+  const switchWallet = useCallback(async (): Promise<void> => {
+    const p = provider();
+    if (!p) return connect();
+    try {
+      await p.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
+    } catch (e) {
+      if ((e as { code?: number }).code === 4001) return; // closed the picker: nothing changes
+      // a wallet without the picker: sign out, and the next connect asks it the usual way
+    }
+    setApiKey(null);
+    clearFlag(API_KEY_KEY);
+    await connect();
+  }, [connect]);
 
   return (
     <Ctx.Provider
@@ -321,6 +342,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         apiKey,
         connect,
         disconnect,
+        switchWallet,
         switchChain,
         signIn,
         sign,

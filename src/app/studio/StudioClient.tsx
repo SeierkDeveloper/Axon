@@ -35,7 +35,7 @@ const statusText: Record<Status, string> = {
 };
 
 export default function StudioClient() {
-  const { apiKey, signIn, busy: walletBusy } = useWallet();
+  const { apiKey, signIn, busy: walletBusy, address, disconnect, switchWallet } = useWallet();
   const [sentence, setSentence] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -212,6 +212,14 @@ export default function StudioClient() {
                   {creating ? "Writing your agent…" : running ? "Building…" : "Build it"}
                 </button>
                 {error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+                {/* who is building, and the way out: sign out, or change to another wallet */}
+                {address && (
+                  <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-400">
+                    <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Signed in as <span className="font-mono text-gray-600 dark:text-gray-300">{address.slice(0, 6)}…{address.slice(-4)}</span></span>
+                    <button type="button" onClick={() => void switchWallet()} disabled={walletBusy} className="underline underline-offset-2 hover:text-gray-900 disabled:opacity-50 dark:hover:text-white">Switch wallet</button>
+                    <button type="button" onClick={disconnect} className="underline underline-offset-2 hover:text-gray-900 dark:hover:text-white">Sign out</button>
+                  </p>
+                )}
 
                 <Earnings apiKey={apiKey} refreshKey={`${builds.length}:${b?.status ?? ""}`} />
 
