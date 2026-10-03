@@ -128,6 +128,23 @@ describe("a draft earns its listing", () => {
     expect(getBuild(id)!.draft!.instructions).toContain("VERSION THREE"); // not the old run's VERSION TWO
   });
 
+  it("reads a change sent as fields plus tagged instructions, and a change that fails costs nothing", async () => {
+    const id = await drafted();
+    const me = getBuild(id)!.wallet;
+    // the writer's usual answer: the fields as JSON, the instructions on their own, braces and all
+    const tagged = await tweakDraft(id, me, "add a json example", async () => `${JSON.stringify({ ...DRAFT, instructions: undefined })}\n<instructions>\nVERSION FOUR. Five bullets. End with an example like {"revenue": "up"} exactly as shown, nothing else.\n</instructions>`);
+    expect(typeof tagged === "string" ? tagged : tagged.draft?.instructions).toMatch(/^VERSION FOUR\..*\{"revenue": "up"\}/);
+    expect(await tweakDraft(id, me, "something", async () => "not an agent at all")).toMatch(/could not be made/);
+    expect(tweaksOf(id)).toHaveLength(2);
+    expect(tweaksOf(id).filter((t) => t.ok)).toHaveLength(1);
+  });
+
+  it("says a live build cannot change", async () => {
+    const id = await drafted();
+    getDb().prepare("UPDATE studio_builds SET status = 'published' WHERE id = ?").run(id);
+    expect(await tweakDraft(id, getBuild(id)!.wallet, "shorter", async () => "{}")).toMatch(/This agent is live/);
+  });
+
   it("refuses a change while testing, from someone else, or one that fails the checks", async () => {
     const id = await drafted();
     const me = getBuild(id)!.wallet;

@@ -82,7 +82,7 @@ describe("one sentence into a draft agent", () => {
     const b = await startDraft(wallet(), "An agent that turns any earnings call into a five bullet brief", async () => "I cannot help with that.");
     expect(typeof b).toBe("object");
     expect((b as { status: string }).status).toBe("failed");
-    expect((b as { error: string }).error).toMatch(/did not return a draft/);
+    expect((b as { error: string }).error).toMatch(/could not write an agent from that/);
   });
 
   it("asks for a real sentence, and keeps to one", async () => {

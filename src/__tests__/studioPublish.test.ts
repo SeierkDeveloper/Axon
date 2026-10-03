@@ -15,7 +15,8 @@ vi.mock("@/lib/holderTier", async (orig) => ({
 import { randomUUID } from "crypto";
 import { getDb } from "@/lib/db";
 import { getAgentById } from "@/lib/agents";
-import { releasePayment } from "@/lib/payments";
+import { releasePayment, releaseWithPenalty } from "@/lib/payments";
+import { defineSplits } from "@/lib/escrowSplits";
 import { getInstructions } from "@/lib/agentKnowledge";
 import { startDraft, getBuild } from "@/lib/studioDraft";
 import { runBuild, type Models } from "@/lib/studioTest";
@@ -44,6 +45,8 @@ async function tested(me: string, name: string, score: number) {
   await runBuild(b.id, scoring(score));
   return b.id;
 }
+
+const paidOn = (taskId: string, agent: string) => (getDb().prepare("SELECT COALESCE(SUM(amount_eth),0) v FROM transactions WHERE task_id = ? AND to_agent = ? AND status = 'completed'").get(taskId, agent) as { v: number }).v;
 
 describe("publishing a Studio build", () => {
   it("puts the tested agent live, owned by its builder, at their price, with its instructions and score", async () => {
@@ -76,10 +79,10 @@ describe("remixing a Studio agent", () => {
   it("copies a live agent into someone else's build, tested before it can go live, and pays the original 10% of every hire", async () => {
     const maker = wallet();
     const original = (publishBuild(await tested(maker, `Original ${n}`, 9), maker) as { agentId: string }).agentId;
-    expect(remixAgent(original, maker)).toMatch(/your own agent/);
+    expect(await remixAgent(original, maker)).toMatch(/your own agent/);
 
     const fan = wallet();
-    const rb = remixAgent(original, fan);
+    const rb = await remixAgent(original, fan);
     expect(typeof rb).toBe("object");
     const build = rb as Exclude<typeof rb, string>;
     expect(build.status).toBe("drafted");
@@ -99,10 +102,30 @@ describe("remixing a Studio agent", () => {
     const paid = (agent: string) => (getDb().prepare("SELECT COALESCE(SUM(amount_eth),0) v FROM transactions WHERE task_id = ? AND to_agent = ? AND status = 'completed'").get(taskId, agent) as { v: number }).v;
     expect(paid(remix)).toBeCloseTo(0.0009, 12);
     expect(paid(original)).toBeCloseTo(0.0001, 12);
+
+    // a split the payer set still passes 10% of the remix's part on to the original
+    const escrow = (amount: number) => {
+      const id = randomUUID();
+      getDb().prepare(`INSERT INTO transactions (tx_id, task_id, from_agent, to_agent, amount_eth, status, incoming_signature, fee_amount, currency, created_at) VALUES (?, ?, ?, ?, ?, 'escrow', NULL, 0, 'ETH', ?)`)
+        .run(randomUUID(), id, "buyer-x", remix, amount, new Date().toISOString());
+      return id;
+    };
+    const split = escrow(0.001);
+    expect(defineSplits(split, [{ agentId: remix, shareBps: 5_000 }, { agentId: "research-agent", shareBps: 5_000 }]).success).toBe(true);
+    releasePayment(split);
+    expect(paidOn(split, remix)).toBeCloseTo(0.00045, 12);
+    expect(paidOn(split, original)).toBeCloseTo(0.00005, 12);
+    expect(paidOn(split, "research-agent")).toBeCloseTo(0.0005, 12);
+
+    // so does a late delivery, settled with a penalty back to the payer
+    const late = escrow(0.001);
+    releaseWithPenalty(late, 2_000);
+    expect(paidOn(late, remix)).toBeCloseTo(0.00072, 12);
+    expect(paidOn(late, original)).toBeCloseTo(0.00008, 12);
   });
 
-  it("only remixes agents built in Studio", () => {
-    expect(remixAgent("research-agent", wallet())).toMatch(/Only agents built in Agent Studio/);
+  it("only remixes agents built in Studio", async () => {
+    expect(await remixAgent("research-agent", wallet())).toMatch(/Only agents built in Agent Studio/);
     expect(remixSplit("research-agent", "t")).toBeNull();
   });
 });

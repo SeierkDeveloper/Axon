@@ -13,6 +13,7 @@
 // about what hiring means.
 
 import { NextRequest, NextResponse } from "next/server";
+import { publicOrigin } from "@/lib/publicUrl";
 import { MCP_TOOLS, agentToolset, type McpTool } from "@/lib/mcpServer";
 import { tooManyRequests } from "@/lib/rateLimit";
 import { checkTieredRateLimit } from "@/lib/tieredRateLimit";
@@ -92,7 +93,7 @@ export async function GET(req: NextRequest) {
 
   const asked = (req.nextUrl.searchParams.get("format") ?? "openai").toLowerCase();
   const format = (FORMATS as string[]).includes(asked) ? (asked as Format) : "openai";
-  const origin = req.nextUrl.origin;
+  const origin = publicOrigin(req);
   // ?agent=<id>: just that agent, as one tool, with the tools to read its answer
   const agentId = req.nextUrl.searchParams.get("agent");
   const set = agentId ? agentToolset(agentId) : null;

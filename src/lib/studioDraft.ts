@@ -17,7 +17,7 @@ import { canRegister } from "./reservedHandles";
 import { validateAgentContent, validateAgentText } from "./agentContent";
 import { parsePaymentAmount } from "./money";
 import { getTier } from "./holderTier";
-import { studioEnabled, buildsAllowed, studioModels, BUILD_BUDGET, LIMITS, AGENT_MODELS, STUDIO_TOOLS, clampPrice, PRICE_ETH, MAX_RUNNING_TOTAL, MAX_TWEAKS_PER_BUILD } from "./studioPolicy";
+import { studioEnabled, buildsAllowed, studioModels, BUILD_BUDGET, LIMITS, AGENT_MODELS, STUDIO_TOOLS, clampPrice, PRICE_ETH, MAX_RUNNING_TOTAL, MAX_RUNNING_PER_WALLET, MAX_TWEAKS_PER_BUILD } from "./studioPolicy";
 import { logger } from "./logger";
 
 export interface Draft {
@@ -87,7 +87,7 @@ export function freeHandle(base: string, wallet: string): string {
 
 /** The writer's answer made into a draft Studio will stand behind, or the reason it cannot be. */
 export function toDraft(raw: unknown, wallet: string, priceEth: number): Draft | string {
-  if (!raw || typeof raw !== "object") return "The writer did not return a draft.";
+  if (!raw || typeof raw !== "object") return "Studio could not write an agent from that. Describe what it does, and for whom, another way.";
   const r = raw as Record<string, unknown>;
   const name = str(r.name, LIMITS.nameChars);
   const instructions = str(r.instructions, LIMITS.instructionsChars);
@@ -146,8 +146,9 @@ export function updateBuild(id: string, fields: Partial<{ status: BuildStatus; d
 
 const RUNNING: BuildStatus[] = ["drafting", "testing", "improving"];
 
-/** May this wallet start a build now: Studio on, under its day's limit, under its running limit, room across Axon. */
-async function mayStart(wallet: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+/** May this wallet start a build now: Studio on, under its day's limit, under its running limit, room across Axon.
+ *  A remix is a build too, and counts the same. */
+export async function mayStart(wallet: string): Promise<{ ok: true } | { ok: false; reason: string }> {
   if (!studioEnabled()) return { ok: false, reason: "Agent Studio is paused just now." };
   const db = getDb();
   const marks = RUNNING.map(() => "?").join(",");
@@ -157,6 +158,19 @@ async function mayStart(wallet: string): Promise<{ ok: true } | { ok: false; rea
   const running = (db.prepare(`SELECT COUNT(*) n FROM studio_builds WHERE wallet = ? AND status IN (${marks})`).get(wallet, ...RUNNING) as { n: number }).n;
   const { tier } = await getTier(wallet);
   return buildsAllowed(tier.name, today, running);
+}
+
+/** May this wallet run a test now (a first test, or a retest after a change): Studio on, under its running limit, room
+ *  across Axon. The day's limit was counted when the build was started. */
+export function mayRun(wallet: string): { ok: true } | { ok: false; reason: string } {
+  if (!studioEnabled()) return { ok: false, reason: "Agent Studio is paused just now." };
+  const db = getDb();
+  const marks = RUNNING.map(() => "?").join(",");
+  const total = (db.prepare(`SELECT COUNT(*) n FROM studio_builds WHERE status IN (${marks})`).get(...RUNNING) as { n: number }).n;
+  if (total >= MAX_RUNNING_TOTAL) return { ok: false, reason: "Studio is busy building other agents. Try again in a minute." };
+  const running = (db.prepare(`SELECT COUNT(*) n FROM studio_builds WHERE wallet = ? AND status IN (${marks})`).get(wallet.toLowerCase(), ...RUNNING) as { n: number }).n;
+  if (running >= MAX_RUNNING_PER_WALLET) return { ok: false, reason: `${MAX_RUNNING_PER_WALLET} builds are already running for this wallet. Wait for one to finish.` };
+  return { ok: true };
 }
 
 /** The writer, swappable in tests. */
@@ -194,9 +208,23 @@ export async function startDraft(wallet: string, sentence: string, writer: Write
 
 // ── Tweaks: changes asked for in Studio's chat ────────────────────────────────
 
-export const TWEAK_SYSTEM = `You edit an AI agent that is being built on Axon. You get the agent as JSON and one change its owner asked for.
-Make that change and only that change, keeping everything else as it is. Answer with the whole agent in the same
-JSON shape and nothing else. If the change is to the instructions, return them in full, not a diff.`;
+export const TWEAK_SYSTEM = `You edit an AI agent that is being built on Axon. You get the agent and one change its owner asked for.
+Make that change and only that change, keeping everything else as it is. Answer in exactly two parts and nothing else:
+first the agent's other fields as JSON in the same shape you were given, without "instructions"; then its instructions in
+full (not a diff), changed or not, between <instructions> and </instructions>.`;
+
+/** The writer for a change: room for the whole agent, instructions included, to come back. */
+const tweakWriter: Writer = (system, prompt) => claudeModel(studioModels().writer).complete(system, prompt, BUILD_BUDGET.rewriteTokens);
+
+/** A changed agent from the writer's two parts: the fields as JSON, the instructions between tags. Long instructions
+ *  inside JSON were where changes failed (an unescaped line or a cut-off answer), so they travel on their own. */
+export function parseTweak(raw: string): unknown {
+  const tagged = raw.match(/<instructions>([\s\S]*?)(?:<\/instructions>|$)/i);
+  const rest = tagged ? raw.replace(tagged[0], "") : raw;
+  const fields = extractJson(rest) as Record<string, unknown> | null;
+  if (!fields) return null;
+  return tagged ? { ...fields, instructions: tagged[1].trim() } : fields;
+}
 
 export interface Tweak { at: string; request: string; ok: boolean; note: string | null }
 
@@ -209,10 +237,11 @@ export function tweaksOf(buildId: string): Tweak[] {
  * Apply one change asked for in chat to a build's draft. The edited draft is checked like a new one; a build that was
  * tested goes back to drafted, so the change is tested before anything is listed. Returns the build, or why not.
  */
-export async function tweakDraft(buildId: string, wallet: string, request: string, writer: Writer = realWriter): Promise<Build | string> {
+export async function tweakDraft(buildId: string, wallet: string, request: string, writer: Writer = tweakWriter): Promise<Build | string> {
   const b = getBuild(buildId);
   if (!b || b.wallet !== wallet.toLowerCase()) return "No such build.";
   if (!b.draft) return "This build has no draft to change yet.";
+  if (b.status === "published") return "This agent is live, so this build cannot change any more. Start a new build to make a different version.";
   if (!["drafted", "ready", "stopped"].includes(b.status)) return `This build is ${b.status}. Wait for it to finish first.`;
   const ask = request.replace(/\s+/g, " ").trim();
   if (ask.length < 3) return "Say what to change.";
@@ -220,19 +249,22 @@ export async function tweakDraft(buildId: string, wallet: string, request: strin
   const bad = validateAgentText(ask);
   if (bad) return bad;
   const log = tweaksOf(buildId);
-  if (log.length >= MAX_TWEAKS_PER_BUILD) return `This build has had its ${MAX_TWEAKS_PER_BUILD} changes. Start a new build from the sentence that works.`;
+  // only changes that were made count: a failed one costs the owner nothing
+  if (log.filter((t) => t.ok).length >= MAX_TWEAKS_PER_BUILD) return `This build has had its ${MAX_TWEAKS_PER_BUILD} changes. Start a new build from the sentence that works.`;
 
   const save = (entry: Tweak) => getDb().prepare("UPDATE studio_builds SET tweaks = ?, updated_at = ? WHERE id = ?").run(JSON.stringify([...log, entry]), new Date().toISOString(), buildId);
-  const { priceEth, handle, category, ...shown } = b.draft;
+  const { priceEth, handle, category, instructions, ...shown } = b.draft;
   let raw: string;
   try {
-    raw = await writer(TWEAK_SYSTEM, `THE AGENT:\n${JSON.stringify({ ...shown, category }, null, 2)}\n\nTHE CHANGE:\n${ask}`);
+    raw = await writer(TWEAK_SYSTEM, `THE AGENT:\n${JSON.stringify({ ...shown, category }, null, 2)}\n\n<instructions>\n${instructions}\n</instructions>\n\nTHE CHANGE:\n${ask}`);
   } catch {
     save({ at: new Date().toISOString(), request: ask, ok: false, note: "The writer did not answer." });
     return "The writer did not answer. Try again in a moment.";
   }
-  const next = toDraft(extractJson(raw), b.wallet, priceEth);
+  const parsed = parseTweak(raw);
+  const next = parsed ? toDraft(parsed, b.wallet, priceEth) : "Try saying the change another way.";
   if (typeof next === "string") {
+    logger.warn("studio.tweak_failed", "A Studio change could not be read", { buildId, reason: next, answerChars: raw.length, tagged: /<instructions>/i.test(raw), closed: /<\/instructions>/i.test(raw) });
     save({ at: new Date().toISOString(), request: ask, ok: false, note: next });
     return `That change could not be made: ${next}`;
   }

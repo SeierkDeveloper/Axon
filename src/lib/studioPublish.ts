@@ -13,7 +13,7 @@ import { getDb } from "./db";
 import { createAgent, getAgentById } from "./agents";
 import { consumeHandle } from "./reservedHandles";
 import { setInstructions, getInstructions } from "./agentKnowledge";
-import { getBuild, updateBuild, freeHandle, type Draft, type Build } from "./studioDraft";
+import { getBuild, updateBuild, freeHandle, mayStart, type Draft, type Build } from "./studioDraft";
 import { studioEnabled, MIN_PUBLISH_SCORE, REMIX_SHARE_BPS, clampPrice, PRICE_ETH } from "./studioPolicy";
 import { normalizeAddress } from "./address";
 import { logger } from "./logger";
@@ -78,7 +78,7 @@ export function publishBuild(buildId: string, wallet: string, priceEth?: number)
  * Start a remix: a new build for this wallet, a copy of a live Studio agent, drafted and waiting to be changed and
  * tested on the same tasks the original was. Returns the build, or why not.
  */
-export function remixAgent(agentId: string, wallet: string): Build | string {
+export async function remixAgent(agentId: string, wallet: string): Promise<Build | string> {
   if (!studioEnabled()) return "Agent Studio is paused just now.";
   const me = wallet.toLowerCase();
   const original = getAgentById(agentId);
@@ -88,6 +88,9 @@ export function remixAgent(agentId: string, wallet: string): Build | string {
   const instructions = getInstructions(agentId);
   const source = getBuild(info.buildId);
   if (!instructions || !source?.draft) return "This agent cannot be remixed just now.";
+  // a remix is a build: it counts toward the wallet's day and running limits like one
+  const allowed = await mayStart(me);
+  if (!allowed.ok) return allowed.reason;
 
   const id = randomUUID();
   const now = new Date().toISOString();
@@ -97,6 +100,20 @@ export function remixAgent(agentId: string, wallet: string): Build | string {
   getDb().prepare("INSERT INTO studio_builds (id, wallet, sentence, status, draft, tasks, remix_of, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)")
     .run(id, me, `A remix of ${original.name}`, "drafted", JSON.stringify(draft), tasks, agentId, now, now);
   return getBuild(id)!;
+}
+
+/**
+ * A split the payer set, with the remix share kept: a recipient that is a remix passes 10% of its own share on to the
+ * agent it came from, so splitting a hire never routes around the original's cut. Shares still sum to the same total.
+ */
+export function withRemixShares<T extends { splitId: string; agentId: string; shareBps: number }>(splits: T[]): T[] {
+  return splits.flatMap((s) => {
+    const parent = remixParent(s.agentId);
+    if (!parent || parent === s.agentId || !getAgentById(parent)) return [s];
+    const toParent = Math.floor((s.shareBps * REMIX_SHARE_BPS) / 10_000);
+    if (toParent <= 0) return [s];
+    return [{ ...s, shareBps: s.shareBps - toParent }, { ...s, splitId: `${s.splitId}:remix`, agentId: parent, shareBps: toParent }];
+  });
 }
 
 /** The split a remix's hire is paid out by, when there is no split the payer set: the remix, and the agent it came from. */

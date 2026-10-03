@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import AgentCore, { type CoreState } from "@/components/AgentCore";
 import MarkdownOutput from "@/components/MarkdownOutput";
 import { useWallet } from "@/components/WalletProvider";
@@ -164,7 +165,11 @@ export default function StudioClient() {
   const d = b?.draft ?? null;
   const rounds = current?.rounds ?? [];
   const last = rounds.at(-1) ?? null;
-  const best = rounds.reduce<number | null>((m, r) => (r.score !== null && (m === null || r.score > m) ? r.score : m), null);
+  // while a test runs, the best round so far; otherwise the server's score, which counts only the rounds since the last
+  // change (a change makes older rounds measure instructions the agent no longer has), and is what publishing checks
+  const best = running
+    ? rounds.reduce<number | null>((m, r) => (r.score !== null && (m === null || r.score > m) ? r.score : m), null)
+    : b?.score ?? null;
   const state = coreState(b?.status ?? null, creating);
 
   return (
@@ -256,7 +261,7 @@ export default function StudioClient() {
               <div className="space-y-6">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${b.status === "failed" ? "border-red-200 text-red-600 dark:border-red-900 dark:text-red-400" : "border-gray-200 text-gray-700 dark:border-gray-800 dark:text-gray-300"}`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${RUNNING.includes(b.status) ? "animate-pulse bg-gray-900 dark:bg-white" : b.status === "ready" ? "bg-emerald-500" : b.status === "failed" ? "bg-red-500" : "bg-gray-400"}`} />
+                    <span className={`h-1.5 w-1.5 rounded-full ${RUNNING.includes(b.status) ? "animate-pulse bg-gray-900 dark:bg-white" : b.status === "ready" || b.status === "published" ? "bg-emerald-500" : b.status === "failed" ? "bg-red-500" : "bg-gray-400"}`} />
                     {statusText[b.status]}
                   </span>
                   {b.error && <span className="text-sm text-gray-500">{b.error}</span>}
@@ -298,7 +303,7 @@ export default function StudioClient() {
                         <span className={`w-8 shrink-0 text-right ${r.score !== null && r.score === best ? "text-gray-900 dark:text-white" : "text-gray-500"}`}>{r.score !== null ? r.score.toFixed(1) : "…"}</span>
                       </div>
                     ))}
-                    {Array.from({ length: Math.max(0, 3 - rounds.length) }, (_, i) => (
+                    {Array.from({ length: running ? Math.max(0, 3 - rounds.length) : 0 }, (_, i) => (
                       <div key={`e${i}`} className="flex items-center gap-3 font-mono text-xs text-gray-300 dark:text-gray-700">
                         <span className="w-16 shrink-0">Round {rounds.length + i + 1}</span>
                         <div className="h-1.5 flex-1 rounded-full border border-dashed border-gray-200 dark:border-gray-800" />
@@ -365,8 +370,8 @@ export default function StudioClient() {
                   <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-900 p-4 dark:border-white">
                     <span className="h-2 w-2 rounded-full bg-emerald-500" />
                     <p className="flex-1 text-sm text-gray-900 dark:text-white"><b>{d.name}</b> is live on Axon at {d.priceEth} ETH a task.</p>
-                    <a href={`/agents/${live ?? d.handle}`} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-900 transition hover:border-gray-900 dark:border-gray-800 dark:text-white dark:hover:border-white">Open its page</a>
-                    <a href={`/launch/${live ?? d.handle}`} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-900 transition hover:border-gray-900 dark:border-gray-800 dark:text-white dark:hover:border-white">Launch its token</a>
+                    <Link href={`/agents/${live ?? d.handle}`} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-900 transition hover:border-gray-900 dark:border-gray-800 dark:text-white dark:hover:border-white">Open its page</Link>
+                    <Link href={`/launch/${live ?? d.handle}`} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-900 transition hover:border-gray-900 dark:border-gray-800 dark:text-white dark:hover:border-white">Launch its token</Link>
                     <a target="_blank" rel="noreferrer"
                       href={`https://x.com/intent/tweet?text=${encodeURIComponent(`I built ${d.name} in one sentence on Axon Agent Studio. Tested on real tasks, it scored ${(best ?? 0).toFixed(1)}/10.\n\nHire it:`)}&url=${encodeURIComponent(`https://axon-agents.com/agents/${live ?? d.handle}`)}`}
                       className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900">Share on X</a>

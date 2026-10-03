@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicOrigin } from "@/lib/publicUrl";
 import { agentToolset } from "@/lib/mcpServer";
 import { serveMcp, MCP_CORS_HEADERS } from "@/lib/mcpHttp";
 
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ agen
   const { agentId } = await params;
   const set = agentToolset(agentId);
   if (!set) return NextResponse.json({ error: `No agent '${agentId}' to hire` }, { status: 404, headers: MCP_CORS_HEADERS });
-  const origin = req.nextUrl.origin;
+  const origin = publicOrigin(req);
   return NextResponse.json(
     {
       name: `axon-${set.toolName}`,

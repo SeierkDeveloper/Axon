@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { remixSplit } from "./studioPublish";
+import { remixSplit, withRemixShares } from "./studioPublish";
 import { getDb } from "./db";
 import { parsePaymentAmount, checkIncomingPayment, toWei, weiToEth, formatEth } from "./money";
 import { CircuitOpenError } from "./evm";
@@ -190,7 +190,7 @@ export function releasePayment(taskId: string): Payment | null {
   // distribute the escrowed amount across the recipients by their shares.
   const splits = getSplitsForTask(taskId);
   if (splits.length > 0) {
-    return releaseWithSplits(db, row, splits, settledAt);
+    return releaseWithSplits(db, row, withRemixShares(splits), settledAt);
   }
 
   // A remix built in Agent Studio pays the agent it was copied from a share of every hire, by the same split
@@ -358,10 +358,14 @@ export function releaseWithPenalty(taskId: string, penaltyBps: number): Payment 
   // Distribute the reduced payout: across the split recipients if a split exists,
   // otherwise the whole reduced amount to the single recipient.
   const splits = getSplitsForTask(taskId);
+  // a remix passes its share on here too, late or not
+  const remix = splits.length > 0 ? null : remixSplit(row.to_agent, taskId);
   const payouts =
     splits.length > 0
-      ? computeSplitAmounts(providerWei, splits)
-      : [{ agentId: row.to_agent, wei: providerWei }];
+      ? computeSplitAmounts(providerWei, withRemixShares(splits))
+      : remix
+        ? computeSplitAmounts(providerWei, remix)
+        : [{ agentId: row.to_agent, wei: providerWei }];
 
   db.transaction(() => {
     db.prepare("UPDATE transactions SET status='split', settled_at=? WHERE tx_id=?").run(settledAt, row.tx_id);

@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     if (!auth.user.walletAddress) return apiError("FORBIDDEN", "Sign in with a wallet", 403);
     const body = (await req.json().catch(() => null)) as { agentId?: unknown } | null;
     if (typeof body?.agentId !== "string") return apiError("VALIDATION_ERROR", "agentId: the agent to remix", 400);
-    const r = remixAgent(body.agentId, auth.user.walletAddress);
+    const r = await remixAgent(body.agentId, auth.user.walletAddress);
     if (typeof r === "string") return apiError("VALIDATION_ERROR", r, 400);
     return NextResponse.json({ build: r }, { status: 201 });
   });

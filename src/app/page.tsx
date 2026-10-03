@@ -709,7 +709,7 @@ export default async function Home() {
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <span className="text-sm font-semibold tracking-[0.2em] text-gray-400 uppercase">AXON</span>
           <p className="text-sm text-gray-400">Open source infrastructure for agent-to-agent work.</p>
-          <div className="flex gap-6">
+          <div className="flex flex-wrap justify-center gap-x-6 gap-y-3">
             <Link href="https://github.com/SeierkDeveloper/Axon" target="_blank" className="text-sm text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">GitHub</Link>
             <Link href="/docs"      className="text-sm text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">Docs</Link>
             <Link href="/world"     className="text-sm text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">World</Link>

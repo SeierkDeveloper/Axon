@@ -1,3 +1,4 @@
+import RemixLink from "@/components/RemixLink";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getAgentById } from "@/lib/agents";
@@ -144,9 +145,7 @@ export default async function AgentProfilePage({
                     Built in Agent Studio · tested {studio.score.toFixed(1)}/10
                   </span>
                   {remixedFrom && <span className="text-gray-500 dark:text-gray-400">Remixed from <Link href={`/agents/${remixedFrom.agentId}`} className="underline underline-offset-2 hover:text-gray-900 dark:hover:text-white">{remixedFrom.name}</Link></span>}
-                  <Link href={`/studio?remix=${encodeURIComponent(agent.agentId)}`} title="Copy this agent into Agent Studio, change it and publish your own. The original earns 10% of every hire of your remix." className="rounded-full border border-gray-200 px-3 py-1 text-gray-600 transition hover:border-gray-900 hover:text-gray-900 dark:border-gray-700 dark:text-gray-300 dark:hover:border-white dark:hover:text-white">
-                    Remix it
-                  </Link>
+                  <RemixLink agentId={agent.agentId} owner={agent.walletAddress ?? null} />
                 </div>
               )}
             </div>
