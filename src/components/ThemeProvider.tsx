@@ -1,17 +1,23 @@
 "use client";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useSyncExternalStore } from "react";
 
 type Theme = "light" | "dark";
 const Ctx = createContext<{ theme: Theme; toggle: () => void }>({ theme: "light", toggle: () => {} });
 
-function getInitialTheme(): Theme {
-  if (typeof window === "undefined") return "light";
-  const stored = localStorage.getItem("theme");
-  return stored === "dark" ? "dark" : "light";
-}
+// The theme is the visitor's saved choice, read from storage. The server cannot see it, so the first render (on the
+// server, and hydrating in the browser) is light, and the saved one follows straight after: reading it during hydration
+// made the browser's first render differ from the server's, React error #418 on every dark-mode visit.
+const listeners = new Set<() => void>();
+const subscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };
+// where storage is blocked (a private window), the choice lives in memory for the visit
+let unsaved: Theme | null = null;
+const readTheme = (): Theme => {
+  if (unsaved) return unsaved;
+  try { return localStorage.getItem("theme") === "dark" ? "dark" : "light"; } catch { return "light"; }
+};
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const theme = useSyncExternalStore(subscribe, readTheme, (): Theme => "light");
 
   useEffect(() => {
     const dark = theme === "dark";
@@ -33,11 +39,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [theme]);
 
   function toggle() {
-    setTheme((prev) => {
-      const next = prev === "light" ? "dark" : "light";
-      localStorage.setItem("theme", next);
-      return next;
-    });
+    const next: Theme = readTheme() === "light" ? "dark" : "light";
+    try { localStorage.setItem("theme", next); unsaved = null; } catch { unsaved = next; }
+    listeners.forEach((l) => l());
   }
 
   const safeAreaBg = theme === "dark" ? "#0a0a0a" : "#ffffff";
