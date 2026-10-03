@@ -176,7 +176,7 @@ export default function StudioClient() {
         <div className="grid gap-10 lg:grid-cols-[360px_1fr]">
           {/* ── the left: the core, the sentence, your builds ── */}
           <aside className="lg:sticky lg:top-20 lg:self-start">
-            <div className="studio-face flex flex-col items-center pt-4 text-center sm:pt-0">
+            <div className="studio-face flex flex-col items-center pt-8 text-center sm:pt-0">
               <AgentCore state={state} size={250} label={b ? statusText[b.status] : "Agent Studio"} />
               <p className="mt-5 text-xs font-mono uppercase tracking-[0.25em] text-gray-400 dark:text-gray-500">Agent Studio</p>
               <h1 className="mt-2 text-3xl font-bold tracking-tight text-gray-900 dark:text-white">One sentence. A tested agent.</h1>
