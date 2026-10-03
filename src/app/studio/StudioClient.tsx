@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import AgentCore, { type CoreState } from "@/components/AgentCore";
 import MarkdownOutput from "@/components/MarkdownOutput";
 import { useWallet } from "@/components/WalletProvider";
+import Earnings from "./Earnings";
 
 // Agent Studio: one sentence in, a tested agent out. The page writes the draft, tests it, grades every answer and
 // improves it, and shows each step as it happens: the core reacts, each test fills in as it is graded, the score climbs
@@ -205,6 +206,8 @@ export default function StudioClient() {
                   {creating ? "Writing your agent…" : running ? "Building…" : "Build it"}
                 </button>
                 {error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+                <Earnings apiKey={apiKey} refreshKey={`${builds.length}:${b?.status ?? ""}`} />
 
                 {builds.length > 0 && (
                   <div className="mt-8">

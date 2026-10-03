@@ -536,7 +536,7 @@ function refundSigner() {
  * Confirmation is a receipt, not a guess: viem polls for one and a reverted transaction throws here
  * rather than being reported as paid.
  */
-export async function sendNative(toAddress: string, amountEth: string | number): Promise<string> {
+export async function sendNative(toAddress: string, amountEth: string | number, onSent?: (hash: string) => void): Promise<string> {
   const to = normalizeAddress(toAddress);
   if (!to) throw new Error(`sendNative: '${toAddress}' is not an address`);
   const value = parseEther(String(amountEth));
@@ -544,6 +544,8 @@ export async function sendNative(toAddress: string, amountEth: string | number):
 
   const { client } = refundSigner();
   const hash = await client.sendTransaction({ to: to as Address, value });
+  // told the hash the moment it is sent, before the wait: a payout records it so a crash mid-wait is traceable
+  onSent?.(hash);
   const receipt = await publicClient().waitForTransactionReceipt({ hash, timeout: 120_000 });
   if (receipt.status !== "success") throw new Error(`transaction ${hash} reverted on-chain`);
   return hash;
@@ -586,3 +588,9 @@ export async function postMemoTransaction(memo: string): Promise<string> {
 }
 
 export { formatEther, parseEther };
+
+/** What the paying wallet holds, in wei: a payout checks it covers the amount before sending anything. */
+export async function payoutWalletBalance(): Promise<bigint | null> {
+  if (!PAYMENT_RECEIVER_WALLET_ADDRESS) return null;
+  return publicClient().getBalance({ address: PAYMENT_RECEIVER_WALLET_ADDRESS as Address }).catch(() => null);
+}

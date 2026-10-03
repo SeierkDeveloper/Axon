@@ -127,6 +127,11 @@ export const WITHDRAW = {
   maxPerDayAxon: 50_000_000,
 } as const;
 
+/** Kill switch for payouts alone: WITHDRAWALS=off stops every withdrawal, nothing else. */
+export function withdrawalsEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return (env.WITHDRAWALS ?? "on").trim().toLowerCase() !== "off";
+}
+
 export function withdrawAllowed(
   amount: number,
   asset: "ETH" | "AXON",

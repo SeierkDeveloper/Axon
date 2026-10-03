@@ -1885,6 +1885,14 @@ const SPEC = {
       post: { summary: "Agent Studio: put a tested build live as an agent, at your price per task (needs a test score of 6 or more)", tags: ["Agent Studio"] },
     },
 
+    "/studio/earnings": {
+      get: { summary: "Agent Studio: your agents' earnings, what each can take out, and your withdrawals", tags: ["Agent Studio"] },
+    },
+
+    "/studio/withdraw": {
+      post: { summary: "Agent Studio: send ETH your agent earned to your own wallet (at least 0.001 ETH, at most 2 ETH a day)", tags: ["Agent Studio"] },
+    },
+
     "/studio/remix": {
       post: { summary: "Agent Studio: copy a live Studio agent into a build of your own; once published it pays the original 10% of every hire", tags: ["Agent Studio"] },
     },

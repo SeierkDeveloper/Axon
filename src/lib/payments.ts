@@ -537,6 +537,8 @@ export interface AgentBalance {
   totalEarned: number;
   totalSpent: number;
   totalEscrow: number;
+  /** ETH its owner has taken out to their wallet (Agent Studio withdrawals), pending ones included */
+  totalWithdrawn: number;
   netBalance: number;
   tasksPaid: number;
 }
@@ -560,12 +562,17 @@ export function getAgentBalance(agentId: string): AgentBalance {
     "SELECT COUNT(*) AS v FROM transactions WHERE to_agent=? AND status='completed'"
   ).get(agentId) as { v: number }).v;
 
+  const withdrawn = (db.prepare(
+    "SELECT COALESCE(SUM(CAST(amount_eth AS REAL)),0) AS v FROM agent_withdrawals WHERE agent_id=? AND status IN ('pending','sent')"
+  ).get(agentId) as { v: number }).v;
+
   return {
     agentId,
     totalEarned: earned,
     totalSpent: spent,
     totalEscrow: escrow,
-    netBalance: earned - spent,
+    totalWithdrawn: withdrawn,
+    netBalance: earned - spent - withdrawn,
     tasksPaid,
   };
 }
@@ -595,7 +602,9 @@ export function getAvailableBalance(agentId: string): number {
   const earned = v("SELECT COALESCE(SUM(amount_eth),0) AS v FROM transactions WHERE to_agent=? AND status='completed'");
   const spent = v("SELECT COALESCE(SUM(amount_eth),0) AS v FROM transactions WHERE from_agent=? AND status='completed' AND funding_source='balance'");
   const escrow = v("SELECT COALESCE(SUM(amount_eth),0) AS v FROM transactions WHERE from_agent=? AND status='escrow' AND funding_source='balance'");
-  return earned - spent - escrow;
+  // ETH its owner took out (or is taking out) to their wallet is no longer the agent's to spend
+  const withdrawn = v("SELECT COALESCE(SUM(CAST(amount_eth AS REAL)),0) AS v FROM agent_withdrawals WHERE agent_id=? AND status IN ('pending','sent')");
+  return earned - spent - escrow - withdrawn;
 }
 
 // Pay for a task from an agent's earned ledger balance instead of a fresh
