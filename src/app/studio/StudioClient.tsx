@@ -42,6 +42,9 @@ export default function StudioClient() {
   const [tweaking, setTweaking] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
   const [showInstructions, setShowInstructions] = useState(false);
+  const [price, setPrice] = useState<string>("");
+  const [publishing, setPublishing] = useState(false);
+  const [live, setLive] = useState<string | null>(null);
   const page = useRef<HTMLDivElement>(null);
 
   const call = useCallback(async <T,>(path: string, init: RequestInit = {}): Promise<{ ok: boolean; status: number; body: T }> => {
@@ -115,6 +118,34 @@ export default function StudioClient() {
       setCreating(false);
     }
   };
+
+  const publish = async () => {
+    if (!current || publishing) return;
+    setPublishing(true);
+    setError(null);
+    const priceEth = Number(price || current.build.draft?.priceEth);
+    const r = await call<{ agentId?: string; error?: string }>(`/api/studio/builds/${current.build.id}/publish`, { method: "POST", body: JSON.stringify({ priceEth }) });
+    setPublishing(false);
+    if (!r.ok || !r.body.agentId) { setError(r.body.error ?? "It could not be published."); return; }
+    setLive(r.body.agentId);
+    await open_(current.build.id);
+    void loadList();
+  };
+
+  // /studio?remix=<agent>: arriving from an agent's page, start the copy as soon as the wallet is signed in
+  const remixing = useRef(false);
+  useEffect(() => {
+    if (!apiKey || remixing.current) return;
+    const agentId = new URLSearchParams(window.location.search).get("remix");
+    if (!agentId) return;
+    remixing.current = true;
+    void call<{ build?: Build; error?: string }>("/api/studio/remix", { method: "POST", body: JSON.stringify({ agentId }) }).then((r) => {
+      window.history.replaceState(null, "", "/studio");
+      if (!r.body.build) { setError(r.body.error ?? "That agent could not be remixed."); return; }
+      void open_(r.body.build.id);
+      void loadList();
+    });
+  }, [apiKey, call, open_, loadList]);
 
   const sendTweak = async () => {
     if (!current || !tweak.trim() || tweaking) return;
@@ -300,10 +331,33 @@ export default function StudioClient() {
                     {rounds.length ? "Test the change" : "Test and improve it"}
                   </button>
                 )}
-                {(b.status === "ready" || b.status === "stopped") && (
-                  <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
-                    <button type="button" disabled className="rounded-xl bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white opacity-50 dark:bg-white dark:text-gray-900">Publish</button>
-                    <p className="text-sm text-gray-500">{(best ?? 0) >= MIN_PUBLISH_SCORE ? "It is good enough to list. Publishing opens in the next update." : `It needs a score of ${MIN_PUBLISH_SCORE} to be listed. Ask for a change below and test it again.`}</p>
+                {(b.status === "ready" || b.status === "stopped") && d && (
+                  (best ?? 0) >= MIN_PUBLISH_SCORE ? (
+                    <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-gray-200 bg-white/80 p-4 backdrop-blur dark:border-gray-800 dark:bg-gray-950/70">
+                      <label className="flex flex-col gap-1 text-xs text-gray-400">
+                        Your price, per task
+                        <span className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 dark:border-gray-800">
+                          <input inputMode="decimal" value={price || String(d.priceEth)} onChange={(e) => setPrice(e.target.value.replace(/[^0-9.]/g, ""))} className="w-24 bg-transparent font-mono text-sm text-gray-900 focus:outline-none dark:text-white" aria-label="Price per task in ETH" />
+                          <span className="font-mono text-sm text-gray-500">ETH</span>
+                        </span>
+                      </label>
+                      <button type="button" onClick={() => void publish()} disabled={publishing} className="rounded-xl bg-gray-900 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">
+                        {publishing ? "Publishing…" : "Publish it"}
+                      </button>
+                      <p className="min-w-[200px] flex-1 text-sm text-gray-500">Live on Axon for anyone to hire. You keep what it earns.</p>
+                    </div>
+                  ) : (
+                    <p className="rounded-2xl border border-gray-200 p-4 text-sm text-gray-500 dark:border-gray-800">It needs a score of {MIN_PUBLISH_SCORE} to be listed. Ask for a change below and test it again.</p>
+                  )
+                )}
+                {b.status === "published" && d && (
+                  <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-900 p-4 dark:border-white">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                    <p className="flex-1 text-sm text-gray-900 dark:text-white"><b>{d.name}</b> is live on Axon at {d.priceEth} ETH a task.</p>
+                    <a href={`/agents/${live ?? d.handle}`} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-900 transition hover:border-gray-900 dark:border-gray-800 dark:text-white dark:hover:border-white">Open its page</a>
+                    <a target="_blank" rel="noreferrer"
+                      href={`https://x.com/intent/tweet?text=${encodeURIComponent(`I built ${d.name} in one sentence on Axon Agent Studio. Tested on real tasks, it scored ${(best ?? 0).toFixed(1)}/10.\n\nHire it:`)}&url=${encodeURIComponent(`https://axon-agents.com/agents/${live ?? d.handle}`)}`}
+                      className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900">Share on X</a>
                   </div>
                 )}
 

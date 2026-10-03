@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { remixSplit } from "./studioPublish";
 import { getDb } from "./db";
 import { parsePaymentAmount, checkIncomingPayment, toWei, weiToEth, formatEth } from "./money";
 import { CircuitOpenError } from "./evm";
@@ -190,6 +191,12 @@ export function releasePayment(taskId: string): Payment | null {
   const splits = getSplitsForTask(taskId);
   if (splits.length > 0) {
     return releaseWithSplits(db, row, splits, settledAt);
+  }
+
+  // A remix built in Agent Studio pays the agent it was copied from a share of every hire, by the same split
+  const remix = remixSplit(row.to_agent, taskId);
+  if (remix) {
+    return releaseWithSplits(db, row, remix, settledAt);
   }
 
   // Platform agent payments are queued for $AXON token burn instead of going to treasury

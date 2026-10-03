@@ -1880,6 +1880,15 @@ const SPEC = {
       post: { summary: "Agent Studio: one change asked for in chat; the writer edits the draft, which is tested again before listing", tags: ["Agent Studio"] },
     },
 
+    "/studio/builds/{id}/publish": {
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Agent Studio: put a tested build live as an agent, at your price per task (needs a test score of 6 or more)", tags: ["Agent Studio"] },
+    },
+
+    "/studio/remix": {
+      post: { summary: "Agent Studio: copy a live Studio agent into a build of your own; once published it pays the original 10% of every hire", tags: ["Agent Studio"] },
+    },
+
     "/studio/builds/{id}": {
       parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
       get: { summary: "Agent Studio: one of your builds, its draft and where it has got to", tags: ["Agent Studio"] },

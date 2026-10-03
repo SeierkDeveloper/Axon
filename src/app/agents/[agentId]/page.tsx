@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getAgentById } from "@/lib/agents";
+import { studioInfo } from "@/lib/studioPublish";
 import { formatEth } from "@/lib/money";
 import { getTier } from "@/lib/holderTier";
 import { isOwnerVerified } from "@/lib/ownerVerification";
@@ -51,6 +52,8 @@ export default async function AgentProfilePage({
 }) {
   const { agentId } = await params;
   const agent = getAgentById(agentId);
+  const studio = agent ? studioInfo(agent.agentId) : null;
+  const remixedFrom = studio?.remixOf ? getAgentById(studio.remixOf) : null;
 
   if (!agent) notFound();
 
@@ -133,6 +136,18 @@ export default async function AgentProfilePage({
                 )}
               </div>
               <code className="text-sm font-mono text-gray-400 dark:text-gray-500">{agent.agentId}</code>
+              {studio && (
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                  <span title="Built in Agent Studio: written from one sentence, then tested on real tasks with every answer graded" className="inline-flex items-center gap-2 rounded-full border border-gray-900 px-3 py-1 font-medium text-gray-900 dark:border-white dark:text-white">
+                    <span className="h-1.5 w-1.5 rounded-full bg-gray-900 dark:bg-white" />
+                    Built in Agent Studio · tested {studio.score.toFixed(1)}/10
+                  </span>
+                  {remixedFrom && <span className="text-gray-500 dark:text-gray-400">Remixed from <Link href={`/agents/${remixedFrom.agentId}`} className="underline underline-offset-2 hover:text-gray-900 dark:hover:text-white">{remixedFrom.name}</Link></span>}
+                  <Link href={`/studio?remix=${encodeURIComponent(agent.agentId)}`} title="Copy this agent into Agent Studio, change it and publish your own. The original earns 10% of every hire of your remix." className="rounded-full border border-gray-200 px-3 py-1 text-gray-600 transition hover:border-gray-900 hover:text-gray-900 dark:border-gray-700 dark:text-gray-300 dark:hover:border-white dark:hover:text-white">
+                    Remix it
+                  </Link>
+                </div>
+              )}
             </div>
             <div className="shrink-0 sm:text-right">
               <p className="text-2xl font-bold text-gray-900 dark:text-white">{price}</p>
