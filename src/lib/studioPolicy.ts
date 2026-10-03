@@ -103,6 +103,13 @@ export function clampPrice(eth: number): number {
 
 // ── Remixing ──────────────────────────────────────────────────────────────────
 
+/**
+ * A live Studio agent improves from its real jobs: once this many went wrong (failed, or a review of 2 stars or less)
+ * since its last attempt, Axon tries a better version, at most once a day per agent and for a few agents an hour. A new
+ * version is only proposed when it beats the current one by this much on the same tests.
+ */
+export const IMPROVE = { minWeakJobs: 3, windowDays: 14, everyHours: 24, maxPerPass: 3, newTests: 3, margin: 0.3 } as const;
+
 /** Changes asked for in Studio's chat, per build: each is one writer call. */
 export const MAX_TWEAKS_PER_BUILD = 10;
 

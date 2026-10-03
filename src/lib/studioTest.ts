@@ -31,7 +31,7 @@ export interface Models {
   rewrite(system: string, prompt: string): Promise<string>;
 }
 
-const real: Models = {
+export const realModels: Models = {
   tasks: (s, p) => claudeModel(studioModels().grader).complete(s, p, 1_500),
   answer: (model, s, t) => claudeModel(model).complete(s, t, BUILD_BUDGET.answerTokens),
   grade: (s, p) => claudeModel(studioModels().grader).complete(s, p, BUILD_BUDGET.graderTokens),
@@ -129,10 +129,48 @@ function finish(buildId: string, draft: Draft, status: "ready" | "stopped" | "fa
 }
 
 /**
+ * Run one version of the instructions on every task and grade each answer, all at once, saving each result the moment
+ * it lands. The round's score is the mean of the answers that came back; a task that got no answer (twice) is ours,
+ * not the agent's, and is left out. Shared by a build's rounds and by an improvement's before-and-after comparison.
+ */
+export async function gradeRound(buildId: string, round: number, sentence: string, draft: Draft, instructions: string, tasks: TestTask[], models: Models): Promise<{ results: Result[]; score: number | null }> {
+  const results: Result[] = tasks.map((t) => ({ ...t, answer: null, score: null, feedback: null }));
+  saveRound(buildId, round, instructions, results, null);
+  await Promise.all(tasks.map(async (t, i) => {
+    // one retry: a busy or dropped call is ours, not the agent's, and is not scored against it
+    let answer = "";
+    let why: string | null = null;
+    for (let attempt = 0; attempt < 2 && !answer.trim(); attempt++) {
+      try {
+        answer = await models.answer(draft.model, agentSystem(draft, instructions), t.task);
+        if (!answer.trim()) why = "empty answer";
+      } catch (err) {
+        why = err instanceof Error ? err.message.slice(0, 200) : String(err);
+        if (attempt === 0) await new Promise((r) => setTimeout(r, 1_500));
+      }
+    }
+    if (!answer.trim()) {
+      logger.warn("studio.answer_failed", "A Studio test task got no answer", { buildId, round, task: i, why });
+      results[i].feedback = "This task could not be run just now, so it does not count towards the score.";
+      saveRound(buildId, round, instructions, results, null);
+      return;
+    }
+    results[i].answer = answer.slice(0, 4_000);
+    const g = parseGrade(await models.grade(GRADER_SYSTEM, `${purposeOf(sentence, draft)}\n\nTASK:\n${t.task}\n\nA GREAT ANSWER: ${t.lookFor}\n\nTHE AGENT'S ANSWER:\n${answer}`).catch(() => ""));
+    results[i].score = g?.score ?? null;
+    results[i].feedback = g?.feedback ?? "The grader gave no verdict.";
+    saveRound(buildId, round, instructions, results, null);
+  }));
+  const score = mean(results.map((r) => r.score).filter((x): x is number => x !== null));
+  saveRound(buildId, round, instructions, results, score);
+  return { results, score };
+}
+
+/**
  * Test a drafted build and improve it, start to finish. Meant to run in the background: the build's status and its
  * rounds show where it has got to. Returns the finished build's status.
  */
-export async function runBuild(buildId: string, models: Models = real, now: () => number = Date.now): Promise<string> {
+export async function runBuild(buildId: string, models: Models = realModels, now: () => number = Date.now): Promise<string> {
   const b = getBuild(buildId);
   if (!b?.draft || b.status !== "drafted") return b?.status ?? "missing";
   const draft = b.draft;
@@ -168,38 +206,8 @@ export async function runBuild(buildId: string, models: Models = real, now: () =
       if (!studioEnabled()) { finish(buildId, draft, "stopped", "Agent Studio was paused. The best version so far is kept.", after); return "stopped"; }
       if (late()) { finish(buildId, draft, "stopped", "The build ran out of time. The best version so far is kept.", after); return "stopped"; }
       updateBuild(buildId, { status: "testing" });
-      const results: Result[] = tasks.map((t) => ({ ...t, answer: null, score: null, feedback: null }));
-      saveRound(buildId, round, instructions, results, null);
-
-      // every task at once: answer, then grade, each saved the moment it lands
       spend(tasks.length * 2);
-      await Promise.all(tasks.map(async (t, i) => {
-        // one retry: a busy or dropped call is ours, not the agent's, and is not scored against it
-        let answer = "";
-        let why: string | null = null;
-        for (let attempt = 0; attempt < 2 && !answer.trim(); attempt++) {
-          try {
-            answer = await models.answer(draft.model, agentSystem(draft, instructions), t.task);
-            if (!answer.trim()) why = "empty answer";
-          } catch (err) {
-            why = err instanceof Error ? err.message.slice(0, 200) : String(err);
-            if (attempt === 0) await new Promise((r) => setTimeout(r, 1_500));
-          }
-        }
-        if (!answer.trim()) {
-          logger.warn("studio.answer_failed", "A Studio test task got no answer", { buildId, round, task: i, why });
-          results[i].feedback = "This task could not be run just now, so it does not count towards the score.";
-          saveRound(buildId, round, instructions, results, null);
-          return;
-        }
-        results[i].answer = answer.slice(0, 4_000);
-        const g = parseGrade(await models.grade(GRADER_SYSTEM, `${purposeOf(b.sentence, draft)}\n\nTASK:\n${t.task}\n\nA GREAT ANSWER: ${t.lookFor}\n\nTHE AGENT'S ANSWER:\n${answer}`).catch(() => ""));
-        results[i].score = g?.score ?? null;
-        results[i].feedback = g?.feedback ?? "The grader gave no verdict.";
-        saveRound(buildId, round, instructions, results, null);
-      }));
-      const score = mean(results.map((r) => r.score).filter((s): s is number => s !== null));
-      saveRound(buildId, round, instructions, results, score);
+      const { results, score } = await gradeRound(buildId, round, b.sentence, draft, instructions, tasks, models);
       updateBuild(buildId, { score });
 
       if (score !== null && score >= BUILD_BUDGET.goodEnough) break;

@@ -12,6 +12,7 @@
 // to stand up a working endpoint for each of them, and an agent that cannot be reached is not an agent, it is a
 // ticker with a description.
 
+import { studioInfo } from "./studioPublish";
 import { getAgentById } from "./agents";
 import type { Agent } from "@/sdk/types";
 import { sameAddress } from "./address";
@@ -94,7 +95,9 @@ export function checkEligibility(agentId: string, wallet: string | null): Eligib
 
   // The one real requirement. An endpoint that answers is the minimum definition of an agent, and it is the
   // thing a spam launch will not bother with.
-  if (!agent.endpoint) {
+  // An agent built in Agent Studio runs on Axon and was tested on real tasks before it went live: it answers without an
+  // endpoint of its own. Anything else still needs one.
+  if (!agent.endpoint && !studioInfo(agent.agentId)) {
     return fail("This agent has no endpoint. An agent has to be reachable before it can have a token.");
   }
   if (agent.verificationStatus === "unreachable") {

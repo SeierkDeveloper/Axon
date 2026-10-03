@@ -358,6 +358,7 @@ export default function StudioClient() {
                     <span className="h-2 w-2 rounded-full bg-emerald-500" />
                     <p className="flex-1 text-sm text-gray-900 dark:text-white"><b>{d.name}</b> is live on Axon at {d.priceEth} ETH a task.</p>
                     <a href={`/agents/${live ?? d.handle}`} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-900 transition hover:border-gray-900 dark:border-gray-800 dark:text-white dark:hover:border-white">Open its page</a>
+                    <a href={`/launch/${live ?? d.handle}`} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-900 transition hover:border-gray-900 dark:border-gray-800 dark:text-white dark:hover:border-white">Launch its token</a>
                     <a target="_blank" rel="noreferrer"
                       href={`https://x.com/intent/tweet?text=${encodeURIComponent(`I built ${d.name} in one sentence on Axon Agent Studio. Tested on real tasks, it scored ${(best ?? 0).toFixed(1)}/10.\n\nHire it:`)}&url=${encodeURIComponent(`https://axon-agents.com/agents/${live ?? d.handle}`)}`}
                       className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900">Share on X</a>

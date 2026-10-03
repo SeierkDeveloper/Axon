@@ -3,6 +3,7 @@ import { apiError } from "@/lib/apiError";
 import { requireApiKey } from "@/lib/apiAuth";
 import { withRequestContext } from "@/lib/withRequestContext";
 import { earningsOf, withdrawalsOf } from "@/lib/studioWithdraw";
+import { proposalsOf } from "@/lib/studioImprove";
 import { WITHDRAW, withdrawalsEnabled } from "@/lib/studioPolicy";
 
 export const runtime = "nodejs";
@@ -15,7 +16,7 @@ export async function GET(req: NextRequest) {
     const wallet = auth.user.walletAddress;
     if (!wallet) return apiError("FORBIDDEN", "Sign in with a wallet", 403);
     return NextResponse.json(
-      { agents: earningsOf(wallet), withdrawals: withdrawalsOf(wallet), rules: { minEth: WITHDRAW.minEth, maxPerDayEth: WITHDRAW.maxPerDayEth }, open: withdrawalsEnabled() },
+      { agents: earningsOf(wallet), withdrawals: withdrawalsOf(wallet), proposals: proposalsOf(wallet), rules: { minEth: WITHDRAW.minEth, maxPerDayEth: WITHDRAW.maxPerDayEth }, open: withdrawalsEnabled() },
       { headers: { "Cache-Control": "no-store" } },
     );
   });

@@ -1893,6 +1893,11 @@ const SPEC = {
       post: { summary: "Agent Studio: send ETH your agent earned to your own wallet (at least 0.001 ETH, at most 2 ETH a day)", tags: ["Agent Studio"] },
     },
 
+    "/studio/improvements/{id}": {
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Agent Studio: apply or dismiss a better version Axon proposed for your live agent, from the jobs it got wrong", tags: ["Agent Studio"] },
+    },
+
     "/studio/remix": {
       post: { summary: "Agent Studio: copy a live Studio agent into a build of your own; once published it pays the original 10% of every hire", tags: ["Agent Studio"] },
     },

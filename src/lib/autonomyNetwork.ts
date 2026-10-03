@@ -15,7 +15,8 @@ import { computeOptimization, applyOptimization } from "./selfOptimize";
 import { runNetworkChecks } from "./networkChecks";
 import { routingActions, type Retest } from "./autonomyActions";
 import { upkeepActions, type Ping } from "./autonomyUpkeep";
-import { isPublic, PRICING, type FindingKind } from "./autonomyPolicy";
+import { isPublic, PRICING, actionsEnabled, type FindingKind } from "./autonomyPolicy";
+import { logger } from "./logger";
 import { parsePaymentAmount } from "./money";
 
 export interface NetworkObservation {
@@ -301,6 +302,14 @@ export async function runFullNetworkPass(
     ...(await upkeepActions(findings, { apply, ping: opts.ping, refresh: opts.refresh })),
   ];
   const run = runNetworkPass({ apply: opts.apply, extra: [...findings, ...actions], checks: { run: ran, unavailable: failed } });
+  // Agent Studio agents improve from their real jobs: minutes of model calls, so it runs after the pass has answered,
+  // and only when the pass applies and actions are on (the same kill switch). It only ever proposes; owners decide.
+  if (apply && actionsEnabled()) {
+    void import("./studioImprove")
+      .then(async ({ improveStudioAgents }) => improveStudioAgents((await import("./studioTest")).realModels))
+      .then((r) => { if (r.tried.length) logger.info("studio.improve_pass", "Studio agents tried", r); })
+      .catch((err) => logger.warn("studio.improve_pass_failed", "The Studio improvement pass failed", { reason: err instanceof Error ? err.message : String(err) }));
+  }
   return { ...run, checksUnavailable: failed };
 }
 

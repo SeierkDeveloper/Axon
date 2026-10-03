@@ -7,7 +7,8 @@ import { useCallback, useEffect, useState } from "react";
 
 interface Earning { agentId: string; name: string; earnedEth: number; withdrawnEth: number; availableEth: number }
 interface Withdrawal { id: string; agentId: string; amountEth: string; status: "pending" | "sent" | "failed"; txHash: string | null; createdAt: string }
-interface Data { agents: Earning[]; withdrawals: Withdrawal[]; rules: { minEth: number; maxPerDayEth: number }; open: boolean }
+interface Proposal { id: string; agentId: string; weakJobs: number; fromScore: number | null; toScore: number | null }
+interface Data { agents: Earning[]; withdrawals: Withdrawal[]; proposals: Proposal[]; rules: { minEth: number; maxPerDayEth: number }; open: boolean }
 
 const EXPLORER = "https://robinhoodchain.blockscout.com";
 const eth = (x: number) => (x === 0 ? "0" : x < 0.0001 ? x.toExponential(2) : x.toFixed(x < 1 ? 5 : 3).replace(/0+$/, "").replace(/\.$/, ""));
@@ -38,6 +39,15 @@ export default function Earnings({ apiKey, refreshKey }: { apiKey: string; refre
     if (d) setData(d);
   };
 
+  const decide = async (p: Proposal, apply: boolean) => {
+    setBusy(p.id);
+    const r = await fetch(`/api/studio/improvements/${p.id}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ apply }) });
+    setBusy(null);
+    setMsg({ agentId: p.agentId, ok: r.ok, text: r.ok ? (apply ? "Applied. Your agent runs the better version now." : "Dismissed.") : "That could not be done." });
+    const d = await fetchData().catch(() => null);
+    if (d) setData(d);
+  };
+
   if (!data || data.agents.length === 0) return null;
   return (
     <div className="mt-8">
@@ -49,7 +59,16 @@ export default function Earnings({ apiKey, refreshKey }: { apiKey: string; refre
               <a href={`/agents/${a.agentId}`} className="truncate text-sm font-medium text-gray-900 hover:underline dark:text-white">{a.name}</a>
               <span className="shrink-0 font-mono text-sm text-gray-900 dark:text-white">{eth(a.availableEth)} ETH</span>
             </div>
-            <p className="mt-0.5 font-mono text-[11px] text-gray-400">earned {eth(a.earnedEth)} · taken out {eth(a.withdrawnEth)}</p>
+            <p className="mt-0.5 font-mono text-[11px] text-gray-400">earned {eth(a.earnedEth)} · taken out {eth(a.withdrawnEth)} · <a href={`/launch/${a.agentId}`} className="underline hover:text-gray-900 dark:hover:text-white">launch its token</a></p>
+            {data.proposals.filter((p) => p.agentId === a.agentId).map((p) => (
+              <div key={p.id} className="mt-2 rounded-lg bg-gray-50 p-2.5 dark:bg-gray-900/60">
+                <p className="text-xs text-gray-700 dark:text-gray-300">Axon found a better version: <b className="font-mono">{p.fromScore?.toFixed(1)} → {p.toScore?.toFixed(1)}</b>, from {p.weakJobs} jobs it got wrong, tested on the same tasks.</p>
+                <div className="mt-1.5 flex gap-2">
+                  <button type="button" onClick={() => void decide(p, true)} disabled={busy !== null} className="rounded-md bg-gray-900 px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-gray-900">Apply</button>
+                  <button type="button" onClick={() => void decide(p, false)} disabled={busy !== null} className="rounded-md border border-gray-200 px-2.5 py-1 text-xs text-gray-600 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300">Dismiss</button>
+                </div>
+              </div>
+            ))}
             {a.availableEth >= data.rules.minEth && data.open && (
               <div className="mt-2 flex gap-2">
                 <input inputMode="decimal" placeholder={eth(a.availableEth)} value={amounts[a.agentId] ?? ""} onChange={(e) => setAmounts((m) => ({ ...m, [a.agentId]: e.target.value.replace(/[^0-9.]/g, "") }))}
