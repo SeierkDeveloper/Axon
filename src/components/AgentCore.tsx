@@ -13,7 +13,7 @@ import { useEffect, useId, useRef } from "react";
 
 export type CoreState = "idle" | "drafting" | "testing" | "improving" | "ready" | "failed" | "travel";
 
-export default function AgentCore({ state = "idle", size = 240, label }: { state?: CoreState; size?: number; label?: string }) {
+export default function AgentCore({ state = "idle", size = 240, label, still = false }: { state?: CoreState; size?: number; label?: string; still?: boolean }) {
   const root = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLDivElement>(null);
   const look = useRef<SVGGElement>(null);
@@ -21,7 +21,8 @@ export default function AgentCore({ state = "idle", size = 240, label }: { state
 
   useEffect(() => {
     const el = root.current;
-    if (!el || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    // still: looks straight ahead, and blinking is left to its state (between pages)
+    if (!el || still || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     let tx = 0, ty = 0, x = 0, y = 0, raf = 0;
     const onMove = (e: PointerEvent) => {
       const r = el.getBoundingClientRect();
@@ -56,7 +57,7 @@ export default function AgentCore({ state = "idle", size = 240, label }: { state
     };
     blinkT = setTimeout(blink, 1_400);
     return () => { cancelAnimationFrame(raf); clearTimeout(blinkT); window.removeEventListener("pointermove", onMove); };
-  }, []);
+  }, [still]);
 
   const h = Math.round(size * 0.72);
   // gradients and the glow are referenced by id: each face gets its own, so two on one page never share (or lose) them

@@ -1,10 +1,5 @@
-import AgentCore from "@/components/AgentCore";
-
-// While a page loads: Axon's face, thinking. Shown by Next for any page still rendering on the server.
+// While a page renders on the server: a plain screen. The face is PageTransition's, and it waits for this to go, so
+// there is only ever one face on screen.
 export default function Loading() {
-  return (
-    <div className="flex min-h-[70vh] items-center justify-center bg-white dark:bg-[#0a0a0a]" role="status" aria-label="Loading">
-      <AgentCore state="drafting" size={120} label="Loading" />
-    </div>
-  );
+  return <div data-route-loading className="min-h-[70vh] bg-white dark:bg-[#0a0a0a]" role="status" aria-label="Loading" />;
 }

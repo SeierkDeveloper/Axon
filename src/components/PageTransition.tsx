@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import AgentCore from "@/components/AgentCore";
 
-// Between pages: Axon's face comes up, glances one way and the other, blinks, and the next page is there. It starts on
+// Between pages: Axon's face comes up looking straight ahead, blinks once, and the next page is there. It starts on
 // the click and stays at least MIN_MS, so the face always gets to finish its look around, and never longer than the
 // next page actually takes beyond that. Only in-site links start it; new tabs, downloads, anchors on the same page and
 // back/forward go straight through. Anyone who asked for less motion gets none.
@@ -39,13 +39,18 @@ export default function PageTransition() {
     return () => document.removeEventListener("click", onClick, true);
   }, []);
 
-  // the new page is in: let the face finish, then fade out
+  // the new page is in and rendered (no loading screen left) and the blink is done: lift
   useEffect(() => {
     if (phase !== "in") return;
-    const done = pathname !== from.current;
-    const wait = done ? Math.max(0, MIN_MS - (performance.now() - startedAt.current)) : GIVE_UP_MS;
-    const t = setTimeout(() => setPhase("out"), wait);
-    return () => clearTimeout(t);
+    if (pathname === from.current) {
+      const t = setTimeout(() => setPhase("out"), GIVE_UP_MS);
+      return () => clearTimeout(t);
+    }
+    const t = setInterval(() => {
+      const elapsed = performance.now() - startedAt.current;
+      if ((elapsed >= MIN_MS && !document.querySelector("[data-route-loading]")) || elapsed > GIVE_UP_MS) setPhase("out");
+    }, 50);
+    return () => clearInterval(t);
   }, [phase, pathname]);
 
   useEffect(() => {
@@ -57,7 +62,7 @@ export default function PageTransition() {
   if (phase === "off") return null;
   return (
     <div className={`page-transition ${phase === "out" ? "is-out" : ""}`} role="status" aria-label="Loading">
-      <AgentCore state="travel" size={120} label="Loading" />
+      <AgentCore state="travel" size={120} label="Loading" still />
     </div>
   );
 }
