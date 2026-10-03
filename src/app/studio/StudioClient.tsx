@@ -144,7 +144,7 @@ export default function StudioClient() {
           {/* ── the left: the core, the sentence, your builds ── */}
           <aside className="lg:sticky lg:top-20 lg:self-start">
             <div className="flex flex-col items-center text-center">
-              <AgentCore state={state} size={210} label={b ? statusText[b.status] : "Agent Studio"} />
+              <AgentCore state={state} size={250} label={b ? statusText[b.status] : "Agent Studio"} />
               <p className="mt-5 text-xs font-mono uppercase tracking-[0.25em] text-gray-400 dark:text-gray-500">Agent Studio</p>
               <h1 className="mt-2 text-3xl font-bold tracking-tight text-gray-900 dark:text-white">One sentence. A tested agent.</h1>
               <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Axon writes it, tests it on real tasks, grades every answer and improves it before it goes live. Free to build. You set the price and keep what it earns.</p>
@@ -229,13 +229,13 @@ export default function StudioClient() {
 
                 {d && (
                   <div className="rounded-2xl border border-gray-200 bg-white/80 p-6 backdrop-blur dark:border-gray-800 dark:bg-gray-950/70">
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div className="min-w-0">
+                    <div className="flex items-start justify-between gap-6">
+                      <div className="min-w-0 flex-1">
                         <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">{d.name}</h2>
                         <p className="mt-1 font-mono text-xs text-gray-400">@{d.handle} · {d.category}</p>
                         <p className="mt-3 max-w-xl text-sm text-gray-600 dark:text-gray-300">{d.description}</p>
                       </div>
-                      <div className="text-right">
+                      <div className="shrink-0 text-right">
                         <p className="text-4xl font-bold tabular-nums text-gray-900 dark:text-white">{best !== null ? best.toFixed(1) : "–"}</p>
                         <p className="text-xs text-gray-400">best score of 10</p>
                       </div>
@@ -275,11 +275,11 @@ export default function StudioClient() {
                         <li key={i}>
                           <button type="button" onClick={() => setOpen(open === i ? null : i)} className="flex w-full items-start gap-4 px-5 py-4 text-left transition hover:bg-gray-50 dark:hover:bg-gray-900/50">
                             <span className={`mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-mono text-sm font-semibold ${x.score === null ? "bg-gray-100 text-gray-400 dark:bg-gray-900" : x.score >= 8 ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900" : x.score >= 6 ? "bg-gray-200 text-gray-900 dark:bg-gray-800 dark:text-white" : "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-400"}`}>
-                              {x.score === null ? <span className="h-2 w-2 animate-ping rounded-full bg-gray-400" /> : x.score}
+                              {x.score === null ? (x.feedback ? "–" : <span className="h-2 w-2 animate-ping rounded-full bg-gray-400" />) : x.score}
                             </span>
                             <span className="min-w-0 flex-1">
                               <span className="line-clamp-2 text-sm text-gray-900 dark:text-gray-100">{x.task}</span>
-                              <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">{x.score === null ? (x.answer ? "Grading…" : "Answering…") : x.feedback}</span>
+                              <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">{x.score === null && !x.feedback ? (x.answer ? "Grading…" : "Answering…") : x.feedback}</span>
                             </span>
                           </button>
                           {open === i && x.answer && (

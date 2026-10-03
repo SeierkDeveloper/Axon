@@ -2,109 +2,120 @@
 
 import { useEffect, useRef } from "react";
 
-// The agent core: Studio's living centrepiece. An orb with an eye that follows the cursor around the page, leaning
-// a little towards it, and that shows what the build is doing: breathing when idle, orbiting while the draft is
-// written, a sweep while the tests run, a spinning ring while it improves, a pulse when it is done. Drawn in the page's
-// own ink, so it is black on white in the light theme and white on black in the dark.
+// The agent's face: Studio's centrepiece. A glossy black head, like a small robot's screen, with two glowing eyes that
+// follow the cursor around the page while the head leans a little towards it. The eyes blink at an uneven rhythm and
+// show what the build is doing: narrowed and glancing up while the draft is written, scanning side to side while the
+// tests run, a focused squint while it improves, happy arcs when it is done, drooping if it failed.
 //
-// The eye moves in a requestAnimationFrame loop with easing, never in React state, so following the cursor costs no
-// renders. With reduced motion asked for, it looks straight ahead and nothing animates.
+// Following the cursor runs in a requestAnimationFrame loop with easing, never in React state, so it costs no renders.
+// With reduced motion asked for, the face looks straight ahead and holds still.
 
 export type CoreState = "idle" | "drafting" | "testing" | "improving" | "ready" | "failed";
 
-export default function AgentCore({ state = "idle", size = 220, label }: { state?: CoreState; size?: number; label?: string }) {
+export default function AgentCore({ state = "idle", size = 240, label }: { state?: CoreState; size?: number; label?: string }) {
   const root = useRef<HTMLDivElement>(null);
-  const body = useRef<HTMLDivElement>(null);
-  const pupil = useRef<SVGGElement>(null);
-  const lid = useRef<SVGRectElement>(null);
+  const head = useRef<HTMLDivElement>(null);
+  const look = useRef<SVGGElement>(null);
+  const lids = useRef<SVGGElement>(null);
 
   useEffect(() => {
     const el = root.current;
-    if (!el) return;
-    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (still) return;
-    // where the eye looks, and where it is heading: eased each frame so it glides rather than jumps
+    if (!el || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     let tx = 0, ty = 0, x = 0, y = 0, raf = 0, idleAt = performance.now();
     const onMove = (e: PointerEvent) => {
       const r = el.getBoundingClientRect();
       const dx = e.clientX - (r.left + r.width / 2);
       const dy = e.clientY - (r.top + r.height / 2);
       const d = Math.hypot(dx, dy) || 1;
-      // far away it looks fully that way; close in, less, so it does not go cross-eyed under the cursor
-      const reach = Math.min(1, d / (r.width * 1.6));
+      // the further away the cursor, the further the eyes turn, up to a limit
+      const reach = Math.min(1, d / (r.width * 1.4));
       tx = (dx / d) * reach;
       ty = (dy / d) * reach;
       idleAt = performance.now();
     };
     const tick = (now: number) => {
-      // left alone for a while, it looks about on its own
-      if (now - idleAt > 4_000) {
-        tx = Math.sin(now / 1_900) * 0.45;
-        ty = Math.cos(now / 2_600) * 0.25;
+      // left alone, it looks around by itself
+      if (now - idleAt > 3_500) {
+        const t = now / 1_000;
+        tx = Math.sin(t * 0.55) * 0.55 + Math.sin(t * 1.7) * 0.08;
+        ty = Math.cos(t * 0.4) * 0.3;
       }
-      x += (tx - x) * 0.12;
-      y += (ty - y) * 0.12;
-      pupil.current?.setAttribute("transform", `translate(${(x * 15).toFixed(2)} ${(y * 13).toFixed(2)})`);
-      if (body.current) body.current.style.transform = `perspective(700px) rotateY(${(x * 9).toFixed(2)}deg) rotateX(${(-y * 9).toFixed(2)}deg)`;
+      x += (tx - x) * 0.14;
+      y += (ty - y) * 0.14;
+      look.current?.setAttribute("transform", `translate(${(x * 20).toFixed(2)} ${(y * 14).toFixed(2)})`);
+      if (head.current) head.current.style.transform = `perspective(800px) rotateY(${(x * 12).toFixed(2)}deg) rotateX(${(-y * 10).toFixed(2)}deg) translateZ(0)`;
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     window.addEventListener("pointermove", onMove, { passive: true });
-    // a blink every few seconds, at an uneven rhythm
+    // blinks: mostly single, now and then a double
     let blinkT: ReturnType<typeof setTimeout>;
     const blink = () => {
-      lid.current?.animate([{ height: "0" }, { height: "56" }, { height: "0" }], { duration: 170, easing: "ease-in-out" });
-      blinkT = setTimeout(blink, 2_600 + Math.random() * 3_800);
+      const g = lids.current;
+      if (g) {
+        const once = [{ transform: "scaleY(1)" }, { transform: "scaleY(0.08)" }, { transform: "scaleY(1)" }];
+        g.animate(once, { duration: 160, easing: "ease-in-out" });
+        if (Math.random() < 0.22) setTimeout(() => g.animate(once, { duration: 150, easing: "ease-in-out" }), 230);
+      }
+      blinkT = setTimeout(blink, 2_400 + Math.random() * 3_600);
     };
-    blinkT = setTimeout(blink, 1_800);
+    blinkT = setTimeout(blink, 1_400);
     return () => { cancelAnimationFrame(raf); clearTimeout(blinkT); window.removeEventListener("pointermove", onMove); };
   }, []);
 
+  const h = Math.round(size * 0.72);
   return (
-    <div ref={root} className={`agent-core is-${state}`} style={{ width: size, height: size }} role="img" aria-label={label ?? `Agent core: ${state}`}>
-      <div ref={body} className="agent-core-body">
-        <svg viewBox="0 0 200 200" width={size} height={size} aria-hidden="true">
+    <div ref={root} className={`agent-face is-${state}`} style={{ width: size, height: h }} role="img" aria-label={label ?? `Agent: ${state}`}>
+      <div ref={head} className="agent-face-head">
+        <svg viewBox="0 0 240 172" width={size} height={h} aria-hidden="true">
           <defs>
-            <radialGradient id="core-shell" cx="38%" cy="32%" r="75%">
-              <stop offset="0%" stopColor="var(--core-hi)" />
-              <stop offset="60%" stopColor="var(--core-mid)" />
-              <stop offset="100%" stopColor="var(--core-lo)" />
+            <linearGradient id="face-shell" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#2a2a2f" />
+              <stop offset="55%" stopColor="#111114" />
+              <stop offset="100%" stopColor="#050506" />
+            </linearGradient>
+            <radialGradient id="face-screen" cx="50%" cy="38%" r="70%">
+              <stop offset="0%" stopColor="#141418" />
+              <stop offset="100%" stopColor="#000000" />
             </radialGradient>
-            <radialGradient id="core-iris" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="var(--core-iris-in)" />
-              <stop offset="100%" stopColor="var(--core-iris-out)" />
-            </radialGradient>
-            <clipPath id="core-eye"><ellipse cx="100" cy="100" rx="42" ry="28" /></clipPath>
+            <linearGradient id="face-gloss" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#ffffff" stopOpacity="0.16" />
+              <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+            </linearGradient>
+            <filter id="face-glow" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="7" />
+            </filter>
           </defs>
 
-          {/* state rings, behind and around the orb */}
-          <g className="core-ring core-orbit">
-            <circle cx="100" cy="14" r="3.2" />
-            <circle cx="186" cy="100" r="2.4" />
-            <circle cx="100" cy="186" r="3.2" />
-            <circle cx="14" cy="100" r="2.4" />
-          </g>
-          <circle className="core-ring core-sweep" cx="100" cy="100" r="88" pathLength="100" />
-          <circle className="core-ring core-dash" cx="100" cy="100" r="92" pathLength="100" />
-          <circle className="core-ring core-pulse" cx="100" cy="100" r="80" />
+          {/* the head and its screen */}
+          <rect x="6" y="6" width="228" height="160" rx="52" fill="url(#face-shell)" className="face-shell" />
+          <rect x="6.5" y="6.5" width="227" height="159" rx="51.5" fill="none" className="face-edge" />
+          <rect x="20" y="20" width="200" height="132" rx="40" fill="url(#face-screen)" />
+          <path d="M44 24 H196 a36 36 0 0 1 20 10 Q120 46 26 40 a36 36 0 0 1 18 -16 Z" fill="url(#face-gloss)" />
 
-          {/* the orb */}
-          <circle cx="100" cy="100" r="74" fill="url(#core-shell)" className="core-shell" />
-          <circle cx="100" cy="100" r="74" fill="none" className="core-rim" />
-
-          {/* the eye: white, iris and pupil that follow the cursor, a lid that blinks */}
-          <ellipse cx="100" cy="100" rx="42" ry="28" className="core-white" />
-          <g clipPath="url(#core-eye)">
-            <g ref={pupil}>
-              <circle cx="100" cy="100" r="20" fill="url(#core-iris)" />
-              <circle cx="100" cy="100" r="9" className="core-pupil" />
-              <circle cx="94" cy="94" r="3.4" className="core-glint" />
+          {/* the eyes: they follow the cursor (look), blink (lids), and take the build's expression (mood) */}
+          <g ref={look}>
+            <g className="face-mood">
+              <g ref={lids} className="face-lids">
+                <g className="face-eyes-glow" filter="url(#face-glow)">
+                  <rect x="70" y="60" width="32" height="52" rx="16" />
+                  <rect x="138" y="60" width="32" height="52" rx="16" />
+                </g>
+                <g className="face-eyes">
+                  <rect x="70" y="60" width="32" height="52" rx="16" />
+                  <rect x="138" y="60" width="32" height="52" rx="16" />
+                </g>
+              </g>
+              {/* happy eyes, shown when the build is done */}
+              <g className="face-happy">
+                <path d="M72 96 Q86 70 100 96" />
+                <path d="M140 96 Q154 70 168 96" />
+              </g>
             </g>
-            <rect ref={lid} x="58" y="72" width="84" height="0" className="core-lid" />
           </g>
-          <ellipse cx="100" cy="100" rx="42" ry="28" fill="none" className="core-eye-rim" />
         </svg>
       </div>
+      <div className="agent-face-shadow" aria-hidden />
     </div>
   );
 }

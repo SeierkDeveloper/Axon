@@ -137,6 +137,18 @@ describe("a draft earns its listing", () => {
     expect(await tweakDraft(id, me, "shorter", async () => "{}")).toMatch(/Wait for it to finish/);
   });
 
+  it("retries a failed answer once, and a task that still gets none does not count against the agent", async () => {
+    const id = await drafted();
+    let n = 0;
+    const m = models({ answer: async (_m, _s, task) => { if (task.includes("number 0")) throw new Error("overloaded"); n++; return n % 7 === 1 ? "" : "great answer"; } });
+    await runBuild(id, m);
+    const r1 = roundsOf(id)[0];
+    const skipped = r1.results.filter((x) => x.score === null);
+    expect(skipped.some((x) => x.task.includes("number 0"))).toBe(true);
+    expect(skipped.every((x) => /does not count/.test(x.feedback ?? ""))).toBe(true);
+    expect(r1.score).toBe(9); // only the answered ones are averaged
+  });
+
   it("reads a rewrite between tags, line breaks and all, a cut-off one too, and JSON as a fallback", () => {
     expect(parseRewrite("x <instructions>\nLine one.\nLine \"two\".\n</instructions> y")).toBe('Line one.\nLine "two".');
     expect(parseRewrite("<instructions>cut off mid")).toBe("cut off mid");

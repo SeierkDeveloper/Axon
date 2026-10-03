@@ -174,11 +174,26 @@ export async function runBuild(buildId: string, models: Models = real, now: () =
       // every task at once: answer, then grade, each saved the moment it lands
       spend(tasks.length * 2);
       await Promise.all(tasks.map(async (t, i) => {
-        const answer = await models.answer(draft.model, agentSystem(draft, instructions), t.task).catch(() => "");
+        // one retry: a busy or dropped call is ours, not the agent's, and is not scored against it
+        let answer = "";
+        let why: string | null = null;
+        for (let attempt = 0; attempt < 2 && !answer.trim(); attempt++) {
+          try {
+            answer = await models.answer(draft.model, agentSystem(draft, instructions), t.task);
+            if (!answer.trim()) why = "empty answer";
+          } catch (err) {
+            why = err instanceof Error ? err.message.slice(0, 200) : String(err);
+            if (attempt === 0) await new Promise((r) => setTimeout(r, 1_500));
+          }
+        }
+        if (!answer.trim()) {
+          logger.warn("studio.answer_failed", "A Studio test task got no answer", { buildId, round, task: i, why });
+          results[i].feedback = "This task could not be run just now, so it does not count towards the score.";
+          saveRound(buildId, round, instructions, results, null);
+          return;
+        }
         results[i].answer = answer.slice(0, 4_000);
-        const g = answer.trim()
-          ? parseGrade(await models.grade(GRADER_SYSTEM, `${purposeOf(b.sentence, draft)}\n\nTASK:\n${t.task}\n\nA GREAT ANSWER: ${t.lookFor}\n\nTHE AGENT'S ANSWER:\n${answer}`).catch(() => ""))
-          : { score: 0, feedback: "No answer came back." };
+        const g = parseGrade(await models.grade(GRADER_SYSTEM, `${purposeOf(b.sentence, draft)}\n\nTASK:\n${t.task}\n\nA GREAT ANSWER: ${t.lookFor}\n\nTHE AGENT'S ANSWER:\n${answer}`).catch(() => ""));
         results[i].score = g?.score ?? null;
         results[i].feedback = g?.feedback ?? "The grader gave no verdict.";
         saveRound(buildId, round, instructions, results, null);
