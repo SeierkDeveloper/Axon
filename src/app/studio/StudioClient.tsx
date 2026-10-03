@@ -5,6 +5,7 @@ import AgentCore, { type CoreState } from "@/components/AgentCore";
 import MarkdownOutput from "@/components/MarkdownOutput";
 import { useWallet } from "@/components/WalletProvider";
 import Earnings from "./Earnings";
+import UseAnywhere from "@/components/UseAnywhere";
 
 // Agent Studio: one sentence in, a tested agent out. The page writes the draft, tests it, grades every answer and
 // improves it, and shows each step as it happens: the core reacts, each test fills in as it is graded, the score climbs
@@ -364,6 +365,7 @@ export default function StudioClient() {
                       className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900">Share on X</a>
                   </div>
                 )}
+                {b.status === "published" && d && <UseAnywhere agentId={live ?? d.handle} name={d.name} compact />}
 
                 {/* chat: change anything */}
                 {d && ["drafted", "ready", "stopped"].includes(b.status) && (

@@ -22,6 +22,7 @@ import ReviewForm from "@/components/ReviewForm";
 import ProofScoreCard from "./ProofScoreCard";
 import HirePanel from "./HirePanel";
 import HireLinkShare from "./HireLinkShare";
+import UseAnywhere from "@/components/UseAnywhere";
 import { ExtArrow } from "@/components/ExtArrow";
 import { agentAvailability } from "@/lib/availability";
 
@@ -214,6 +215,11 @@ export default async function AgentProfilePage({
 
         {/* The shareable version of this hire, so people know the link exists */}
         <HireLinkShare agentId={agent.agentId} />
+        {!agent.agentId.startsWith("build-") && (
+          <div className="mt-6">
+            <UseAnywhere agentId={agent.agentId} name={agent.name} />
+          </div>
+        )}
 
         {/* Marketplace Signals */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10">

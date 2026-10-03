@@ -62,10 +62,13 @@ export async function POST(req: NextRequest) {
   const raw = body?.arguments ?? body?.input ?? body?.args ?? {};
   const args = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
 
+  // ?agent=<id> (or "agent" in the body): the call is to that agent's own toolset, as /api/tools?agent= listed it
+  const agent = req.nextUrl.searchParams.get("agent") ?? (typeof (body as { agent?: unknown } | null)?.agent === "string" ? String((body as { agent: string }).agent) : null);
   const response = await handleMcpMessage(
     { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } },
     ip,
     getBearerToken(req),
+    agent,
   );
 
   // An unknown tool comes back as a JSON-RPC error rather than a result, and over HTTP that deserves

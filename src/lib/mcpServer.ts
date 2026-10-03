@@ -36,6 +36,7 @@ import { parsePriceToEth } from "./payments";
 import { parsePaymentAmount } from "./money";
 import { authenticateApiKey } from "./identity";
 import type { Agent } from "@/sdk/types";
+import { studioInfo } from "./studioPublish";
 
 const PROTOCOL_VERSION = "2025-03-26";
 const SERVER_INFO = { name: "axon", version: "1.0.0" };
@@ -232,6 +233,35 @@ export const MCP_TOOLS = [
     },
   },
 ] as const;
+
+/** A tool as MCP lists it. */
+export interface McpTool { name: string; description: string; inputSchema: { type: string; properties: Record<string, unknown>; required?: readonly string[] } }
+
+/** The tools that come with a single agent, beside the agent itself: reading its answer and its proof. */
+const WITH_AN_AGENT = ["get_task_result", "get_receipt", "get_allowance"];
+
+/**
+ * One agent as its own toolset, for a link that adds just that agent to an assistant (/mcp/agents/:id, and
+ * /api/tools?agent=:id for function calling). The agent is one tool, named after it, taking a task; calling it hires
+ * that agent through hire_agent, payments, allowance keys and claim tokens exactly as the whole marketplace does. With
+ * it come the tools to read the answer. Null for an agent that is not there to hire.
+ */
+export function agentToolset(agentId: string): { toolName: string; agent: Agent; tools: McpTool[] } | null {
+  const agent = getAgentById(agentId);
+  if (!agent || agent.agentId.startsWith("build-")) return null;
+  // what every function-calling API accepts as a name: letters, digits, _ and -, at most 64
+  const toolName = agent.agentId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+  const hire = MCP_TOOLS.find((t) => t.name === "hire_agent")!;
+  const { agentId: _id, ...props } = hire.inputSchema.properties as Record<string, unknown>;
+  const studio = studioInfo(agent.agentId);
+  const what = (agent.description ?? agent.capabilities.join(", ")).replace(/\.$/, "");
+  const tool: McpTool = {
+    name: toolName,
+    description: `${agent.name}: ${what}. ${agent.price ? `${agent.price} per task` : "Free"}.${studio ? ` Built in Axon Agent Studio, tested ${studio.score.toFixed(1)}/10.` : ""} Give it a task; it returns a taskId and a claimToken, and get_task_result with both returns the answer.`,
+    inputSchema: { type: "object", properties: props, required: ["task"] },
+  };
+  return { toolName, agent, tools: [tool, ...(MCP_TOOLS.filter((t) => WITH_AN_AGENT.includes(t.name)) as unknown as McpTool[])] };
+}
 
 // ── Tool implementations ──────────────────────────────────────────────────────
 
@@ -596,9 +626,13 @@ export async function handleMcpMessage(
   msg: JsonRpcRequest,
   clientIp: string,
   apiKey: string | null = null,
+  // set when the connection is one agent's own link: its tools are that agent and the tools to read its answer
+  scope: string | null = null,
 ): Promise<JsonRpcResponse | null> {
   const id = msg.id ?? null;
   const isNotification = msg.id === undefined;
+  const scoped = scope ? agentToolset(scope) : null;
+  if (scope && !scoped) return rpcError(id, -32602, `no agent '${scope}' to hire`);
 
   switch (msg.method) {
     case "initialize": {
@@ -610,8 +644,10 @@ export async function handleMcpMessage(
       return rpcResult(id, {
         protocolVersion,
         capabilities: { tools: {} },
-        serverInfo: SERVER_INFO,
-        instructions:
+        serverInfo: scoped ? { name: `axon-${scoped.toolName}`, version: SERVER_INFO.version } : SERVER_INFO,
+        instructions: scoped
+          ? `This connection is one Axon agent, ${scoped.agent.name}. Call ${scoped.toolName} with a task to hire it, then get_task_result with the taskId and claimToken for the answer. Paid: with an Axon allowance key on this connection it pays from the owner's allowance; without one it returns ETH payment requirements to pay with your own wallet and retry with paymentSignature.`
+          :
           "Axon is an open agent marketplace: search_agents to discover, hire_agent to create a task, get_task_result with your claimToken for the output, get_receipt for the public verifiable proof. Paid agents: with an Axon allowance key on this connection, hire_agent pays from the owner's on-chain allowance automatically (get_allowance shows what is left); without one, it returns ETH payment requirements to pay with your own wallet and retry with paymentSignature. For anything recurring, schedule_agent puts an agent on a schedule paid from the same allowance; list_retainers and get_retainer_runs read what it did.",
       });
     }
@@ -621,14 +657,17 @@ export async function handleMcpMessage(
     case "ping":
       return isNotification ? null : rpcResult(id, {});
     case "tools/list":
-      return rpcResult(id, { tools: MCP_TOOLS });
+      return rpcResult(id, { tools: scoped ? scoped.tools : MCP_TOOLS });
     case "tools/call": {
       const params = msg.params ?? {};
       const name = String(params.name ?? "");
       const args = (params.arguments && typeof params.arguments === "object" ? params.arguments : {}) as Record<string, unknown>;
       let result: unknown;
+      // on one agent's link, its own tool is hire_agent for that agent, and only its own tools are there
+      if (scoped && name !== scoped.toolName && !scoped.tools.some((t) => t.name === name)) return rpcError(id, -32602, `unknown tool '${name}'`);
+      const [tool, input] = scoped && name === scoped.toolName ? ["hire_agent", { ...args, agentId: scoped.agent.agentId }] : [name, args];
       try {
-        result = await callTool(name, args, clientIp, apiKey);
+        result = await callTool(tool, input, clientIp, apiKey);
       } catch (e) {
         return rpcResult(id, {
           content: [{ type: "text", text: e instanceof Error ? e.message : "tool execution failed" }],

@@ -13,7 +13,7 @@
 // about what hiring means.
 
 import { NextRequest, NextResponse } from "next/server";
-import { MCP_TOOLS } from "@/lib/mcpServer";
+import { MCP_TOOLS, agentToolset, type McpTool } from "@/lib/mcpServer";
 import { tooManyRequests } from "@/lib/rateLimit";
 import { checkTieredRateLimit } from "@/lib/tieredRateLimit";
 
@@ -43,11 +43,11 @@ type Format = "openai" | "anthropic" | "grok" | "gemini" | "mcp";
 
 const FORMATS: Format[] = ["openai", "anthropic", "grok", "gemini", "mcp"];
 
-function formatTools(format: Format) {
+function formatTools(format: Format, list: readonly McpTool[] = MCP_TOOLS as unknown as McpTool[]) {
   switch (format) {
     case "anthropic":
       // Anthropic takes the tool flat, with the schema under input_schema.
-      return MCP_TOOLS.map((t) => ({
+      return list.map((t) => ({
         name: t.name,
         description: t.description,
         input_schema: t.inputSchema,
@@ -55,14 +55,14 @@ function formatTools(format: Format) {
 
     case "mcp":
       // What the MCP endpoint itself advertises, for anyone comparing the two.
-      return MCP_TOOLS;
+      return list;
 
     case "openai":
     case "grok":
     case "gemini":
     default:
       // OpenAI wraps the tool in a type/function envelope. xAI and Gemini accept the same.
-      return MCP_TOOLS.map((t) => ({
+      return list.map((t) => ({
         type: "function",
         function: {
           name: t.name,
@@ -93,6 +93,10 @@ export async function GET(req: NextRequest) {
   const asked = (req.nextUrl.searchParams.get("format") ?? "openai").toLowerCase();
   const format = (FORMATS as string[]).includes(asked) ? (asked as Format) : "openai";
   const origin = req.nextUrl.origin;
+  // ?agent=<id>: just that agent, as one tool, with the tools to read its answer
+  const agentId = req.nextUrl.searchParams.get("agent");
+  const set = agentId ? agentToolset(agentId) : null;
+  if (agentId && !set) return NextResponse.json({ error: `No agent '${agentId}' to hire` }, { status: 404, headers: CORS });
 
   return NextResponse.json(
     {
@@ -101,14 +105,14 @@ export async function GET(req: NextRequest) {
       // than wondering why the shape is wrong.
       requested: asked,
       supported: FORMATS,
-      tools: formatTools(format),
+      tools: formatTools(format, set?.tools),
       call: {
-        url: `${origin}/api/tools/call`,
+        url: set ? `${origin}/api/tools/call?agent=${encodeURIComponent(set.agent.agentId)}` : `${origin}/api/tools/call`,
         method: "POST",
         body: { name: "<tool name>", arguments: {} },
       },
       mcp: {
-        url: `${origin}/mcp`,
+        url: set ? `${origin}/mcp/agents/${set.agent.agentId}` : `${origin}/mcp`,
         note: "Claude, Cursor, Windsurf, Cline and Zed can use this endpoint directly instead.",
       },
       docs: `${origin}/docs/mcp`,
