@@ -288,16 +288,23 @@ export default function StudioClient() {
 
                 {/* the score, round by round */}
                 {rounds.length > 0 && (
-                  <div className="flex items-end gap-3">
+                  <div className="space-y-2.5 rounded-2xl border border-gray-200 p-4 dark:border-gray-800">
                     {rounds.map((r) => (
-                      <div key={r.round} className="flex-1">
-                        <div className="flex h-24 items-end rounded-xl bg-gray-50 p-1.5 dark:bg-gray-900/60">
-                          <div className="w-full rounded-lg bg-gray-900 transition-all duration-700 dark:bg-white" style={{ height: `${((r.score ?? (r.results.filter((x) => x.score !== null).length / r.results.length) * 2) / 10) * 100}%`, opacity: r.score === null ? 0.25 : 1 }} />
+                      <div key={r.round} className="flex items-center gap-3 font-mono text-xs">
+                        <span className="w-16 shrink-0 text-gray-500">Round {r.round}</span>
+                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                          <div className="h-full rounded-full bg-gray-900 transition-all duration-700 dark:bg-white" style={{ width: `${((r.score ?? (r.results.filter((x) => x.score !== null).length / r.results.length) * 2) / 10) * 100}%`, opacity: r.score === null ? 0.3 : 1 }} />
                         </div>
-                        <p className="mt-1.5 flex justify-between font-mono text-xs text-gray-500"><span>Round {r.round}</span><span className="text-gray-900 dark:text-white">{r.score !== null ? r.score.toFixed(1) : "…"}</span></p>
+                        <span className={`w-8 shrink-0 text-right ${r.score !== null && r.score === best ? "text-gray-900 dark:text-white" : "text-gray-500"}`}>{r.score !== null ? r.score.toFixed(1) : "…"}</span>
                       </div>
                     ))}
-                    {Array.from({ length: Math.max(0, 3 - rounds.length) }, (_, i) => <div key={`e${i}`} className="hidden flex-1 sm:block"><div className="h-24 rounded-xl border border-dashed border-gray-200 dark:border-gray-800" /><p className="mt-1.5 font-mono text-xs text-gray-300 dark:text-gray-700">—</p></div>)}
+                    {Array.from({ length: Math.max(0, 3 - rounds.length) }, (_, i) => (
+                      <div key={`e${i}`} className="flex items-center gap-3 font-mono text-xs text-gray-300 dark:text-gray-700">
+                        <span className="w-16 shrink-0">Round {rounds.length + i + 1}</span>
+                        <div className="h-1.5 flex-1 rounded-full border border-dashed border-gray-200 dark:border-gray-800" />
+                        <span className="w-8 shrink-0 text-right">–</span>
+                      </div>
+                    ))}
                   </div>
                 )}
 

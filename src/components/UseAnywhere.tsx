@@ -50,10 +50,12 @@ export default function UseAnywhere({ agentId, name, compact = false }: { agentI
           </button>
         ))}
       </div>
-      <div className="relative mt-3">
-        <p className="mb-1 font-mono text-[11px] text-gray-400">{s.file}</p>
-        <pre className="overflow-x-auto rounded-xl bg-gray-950 p-4 pr-20 font-mono text-xs leading-relaxed text-gray-100">{s.text}</pre>
-        <button type="button" onClick={() => void copy()} className="absolute right-2 top-7 rounded-md bg-white/10 px-2.5 py-1 text-xs text-white transition hover:bg-white/20">{copied ? "Copied" : "Copy"}</button>
+      <div className="mt-3 overflow-hidden rounded-xl border border-gray-900 bg-gray-950 dark:border-gray-800">
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-2">
+          <p className="font-mono text-[11px] text-gray-400">{s.file}</p>
+          <button type="button" onClick={() => void copy()} className="rounded-md bg-white/10 px-2.5 py-1 text-xs text-white transition hover:bg-white/20">{copied ? "Copied" : "Copy"}</button>
+        </div>
+        <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed text-gray-100">{s.text}</pre>
       </div>
     </div>
   );
