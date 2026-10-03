@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import SiteNav from "@/components/SiteNav";
 import StudioClient from "./StudioClient";
 
 export const metadata: Metadata = {
@@ -7,5 +8,10 @@ export const metadata: Metadata = {
 };
 
 export default function StudioPage() {
-  return <StudioClient />;
+  return (
+    <>
+      <SiteNav />
+      <StudioClient />
+    </>
+  );
 }
