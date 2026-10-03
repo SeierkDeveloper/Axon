@@ -130,7 +130,9 @@ body {
 @keyframes face-blink { 0%, 45% { transform: scaleY(1); } 55% { transform: scaleY(.08); } 65%, 100% { transform: scaleY(1); } }
 
 /* the screen between pages, with the face on it */
-.page-transition { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: #ffffff; animation: page-in .2s ease both; }
+.page-transition { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: #ffffff; }
+/* the screen covers the old page at once (fading it in let the old page's face show through it); only the face fades in */
+.page-transition .agent-face { animation: page-in .2s ease both; }
 .dark .page-transition { background: #0a0a0a; }
 .page-transition.is-out { animation: page-out .2s ease both; }
 /* the face goes at once as the screen lifts, so it never shows faded over the new page's own face */
