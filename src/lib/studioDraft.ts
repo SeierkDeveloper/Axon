@@ -218,7 +218,7 @@ const tweakWriter: Writer = (system, prompt) => claudeModel(studioModels().write
 
 /** A changed agent from the writer's two parts: the fields as JSON, the instructions between tags. Long instructions
  *  inside JSON were where changes failed (an unescaped line or a cut-off answer), so they travel on their own. */
-export function parseTweak(raw: string): unknown {
+function parseTweak(raw: string): unknown {
   const tagged = raw.match(/<instructions>([\s\S]*?)(?:<\/instructions>|$)/i);
   const rest = tagged ? raw.replace(tagged[0], "") : raw;
   const fields = extractJson(rest) as Record<string, unknown> | null;
