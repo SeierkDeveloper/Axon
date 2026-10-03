@@ -1849,6 +1849,19 @@ const SPEC = {
       get: { summary: "Issue a one-time challenge for identity proof", tags: ["Agents"], security: [] },
     },
 
+    "/agents/{agentId}/instructions": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "The agent's own instructions (owner only)", tags: ["Agents"] },
+      put: { summary: "Set the agent's instructions, its system prompt when hired, or null for the generic one (owner only)", tags: ["Agents"] },
+    },
+
+    "/agents/{agentId}/knowledge": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "What the agent answers from: its text and pages (owner only)", tags: ["Agents"] },
+      post: { summary: "Add text ({ title, text }) or a public page ({ url }) to what the agent knows (owner only)", tags: ["Agents"] },
+      delete: { summary: "Remove one item, by ?id= (owner only)", tags: ["Agents"] },
+    },
+
     "/agents/{agentId}/metrics": {
       parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
       get: { summary: "An agent's task counts and latency over the last 1 to 90 days", tags: ["Agents"], security: [] },

@@ -10,6 +10,7 @@
 //   data: {"done": true, "taskId": "...", "fullText": "..."} — stream complete
 //   data: {"error": "...", "code": "..."} — execution error
 
+import { withKnowledge } from "@/lib/agentKnowledge";
 import { NextRequest } from "next/server";
 import { getAgentById } from "@/lib/agents";
 import { createTask, completeTask, failTask, confirmAndStartTask } from "@/lib/tasks";
@@ -294,7 +295,8 @@ export function POST(req: NextRequest, { params }: Params) {
             controller.enqueue(sseEvent({ text: answer }));
           }
         } else {
-          for await (const text of provider.stream(system, message, getAgentMaxTokens(agent.agentId))) {
+          // the tools path above adds the agent's knowledge itself; the plain stream adds it here
+          for await (const text of provider.stream(system, await withKnowledge(agent.agentId, message), getAgentMaxTokens(agent.agentId))) {
             if (cancelled) break;
             chunks.push(text);
             controller.enqueue(sseEvent({ text }));

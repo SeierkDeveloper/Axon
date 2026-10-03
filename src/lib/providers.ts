@@ -12,6 +12,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { Agent } from "@/sdk/types";
+import { getInstructions, withKnowledge } from "./agentKnowledge";
 import { publicHttpFetch } from "./urlSecurity";
 import { logger } from "./logger";
 import { recordModelUsage } from "./modelUsage";
@@ -140,6 +141,12 @@ export function getAgentMaxTokens(agentId: string): number {
 // Returns the agent's real system prompt, or a strong generic fallback
 // for community agents registered with their own endpoint.
 export function getAgentSystem(agent: Agent): string {
+  // an agent's own instructions, written by its owner or by Agent Studio, in place of the generic prompt; Axon's own
+  // agents keep theirs, which are code
+  const own = AGENT_SYSTEMS[agent.agentId] ? null : getInstructions(agent.agentId);
+  if (own) {
+    return `You are ${agent.name}, an agent on the Axon agent network. Your owner wrote these instructions for you:\n\n${own}` + BEHAVIOR_RULES;
+  }
   const core = AGENT_SYSTEMS[agent.agentId] ??
     `You are ${agent.name}, a specialized agent operating on the Axon agent network. ` +
     `Your capabilities: ${agent.capabilities.join(", ")}.\n\n` +
@@ -795,7 +802,7 @@ export async function runWithProvider(
     modelOverride && agent.provider === "anthropic"
       ? getProvider({ ...agent, providerModel: modelOverride })
       : getProvider(agent);
-  return client.complete(getAgentSystem(agent), message, maxTokens);
+  return client.complete(getAgentSystem(agent), await withKnowledge(agent.agentId, message), maxTokens);
 }
 
 // Same as runWithProvider, but the agent gets to use its granted tools first:
@@ -811,6 +818,7 @@ export async function runWithProviderTools(
 ): Promise<string> {
   const client = getProvider(agent);
   const system = getAgentSystem(agent);
+  message = await withKnowledge(agent.agentId, message);
   if (!client.completeWithTools) {
     logger.warn("provider.tools_unsupported", "Provider has no tool support, running without tools", {
       agentId: agent.agentId,
@@ -876,5 +884,6 @@ export async function runReproduction(
   // same model the proof claims, even for openai/ollama agents.
   const provider =
     agent.provider === "anthropic" ? new AnthropicProvider(model) : getProvider({ ...agent, providerModel: model });
-  return provider.complete(getAgentSystem(agent), message, maxTokens, opts.temperature);
+  // the same knowledge as the original run: a reproduction re-runs what the agent was given, its knowledge included
+  return provider.complete(getAgentSystem(agent), await withKnowledge(agent.agentId, message), maxTokens, opts.temperature);
 }

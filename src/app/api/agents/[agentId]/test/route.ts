@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { withKnowledge } from "@/lib/agentKnowledge";
 import { getAgentById } from "@/lib/agents";
 import { getProvider, getAgentSystem, getAgentMaxTokens } from "@/lib/providers";
 import { checkRateLimit, getClientIp, tooManyRequests, rateLimitHeaders } from "@/lib/rateLimit";
@@ -52,7 +53,7 @@ export async function POST(
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        for await (const text of provider.stream(system, task, getAgentMaxTokens(agent.agentId))) {
+        for await (const text of provider.stream(system, await withKnowledge(agent.agentId, task), getAgentMaxTokens(agent.agentId))) {
           controller.enqueue(sseEvent({ text }));
         }
         controller.enqueue(sseEvent({

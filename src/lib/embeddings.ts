@@ -124,7 +124,7 @@ export function scheduleAgentEmbedding(agent: Agent): void {
 
 // ── Cosine similarity ─────────────────────────────────────────────────────────
 
-function cosineSimilarity(a: number[], b: number[]): number {
+export function cosineSimilarity(a: number[], b: number[]): number {
   let dot = 0;
   let normA = 0;
   let normB = 0;
@@ -199,7 +199,7 @@ const QUERY_EMBEDDING_MS = 24 * 3_600_000;
 const QUERY_EMBEDDING_MAX = 500;
 const queryEmbeddings = new Map<string, { at: number; vec: number[] }>();
 
-async function embedQuery(text: string): Promise<number[] | null> {
+export async function embedQuery(text: string): Promise<number[] | null> {
   const key = text.trim().toLowerCase();
   const hit = queryEmbeddings.get(key);
   if (hit && Date.now() - hit.at < QUERY_EMBEDDING_MS) return hit.vec;
