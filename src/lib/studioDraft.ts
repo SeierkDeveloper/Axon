@@ -17,7 +17,7 @@ import { canRegister } from "./reservedHandles";
 import { validateAgentContent, validateAgentText } from "./agentContent";
 import { parsePaymentAmount } from "./money";
 import { getTier } from "./holderTier";
-import { studioEnabled, buildsAllowed, studioModels, BUILD_BUDGET, LIMITS, AGENT_MODELS, STUDIO_TOOLS, clampPrice, PRICE_ETH, MAX_RUNNING_TOTAL } from "./studioPolicy";
+import { studioEnabled, buildsAllowed, studioModels, BUILD_BUDGET, LIMITS, AGENT_MODELS, STUDIO_TOOLS, clampPrice, PRICE_ETH, MAX_RUNNING_TOTAL, MAX_TWEAKS_PER_BUILD } from "./studioPolicy";
 import { logger } from "./logger";
 
 export interface Draft {
@@ -190,4 +190,56 @@ export async function startDraft(wallet: string, sentence: string, writer: Write
     updateBuild(id, { status: "failed", error: "The writer did not answer. Try again in a moment." });
   }
   return getBuild(id)!;
+}
+
+// ── Tweaks: changes asked for in Studio's chat ────────────────────────────────
+
+export const TWEAK_SYSTEM = `You edit an AI agent that is being built on Axon. You get the agent as JSON and one change its owner asked for.
+Make that change and only that change, keeping everything else as it is. Answer with the whole agent in the same
+JSON shape and nothing else. If the change is to the instructions, return them in full, not a diff.`;
+
+export interface Tweak { at: string; request: string; ok: boolean; note: string | null }
+
+export function tweaksOf(buildId: string): Tweak[] {
+  const r = getDb().prepare("SELECT tweaks FROM studio_builds WHERE id = ?").get(buildId) as { tweaks: string | null } | undefined;
+  return r?.tweaks ? (JSON.parse(r.tweaks) as Tweak[]) : [];
+}
+
+/**
+ * Apply one change asked for in chat to a build's draft. The edited draft is checked like a new one; a build that was
+ * tested goes back to drafted, so the change is tested before anything is listed. Returns the build, or why not.
+ */
+export async function tweakDraft(buildId: string, wallet: string, request: string, writer: Writer = realWriter): Promise<Build | string> {
+  const b = getBuild(buildId);
+  if (!b || b.wallet !== wallet.toLowerCase()) return "No such build.";
+  if (!b.draft) return "This build has no draft to change yet.";
+  if (!["drafted", "ready", "stopped"].includes(b.status)) return `This build is ${b.status}. Wait for it to finish first.`;
+  const ask = request.replace(/\s+/g, " ").trim();
+  if (ask.length < 3) return "Say what to change.";
+  if (ask.length > LIMITS.sentenceChars) return `Keep a change to ${LIMITS.sentenceChars} characters.`;
+  const bad = validateAgentText(ask);
+  if (bad) return bad;
+  const log = tweaksOf(buildId);
+  if (log.length >= MAX_TWEAKS_PER_BUILD) return `This build has had its ${MAX_TWEAKS_PER_BUILD} changes. Start a new build from the sentence that works.`;
+
+  const save = (entry: Tweak) => getDb().prepare("UPDATE studio_builds SET tweaks = ?, updated_at = ? WHERE id = ?").run(JSON.stringify([...log, entry]), new Date().toISOString(), buildId);
+  const { priceEth, handle, category, ...shown } = b.draft;
+  let raw: string;
+  try {
+    raw = await writer(TWEAK_SYSTEM, `THE AGENT:\n${JSON.stringify({ ...shown, category }, null, 2)}\n\nTHE CHANGE:\n${ask}`);
+  } catch {
+    save({ at: new Date().toISOString(), request: ask, ok: false, note: "The writer did not answer." });
+    return "The writer did not answer. Try again in a moment.";
+  }
+  const next = toDraft(extractJson(raw), b.wallet, priceEth);
+  if (typeof next === "string") {
+    save({ at: new Date().toISOString(), request: ask, ok: false, note: next });
+    return `That change could not be made: ${next}`;
+  }
+  // the handle stays the one it was given unless the name itself changed
+  const kept: Draft = { ...next, handle: next.name === b.draft.name ? handle : next.handle };
+  save({ at: new Date().toISOString(), request: ask, ok: true, note: null });
+  // a tested build is tested again before it can be listed: its old rounds measured the old instructions
+  updateBuild(buildId, { draft: kept, status: "drafted", score: null, error: null });
+  return getBuild(buildId)!;
 }

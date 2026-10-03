@@ -103,6 +103,9 @@ export function clampPrice(eth: number): number {
 
 // ── Remixing ──────────────────────────────────────────────────────────────────
 
+/** Changes asked for in Studio's chat, per build: each is one writer call. */
+export const MAX_TWEAKS_PER_BUILD = 10;
+
 /** An agent is listed only once its best test round scored at least this (out of 10): a weak build stays a draft. */
 export const MIN_PUBLISH_SCORE = 6;
 

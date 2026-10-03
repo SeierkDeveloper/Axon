@@ -11,7 +11,7 @@ vi.mock("@/lib/holderTier", async (orig) => ({
   getTier: async () => ({ tier: { name: "operator", minimum: 0, rank: 3 }, balance: 0, stale: false }),
 }));
 
-import { startDraft, getBuild } from "@/lib/studioDraft";
+import { startDraft, getBuild, tweakDraft, tweaksOf } from "@/lib/studioDraft";
 import { runBuild, roundsOf, settleStale, parseTasks, parseGrade, parseRewrite, type Models } from "@/lib/studioTest";
 import { getDb } from "@/lib/db";
 import { BUILD_BUDGET } from "@/lib/studioPolicy";
@@ -110,6 +110,31 @@ describe("a draft earns its listing", () => {
     getDb().prepare("UPDATE studio_builds SET status = 'testing', updated_at = ? WHERE id = ?").run(new Date(Date.now() - 60 * 60_000).toISOString(), id);
     settleStale(id);
     expect(getBuild(id)!.status).toBe("stopped");
+  });
+
+  it("a change asked for in chat goes back to drafted, and the re-test continues the rounds on the same tasks", async () => {
+    const id = await drafted();
+    await runBuild(id, models());
+    const me = getBuild(id)!.wallet;
+    const changed = await tweakDraft(id, me, "make it shorter", async () => JSON.stringify({ ...DRAFT, instructions: "VERSION THREE. Five bullets, shorter, revenue first, guidance quoted exactly, nothing else at all." }));
+    expect(typeof changed).toBe("object");
+    expect(getBuild(id)!.status).toBe("drafted");
+    expect(getBuild(id)!.score).toBeNull();
+    expect(tweaksOf(id)).toMatchObject([{ request: "make it shorter", ok: true }]);
+    const m = models({ answer: async () => "great answer" });
+    await runBuild(id, m);
+    expect(m.calls.tasks).toBe(0); // the same tasks as before
+    expect(roundsOf(id).map((r) => r.round)).toEqual([1, 2, 3]);
+    expect(getBuild(id)!.draft!.instructions).toContain("VERSION THREE"); // not the old run's VERSION TWO
+  });
+
+  it("refuses a change while testing, from someone else, or one that fails the checks", async () => {
+    const id = await drafted();
+    const me = getBuild(id)!.wallet;
+    expect(await tweakDraft(id, "0x0000000000000000000000000000000000000001", "shorter", async () => "{}")).toMatch(/No such build/);
+    expect(await tweakDraft(id, me, "rename it", async () => JSON.stringify({ ...DRAFT, name: "Axon Official" }))).toMatch(/could not be made/);
+    getDb().prepare("UPDATE studio_builds SET status = 'testing' WHERE id = ?").run(id);
+    expect(await tweakDraft(id, me, "shorter", async () => "{}")).toMatch(/Wait for it to finish/);
   });
 
   it("reads a rewrite between tags, line breaks and all, a cut-off one too, and JSON as a fallback", () => {

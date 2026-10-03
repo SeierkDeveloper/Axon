@@ -119,9 +119,12 @@ export function settleStale(buildId: string, now = Date.now()): void {
   finish(buildId, b.draft!, "stopped", "Stopped before it finished. The best version so far is kept.");
 }
 
-/** Keep the best round's instructions as the draft, with its score. */
-function finish(buildId: string, draft: Draft, status: "ready" | "stopped" | "failed", error: string | null) {
-  const best = roundsOf(buildId).filter((r) => r.score !== null).sort((a, b) => b.score! - a.score! || a.round - b.round)[0];
+/**
+ * Keep the best round's instructions as the draft, with its score: the best of this run only (rounds after `after`),
+ * since a change asked for in chat makes the earlier rounds measure instructions that are no longer the agent's.
+ */
+function finish(buildId: string, draft: Draft, status: "ready" | "stopped" | "failed", error: string | null, after = 0) {
+  const best = roundsOf(buildId).filter((r) => r.round > after && r.score !== null).sort((a, b) => b.score! - a.score! || a.round - b.round)[0];
   updateBuild(buildId, { status, draft: best ? { ...draft, instructions: best.instructions } : draft, score: best?.score ?? null, error });
 }
 
@@ -141,21 +144,29 @@ export async function runBuild(buildId: string, models: Models = real, now: () =
   };
   const late = () => now() - started > BUILD_BUDGET.maxMinutes * 60_000;
 
+  // a build tested before (and changed in chat since) keeps its rounds as history and continues the numbering
+  const prior = roundsOf(buildId);
+  const after = prior.length ? Math.max(...prior.map((r) => r.round)) : 0;
   updateBuild(buildId, { status: "testing", error: null });
   try {
-    // the tasks, once: every round is graded on the same ones, so the scores compare
-    spend(1);
-    const tasks = parseTasks(await models.tasks(TASKS_SYSTEM, purposeOf(b.sentence, draft)));
-    if (tasks.length < 3) {
-      finish(buildId, draft, "failed", "Studio could not write test tasks for this agent. Try describing it a little more.");
-      return "failed";
+    // the tasks, once per build: every round is graded on the same ones, so the scores compare, before and after a change
+    const saved = (getDb().prepare("SELECT tasks FROM studio_builds WHERE id = ?").get(buildId) as { tasks: string | null }).tasks;
+    let tasks: TestTask[] = saved ? (JSON.parse(saved) as TestTask[]) : [];
+    if (!tasks.length) {
+      spend(1);
+      tasks = parseTasks(await models.tasks(TASKS_SYSTEM, purposeOf(b.sentence, draft)));
+      if (tasks.length < 3) {
+        finish(buildId, draft, "failed", "Studio could not write test tasks for this agent. Try describing it a little more.", after);
+        return "failed";
+      }
+      getDb().prepare("UPDATE studio_builds SET tasks = ? WHERE id = ?").run(JSON.stringify(tasks), buildId);
     }
-    getDb().prepare("UPDATE studio_builds SET tasks = ? WHERE id = ?").run(JSON.stringify(tasks), buildId);
 
     let instructions = draft.instructions;
-    for (let round = 1; round <= BUILD_BUDGET.maxRounds; round++) {
-      if (!studioEnabled()) { finish(buildId, draft, "stopped", "Agent Studio was paused. The best version so far is kept."); return "stopped"; }
-      if (late()) { finish(buildId, draft, "stopped", "The build ran out of time. The best version so far is kept."); return "stopped"; }
+    for (let step = 1; step <= BUILD_BUDGET.maxRounds; step++) {
+      const round = after + step;
+      if (!studioEnabled()) { finish(buildId, draft, "stopped", "Agent Studio was paused. The best version so far is kept.", after); return "stopped"; }
+      if (late()) { finish(buildId, draft, "stopped", "The build ran out of time. The best version so far is kept.", after); return "stopped"; }
       updateBuild(buildId, { status: "testing" });
       const results: Result[] = tasks.map((t) => ({ ...t, answer: null, score: null, feedback: null }));
       saveRound(buildId, round, instructions, results, null);
@@ -177,7 +188,7 @@ export async function runBuild(buildId: string, models: Models = real, now: () =
       updateBuild(buildId, { score });
 
       if (score !== null && score >= BUILD_BUDGET.goodEnough) break;
-      if (round === BUILD_BUDGET.maxRounds) break;
+      if (step === BUILD_BUDGET.maxRounds) break;
 
       // rewrite from the feedback, and test the new version on the same tasks
       updateBuild(buildId, { status: "improving" });
@@ -193,13 +204,13 @@ export async function runBuild(buildId: string, models: Models = real, now: () =
       }
       instructions = next;
     }
-    finish(buildId, draft, "ready", null);
+    finish(buildId, draft, "ready", null, after);
     return "ready";
   } catch (err) {
     const budget = err instanceof Error && err.message === "budget";
     if (!budget) logger.warn("studio.build_failed", "A Studio build failed", { buildId, reason: err instanceof Error ? err.message : String(err) });
-    finish(buildId, draft, roundsOf(buildId).some((r) => r.score !== null) ? "stopped" : "failed",
-      budget ? "The build used its whole budget. The best version so far is kept." : "Something went wrong while testing. The best version so far is kept.");
+    finish(buildId, draft, roundsOf(buildId).some((r) => r.round > after && r.score !== null) ? "stopped" : "failed",
+      budget ? "The build used its whole budget. The best version so far is kept." : "Something went wrong while testing. The best version so far is kept.", after);
     return "stopped";
   }
 }

@@ -87,3 +87,49 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .route-fade { animation: none; }
 }
+
+/* ---------- Agent Studio: the agent core and the cursor spotlight ---------- */
+.agent-core { position: relative; flex: none; --core-hi: #ffffff; --core-mid: #f1f1f2; --core-lo: #d4d4d8; --core-iris-in: #3f3f46; --core-iris-out: #0a0a0a; --core-ink: #0a0a0a; --core-faint: rgba(10, 10, 10, .14); }
+.dark .agent-core { --core-hi: #3f3f46; --core-mid: #18181b; --core-lo: #09090b; --core-iris-in: #e4e4e7; --core-iris-out: #ffffff; --core-ink: #fafafa; --core-faint: rgba(250, 250, 250, .16); }
+.agent-core-body { width: 100%; height: 100%; transform-style: preserve-3d; will-change: transform; }
+.agent-core svg { overflow: visible; display: block; }
+.agent-core .core-shell { filter: drop-shadow(0 18px 30px rgba(10, 10, 10, .18)); }
+.dark .agent-core .core-shell { filter: drop-shadow(0 0 34px rgba(250, 250, 250, .10)); }
+.agent-core .core-rim { stroke: var(--core-faint); stroke-width: 1.2; }
+.agent-core .core-white { fill: var(--core-hi); }
+.dark .agent-core .core-white { fill: #0a0a0a; }
+.agent-core .core-eye-rim { stroke: var(--core-ink); stroke-width: 1.6; opacity: .55; }
+.agent-core .core-pupil { fill: var(--core-ink); }
+.dark .agent-core .core-pupil { fill: #0a0a0a; }
+.agent-core .core-glint { fill: #ffffff; opacity: .9; }
+.agent-core .core-lid { fill: var(--core-mid); }
+.agent-core .core-ring { fill: none; stroke: var(--core-ink); opacity: 0; transition: opacity .4s ease; transform-origin: 100px 100px; transform-box: view-box; }
+.agent-core .core-orbit circle { fill: var(--core-ink); stroke: none; }
+
+/* idle: the orb breathes */
+.agent-core.is-idle .core-shell, .agent-core.is-ready .core-shell { animation: core-breathe 5s ease-in-out infinite; transform-origin: 100px 100px; transform-box: view-box; }
+@keyframes core-breathe { 50% { transform: scale(1.025); } }
+/* drafting: four points orbit */
+.agent-core.is-drafting .core-orbit { opacity: .8; animation: core-spin 2.6s linear infinite; }
+/* testing: a bright arc sweeps round */
+.agent-core.is-testing .core-sweep { opacity: .85; stroke-width: 2.4; stroke-linecap: round; stroke-dasharray: 18 82; animation: core-spin 1.4s linear infinite; }
+.agent-core.is-testing .core-dash { opacity: .18; stroke-width: 1; }
+/* improving: a dashed ring turns the other way, the orbit too */
+.agent-core.is-improving .core-dash { opacity: .55; stroke-width: 1.4; stroke-dasharray: 2 4; animation: core-spin 6s linear infinite reverse; }
+.agent-core.is-improving .core-orbit { opacity: .5; animation: core-spin 3.4s linear infinite; }
+/* ready: one pulse outward, repeating slowly */
+.agent-core.is-ready .core-pulse { animation: core-pulse 2.8s ease-out infinite; }
+.agent-core.is-failed .core-eye-rim { stroke: #dc2626; opacity: .8; }
+@keyframes core-spin { to { transform: rotate(360deg); } }
+@keyframes core-pulse { 0% { opacity: .45; transform: scale(.92); stroke-width: 2; } 100% { opacity: 0; transform: scale(1.22); stroke-width: .5; } }
+
+/* the cursor's light on the Studio page */
+.studio-light { pointer-events: none; position: fixed; inset: 0; z-index: 0; background: radial-gradient(520px circle at var(--mx, 50%) var(--my, 30%), rgba(10, 10, 10, .045), transparent 62%); transition: background .08s linear; }
+.dark .studio-light { background: radial-gradient(520px circle at var(--mx, 50%) var(--my, 30%), rgba(255, 255, 255, .06), transparent 62%); }
+.studio-grid { background-image: linear-gradient(to right, rgba(10,10,10,.045) 1px, transparent 1px), linear-gradient(to bottom, rgba(10,10,10,.045) 1px, transparent 1px); background-size: 44px 44px; -webkit-mask-image: radial-gradient(600px circle at var(--mx, 50%) var(--my, 30%), #000 0%, transparent 70%); mask-image: radial-gradient(600px circle at var(--mx, 50%) var(--my, 30%), #000 0%, transparent 70%); }
+.dark .studio-grid { background-image: linear-gradient(to right, rgba(255,255,255,.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,.06) 1px, transparent 1px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-core *, .agent-core .core-ring { animation: none !important; }
+  .studio-light, .studio-grid { display: none; }
+}

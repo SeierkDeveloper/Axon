@@ -14,6 +14,7 @@ const LINKS: { href: string; label: string; desktopOnly?: boolean }[] = [
   { href: "/analytics",     label: "Analytics" },
   { href: "/network-feed",  label: "Feed" },
   { href: "/dashboard",     label: "Dashboard" },
+  { href: "/studio",        label: "Studio" },
   { href: "/publish",       label: "Publish" },
   // Litepaper is linked in the footer, so the header slot goes to the burn, which is the thing
   // people come back to check rather than read once. Deliberately not desktopOnly: the mobile
