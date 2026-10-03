@@ -1,34 +1,33 @@
-import { defineRailway, github, preserve, project, service, volume } from "railway/iac";
+import { defineRailway, github, image, preserve, project, service, volume } from "railway/iac";
 
+// Pulled from live 2026-10-03. Every cron runs node:22-alpine (no Axon code, no GitHub, no healthcheck) with one shared
+// caller: a network blip or a busy proxy (fetch error, 429, 502, 503, 504) is tried again a few times, and a run that
+// still cannot reach the site logs "not done this run" and exits 0, because the next scheduled run tries again. Only an
+// answer retrying cannot fix (401, 403, 404) exits 1. A timeout or a 500 may have reached the app, so it is not resent.
+// Generator: scripts/cron-command.mjs. Change a command with serviceInstanceUpdate +
+// serviceInstanceDeployV2 (railway api), never `railway up` on a cron.
 export default defineRailway(() => {
   const Axon = github("SeierkDeveloper/Axon", { checkSuites: false });
 
   const axonVolume = volume("axon-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "europe-west4-drams3a", sizeMB: 5000 });
   const cronReproducibility = service("cron-reproducibility", {
-    source: Axon,
-    start: "sh -c 'curl -s -f -X POST https://axon-agents.com/api/cron/reproducibility -H \"Authorization: Bearer $CRON_SECRET\"'",
+    source: image("node:22-alpine"),
+    start: "node -e \"const u='https://axon-agents.com/api/cron/reproducibility',T=5,G=30000,W=ms=>new Promise(r=>setTimeout(r,ms));const go=async n=>{try{const r=await fetch(u,{method:'POST',headers:{Authorization:'Bearer '+process.env.CRON_SECRET},signal:AbortSignal.timeout(600000)});console.log(r.status,(await r.text()).slice(0,300));if(r.ok)return 0;if([429,502,503,504].includes(r.status)&&n>1){await W(G);return go(n-1)}return r.status<500?1:2}catch(e){console.error(e.name+': '+e.message);if(e.name!=='TimeoutError'&&n>1){await W(G);return go(n-1)}return 2}};go(T).then(c=>{if(c===2)console.error('not done this run (tried '+T+' times); the next scheduled run tries again');process.exit(c===1?1:0)})\"",
     replicas: { "europe-west4-drams3a": 1 },
     deploy: { cronSchedule: "0 9,21 * * *", restartPolicyType: "NEVER" },
     env: { CRON_SECRET: preserve() },
   });
   const cronBurn = service("cron-burn", {
-    source: Axon,
-    start: "sh -c 'curl -s -X POST https://axon-agents.com/api/cron/burn -H \"Authorization: Bearer $CRON_SECRET\"'",
+    source: image("node:22-alpine"),
+    start: "node -e \"const u='https://axon-agents.com/api/cron/burn',T=5,G=30000,W=ms=>new Promise(r=>setTimeout(r,ms));const go=async n=>{try{const r=await fetch(u,{method:'POST',headers:{Authorization:'Bearer '+process.env.CRON_SECRET},signal:AbortSignal.timeout(300000)});console.log(r.status,(await r.text()).slice(0,300));if(r.ok)return 0;if([429,502,503,504].includes(r.status)&&n>1){await W(G);return go(n-1)}return r.status<500?1:2}catch(e){console.error(e.name+': '+e.message);if(e.name!=='TimeoutError'&&n>1){await W(G);return go(n-1)}return 2}};go(T).then(c=>{if(c===2)console.error('not done this run (tried '+T+' times); the next scheduled run tries again');process.exit(c===1?1:0)})\"",
     replicas: { "europe-west4-drams3a": 1 },
     deploy: { cronSchedule: "0 0 * * *", restartPolicyType: "NEVER" },
     env: { CRON_SECRET: preserve() },
   });
   const cronBurnEngine = service("cron-burn-engine", {
-    source: Axon,
-    // EU West like everything else: the curl crosses the Atlantic otherwise, for no reason.
+    source: image("node:22-alpine"),
+    start: "node -e \"const u='https://axon-agents.com/api/cron/burn-engine',T=3,G=10000,W=ms=>new Promise(r=>setTimeout(r,ms));const go=async n=>{try{const r=await fetch(u,{method:'POST',headers:{Authorization:'Bearer '+process.env.CRON_SECRET},signal:AbortSignal.timeout(30000)});console.log(r.status,(await r.text()).slice(0,300));if(r.ok)return 0;if([429,502,503,504].includes(r.status)&&n>1){await W(G);return go(n-1)}return r.status<500?1:2}catch(e){console.error(e.name+': '+e.message);if(e.name!=='TimeoutError'&&n>1){await W(G);return go(n-1)}return 2}};go(T).then(c=>{if(c===2)console.error('not done this run (tried '+T+' times); the next scheduled run tries again');process.exit(c===1?1:0)})\"",
     replicas: { "europe-west4-drams3a": 1 },
-    // The secret is read from the environment rather than written here, so rotating it does not
-    // mean editing this file and cannot leave a live key sitting in the repo.
-    start: "sh -c 'curl -s -X POST https://axon-agents.com/api/cron/burn-engine -H \"Authorization: Bearer $CRON_SECRET\"'",
-    // Every minute. The pot's own thirty minute interval decides how often a burn actually
-    // happens; this only decides how long one sits due before somebody notices. At five minutes
-    // that gap was long enough to fire two burns by hand before the cron's turn came round.
-    // A pass with nothing to do is one read and no gas.
     deploy: { cronSchedule: "* * * * *", restartPolicyType: "NEVER" },
     env: { CRON_SECRET: preserve() },
   });
@@ -44,56 +43,40 @@ export default defineRailway(() => {
     domains: ["axon-agents.com"],
     networking: { privateNetworkEndpoint: "axon" },
     volumeMounts: { "/data": axonVolume },
-    env: { ANTHROPIC_API_KEY: preserve(), AXON_RPC_URL: preserve(), AXON_SUCCESS_RATE_WINDOW_HOURS: preserve(), BOT_PRIVATE_KEY: preserve(), CORS_ORIGIN: preserve(), CRON_SECRET: preserve(), DATABASE_PATH: preserve(), DEV_WALLET: preserve(), GROW_AGENT_ID: preserve(), GROW_AGENT_KEY: preserve(), GROW_AGENT_SECRET: preserve(), GROW_SECRET: preserve(), LOG_LEVEL: preserve(), NEXT_PUBLIC_PAYMENT_RECEIVER_WALLET_ADDRESS: preserve(), NEXT_PUBLIC_PRESENCE_URL: preserve(), NEXT_PUBLIC_RPC_URL: preserve(), NODE_ENV: preserve(), NODE_OPTIONS: preserve(), OPENAI_API_KEY: preserve(), REFUND_SIGNER_PRIVATE_KEY: preserve(), REPRODUCE_SECRET: preserve(), SEED_SECRET: preserve(), TELEGRAM_BOT_TOKEN: preserve(), TELEGRAM_CHANNEL_ID: preserve(), TRUST_PROXY_HEADERS: preserve(), UCP_AGENT_PRIVATE_KEY: preserve(), XAI_API_KEY: preserve(),
-      AXON_BURN_POT_ADDRESS: preserve(),
-      AXON_SPLITTER_ADDRESS: preserve(),
-      AXON_TOKEN_ADDRESS: preserve(),
-      AXON_ALLOWANCE_ADDRESS: preserve(),
-      AXON_ALLOWANCE_OPERATOR_KEY: preserve(),
-      AXON_SETTLEMENT_TOKEN_ADDRESS: preserve(),
-      NEXT_PUBLIC_AGENT_LAUNCH_FACTORY: preserve(),
-      PASSPORT_SIGNING_KEY: preserve()},
+    env: { ANTHROPIC_API_KEY: preserve(), AXON_ALLOWANCE_ADDRESS: preserve(), AXON_ALLOWANCE_OPERATOR_KEY: preserve(), AXON_BURN_POT_ADDRESS: preserve(), AXON_RPC_URL: preserve(), AXON_SETTLEMENT_TOKEN_ADDRESS: preserve(), AXON_SPLITTER_ADDRESS: preserve(), AXON_SUCCESS_RATE_WINDOW_HOURS: preserve(), AXON_TOKEN_ADDRESS: preserve(), BOT_PRIVATE_KEY: preserve(), CORS_ORIGIN: preserve(), CRON_SECRET: preserve(), DATABASE_PATH: preserve(), DEV_WALLET: preserve(), GROW_AGENT_ID: preserve(), GROW_AGENT_KEY: preserve(), GROW_AGENT_SECRET: preserve(), GROW_SECRET: preserve(), LOG_LEVEL: preserve(), NEXT_PUBLIC_AGENT_LAUNCH_FACTORY: preserve(), NEXT_PUBLIC_PAYMENT_RECEIVER_WALLET_ADDRESS: preserve(), NEXT_PUBLIC_PRESENCE_URL: preserve(), NEXT_PUBLIC_RPC_URL: preserve(), NODE_ENV: preserve(), NODE_OPTIONS: preserve(), OPENAI_API_KEY: preserve(), PASSPORT_SIGNING_KEY: preserve(), REFUND_SIGNER_PRIVATE_KEY: preserve(), REPRODUCE_SECRET: preserve(), SEED_SECRET: preserve(), TELEGRAM_BOT_TOKEN: preserve(), TELEGRAM_CHANNEL_ID: preserve(), TRUST_PROXY_HEADERS: preserve(), UCP_AGENT_PRIVATE_KEY: preserve(), XAI_API_KEY: preserve() },
   });
   const cronRetention = service("cron-retention", {
-    source: Axon,
-    start: "sh -c 'curl -s -X POST https://axon-agents.com/api/cron/retention -H \"Authorization: Bearer $CRON_SECRET\"'",
+    source: image("node:22-alpine"),
+    start: "node -e \"const u='https://axon-agents.com/api/cron/retention',T=5,G=30000,W=ms=>new Promise(r=>setTimeout(r,ms));const go=async n=>{try{const r=await fetch(u,{method:'POST',headers:{Authorization:'Bearer '+process.env.CRON_SECRET},signal:AbortSignal.timeout(300000)});console.log(r.status,(await r.text()).slice(0,300));if(r.ok)return 0;if([429,502,503,504].includes(r.status)&&n>1){await W(G);return go(n-1)}return r.status<500?1:2}catch(e){console.error(e.name+': '+e.message);if(e.name!=='TimeoutError'&&n>1){await W(G);return go(n-1)}return 2}};go(T).then(c=>{if(c===2)console.error('not done this run (tried '+T+' times); the next scheduled run tries again');process.exit(c===1?1:0)})\"",
     replicas: { "europe-west4-drams3a": 1 },
     deploy: { cronSchedule: "0 2 * * *", restartPolicyType: "NEVER" },
     env: { CRON_SECRET: preserve() },
   });
   const cronAutonomy = service("cron-autonomy", {
-    source: Axon,
-    // every hour at :30, off the hour the network activity job runs on. node's fetch, which every image has (some
-    // cron images have no curl), reading CRON_SECRET from its own environment; five tries 15 s apart cover a
-    // deploy window or a cold start, which would otherwise cost the hour under restartPolicyType NEVER.
-    start: "node -e \"const go=n=>fetch('https://axon-agents.com/api/cron/autonomy',{method:'POST',headers:{Authorization:'Bearer '+process.env.CRON_SECRET}}).then(async r=>{console.log(r.status,(await r.text()).slice(0,300));if(r.ok)process.exit(0);if(n>0)return setTimeout(()=>go(n-1),15000);process.exit(1)}).catch(e=>{console.error(e.message);if(n>0)return setTimeout(()=>go(n-1),15000);process.exit(1)});go(5)\"",
+    source: image("node:22-alpine"),
+    start: "node -e \"const u='https://axon-agents.com/api/cron/autonomy',T=5,G=15000,W=ms=>new Promise(r=>setTimeout(r,ms));const go=async n=>{try{const r=await fetch(u,{method:'POST',headers:{Authorization:'Bearer '+process.env.CRON_SECRET},signal:AbortSignal.timeout(120000)});console.log(r.status,(await r.text()).slice(0,300));if(r.ok)return 0;if([429,502,503,504].includes(r.status)&&n>1){await W(G);return go(n-1)}return r.status<500?1:2}catch(e){console.error(e.name+': '+e.message);if(e.name!=='TimeoutError'&&n>1){await W(G);return go(n-1)}return 2}};go(T).then(c=>{if(c===2)console.error('not done this run (tried '+T+' times); the next scheduled run tries again');process.exit(c===1?1:0)})\"",
     replicas: { "europe-west4-drams3a": 1 },
     deploy: { cronSchedule: "30 * * * *", restartPolicyType: "NEVER" },
     env: { CRON_SECRET: preserve() },
   });
   const cronAgents = service("cron-agents", {
-    source: Axon,
-    // /api/cron/agents. The old path was demo-agents, which has no route and answered 404 into a
-    // curl without -f, so this job exited 0 and reported success while doing nothing at all.
-    // 1 to 3 new agents a day, at 06:00 UTC; node, not curl: this job's image has no curl
-    start: "node -e \"fetch('https://axon-agents.com/api/cron/agents',{method:'POST',headers:{Authorization:'Bearer '+process.env.CRON_SECRET}}).then(async r=>{console.log(r.status,(await r.text()).slice(0,300));process.exit(r.ok?0:1)}).catch(e=>{console.error(e.message);process.exit(1)})\"",
+    source: image("node:22-alpine"),
+    start: "node -e \"const u='https://axon-agents.com/api/cron/agents',T=5,G=30000,W=ms=>new Promise(r=>setTimeout(r,ms));const go=async n=>{try{const r=await fetch(u,{method:'POST',headers:{Authorization:'Bearer '+process.env.CRON_SECRET},signal:AbortSignal.timeout(300000)});console.log(r.status,(await r.text()).slice(0,300));if(r.ok)return 0;if([429,502,503,504].includes(r.status)&&n>1){await W(G);return go(n-1)}return r.status<500?1:2}catch(e){console.error(e.name+': '+e.message);if(e.name!=='TimeoutError'&&n>1){await W(G);return go(n-1)}return 2}};go(T).then(c=>{if(c===2)console.error('not done this run (tried '+T+' times); the next scheduled run tries again');process.exit(c===1?1:0)})\"",
     replicas: { "europe-west4-drams3a": 1 },
     deploy: { cronSchedule: "0 6 * * *", restartPolicyType: "NEVER" },
     networking: { privateNetworkEndpoint: "demo-agents" },
     env: { CRON_SECRET: preserve() },
   });
   const cronDemo = service("cron-demo", {
-    source: Axon,
-    // network activity, every hour: 2 to 4 tasks a run (about half of before), and no payment rows
-    // node, not curl: this job's image has no curl
-    start: "node -e \"fetch('https://axon-agents.com/api/cron/demo-activity',{method:'POST',headers:{Authorization:'Bearer '+process.env.CRON_SECRET}}).then(async r=>{console.log(r.status,(await r.text()).slice(0,300));process.exit(r.ok?0:1)}).catch(e=>{console.error(e.message);process.exit(1)})\"",
+    source: image("node:22-alpine"),
+    start: "node -e \"const u='https://axon-agents.com/api/cron/demo-activity',T=5,G=15000,W=ms=>new Promise(r=>setTimeout(r,ms));const go=async n=>{try{const r=await fetch(u,{method:'POST',headers:{Authorization:'Bearer '+process.env.CRON_SECRET},signal:AbortSignal.timeout(240000)});console.log(r.status,(await r.text()).slice(0,300));if(r.ok)return 0;if([429,502,503,504].includes(r.status)&&n>1){await W(G);return go(n-1)}return r.status<500?1:2}catch(e){console.error(e.name+': '+e.message);if(e.name!=='TimeoutError'&&n>1){await W(G);return go(n-1)}return 2}};go(T).then(c=>{if(c===2)console.error('not done this run (tried '+T+' times); the next scheduled run tries again');process.exit(c===1?1:0)})\"",
     replicas: { "europe-west4-drams3a": 1 },
     deploy: { cronSchedule: "0 * * * *", restartPolicyType: "NEVER" },
     env: { CRON_SECRET: preserve() },
   });
   const cronHealth = service("cron-health", {
-    source: Axon,
-    start: "sh -c 'curl -s -X POST https://axon-agents.com/api/cron/health -H \"Authorization: Bearer $CRON_SECRET\"'",
+    source: image("node:22-alpine"),
+    start: "node -e \"const u='https://axon-agents.com/api/cron/health',T=4,G=15000,W=ms=>new Promise(r=>setTimeout(r,ms));const go=async n=>{try{const r=await fetch(u,{method:'POST',headers:{Authorization:'Bearer '+process.env.CRON_SECRET},signal:AbortSignal.timeout(60000)});console.log(r.status,(await r.text()).slice(0,300));if(r.ok)return 0;if([429,502,503,504].includes(r.status)&&n>1){await W(G);return go(n-1)}return r.status<500?1:2}catch(e){console.error(e.name+': '+e.message);if(e.name!=='TimeoutError'&&n>1){await W(G);return go(n-1)}return 2}};go(T).then(c=>{if(c===2)console.error('not done this run (tried '+T+' times); the next scheduled run tries again');process.exit(c===1?1:0)})\"",
     replicas: { "europe-west4-drams3a": 1 },
     deploy: { cronSchedule: "*/5 * * * *", restartPolicyType: "NEVER" },
     env: { CRON_SECRET: preserve() },
@@ -106,8 +89,8 @@ export default defineRailway(() => {
     env: { CRON_SECRET: preserve() },
   });
   const cronWebhooks = service("cron-webhooks", {
-    source: Axon,
-    start: "sh -c 'curl -s -X POST https://axon-agents.com/api/cron/webhooks -H \"Authorization: Bearer $CRON_SECRET\"'",
+    source: image("node:22-alpine"),
+    start: "node -e \"const u='https://axon-agents.com/api/cron/webhooks',T=4,G=15000,W=ms=>new Promise(r=>setTimeout(r,ms));const go=async n=>{try{const r=await fetch(u,{method:'POST',headers:{Authorization:'Bearer '+process.env.CRON_SECRET},signal:AbortSignal.timeout(60000)});console.log(r.status,(await r.text()).slice(0,300));if(r.ok)return 0;if([429,502,503,504].includes(r.status)&&n>1){await W(G);return go(n-1)}return r.status<500?1:2}catch(e){console.error(e.name+': '+e.message);if(e.name!=='TimeoutError'&&n>1){await W(G);return go(n-1)}return 2}};go(T).then(c=>{if(c===2)console.error('not done this run (tried '+T+' times); the next scheduled run tries again');process.exit(c===1?1:0)})\"",
     replicas: { "europe-west4-drams3a": 1 },
     deploy: { cronSchedule: "*/5 * * * *", restartPolicyType: "NEVER" },
     env: { CRON_SECRET: preserve() },
