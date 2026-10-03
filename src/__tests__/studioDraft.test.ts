@@ -23,7 +23,8 @@ const GOOD = {
   name: "Earnings Call Brief",
   handle: "earnings-call-brief",
   description: "Turns any earnings call transcript into five sharp bullets for investors.",
-  capabilities: ["earnings analysis", "summarization", "finance"],
+  capabilities: ["earnings analysis", "summarization"],
+  category: "Finance",
   instructions: "You turn an earnings call transcript into exactly five bullets for an investor. Lead with revenue and its growth, then margins, then guidance quoted exactly. Flag anything management avoided. If no transcript is given, ask for it in one line.",
   model: "claude-sonnet-5",
   tools: ["web_search", "commerce"],
@@ -56,6 +57,11 @@ describe("one sentence into a draft agent", () => {
     expect(toDraft({ ...GOOD, name: "" }, wallet(), 0.001)).toMatch(/no name/);
     expect(toDraft({ ...GOOD, name: "Axon Brief" }, wallet(), 0.001)).toMatch(/impersonate/);
     expect(toDraft({ ...GOOD, capabilities: [] }, wallet(), 0.001)).toMatch(/nothing it can do/);
+  });
+
+  it("files the agent under one of Axon's categories, its skills deciding when the writer names none", () => {
+    expect((toDraft({ ...GOOD, category: "Finance" }, wallet(), 0.001) as { category: string }).category).toBe("Finance");
+    expect((toDraft({ ...GOOD, category: "Crypto Stuff" }, wallet(), 0.001) as { category: string }).category).toBe("Research"); // from "summarization"
   });
 
   it("falls back to a sound model, and keeps any price inside Studio's bounds", () => {

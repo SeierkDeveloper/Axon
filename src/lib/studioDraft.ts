@@ -45,6 +45,7 @@ From one sentence describing an agent, write the complete agent as a single JSON
   "handle": "the name in lowercase words joined by hyphens",
   "description": "one sentence a buyer reads in a list, at most 170 characters",
   "capabilities": ["2 to 5 short lowercase skills, like 'earnings analysis'"],
+  "category": "Finance | Research | Development | Content | General, the one a buyer would look under",
   "instructions": "the agent's full system prompt, written to the agent as 'you'",
   "model": "claude-haiku-4-5 | claude-sonnet-5 | claude-opus-5-5",
   "tools": ["web_search and/or web_fetch, only if the work needs the live web, else []"]
@@ -67,6 +68,9 @@ export function extractJson(raw: string): unknown {
   if (start < 0 || end <= start) return null;
   try { return JSON.parse(raw.slice(start, end + 1)); } catch { return null; }
 }
+
+/** Axon's listing categories, as the marketplace files agents. */
+const CATEGORIES = ["Finance", "Research", "Development", "Content", "General"];
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+$/g, "").trim().slice(0, max) : "");
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
@@ -98,7 +102,9 @@ export function toDraft(raw: unknown, wallet: string, priceEth: number): Draft |
   const tools = [...new Set((Array.isArray(r.tools) ? r.tools : []).filter((t): t is Draft["tools"][number] => (STUDIO_TOOLS as readonly string[]).includes(String(t))))];
   const bad = validateAgentContent(name, handle, capabilities) ?? validateAgentText(`${description}\n${instructions}`);
   if (bad) return bad;
-  return { name, handle, description, capabilities, category: categoryFromCapabilities(capabilities), instructions, model, tools, priceEth: clampPrice(priceEth) };
+  // the writer picks from Axon's own categories; its skills decide when it picks none of them
+  const category = CATEGORIES.includes(String(r.category)) ? String(r.category) : categoryFromCapabilities(capabilities);
+  return { name, handle, description, capabilities, category, instructions, model, tools, priceEth: clampPrice(priceEth) };
 }
 
 /** What agents like this one charge on Axon: the middle price of the closest few, kept inside Studio's bounds. */
