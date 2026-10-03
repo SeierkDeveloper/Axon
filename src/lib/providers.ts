@@ -873,6 +873,9 @@ export function effectiveModel(agent: Agent, pinned?: string | null): string | n
 // originally ran (so a post-refusal fallback is reproduced faithfully) and drives
 // temperature 0. Everything else — system prompt, token ceiling, continuation
 // stitching — matches a normal run. See src/lib/reproducibility.ts.
+/** A Claude model on its own, for Axon's own work rather than an agent's: Agent Studio's writer and grader. */
+export const claudeModel = (model: string): ProviderClient => new AnthropicProvider(model);
+
 export async function runReproduction(
   agent: Agent,
   message: string,

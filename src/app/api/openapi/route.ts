@@ -1862,6 +1862,19 @@ const SPEC = {
       delete: { summary: "Remove one item, by ?id= (owner only)", tags: ["Agents"] },
     },
 
+    "/studio/drafts": {
+      post: { summary: "Agent Studio: start a build from one sentence; Axon writes the whole draft agent (free, within a daily limit per wallet)", tags: ["Agent Studio"] },
+    },
+
+    "/studio/builds": {
+      get: { summary: "Agent Studio: your builds, newest first", tags: ["Agent Studio"] },
+    },
+
+    "/studio/builds/{id}": {
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Agent Studio: one of your builds, its draft and where it has got to", tags: ["Agent Studio"] },
+    },
+
     "/agents/{agentId}/metrics": {
       parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
       get: { summary: "An agent's task counts and latency over the last 1 to 90 days", tags: ["Agents"], security: [] },
