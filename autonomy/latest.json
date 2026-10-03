@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-03T17:03:46.613Z",
-  "finishedAt": "2026-10-03T17:06:17.855Z",
-  "commit": "238bf9c",
+  "startedAt": "2026-10-03T17:22:30.723Z",
+  "finishedAt": "2026-10-03T17:22:56.132Z",
+  "commit": "5aaaadf",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 18224
+      "ms": 15290
     },
     {
       "id": "links",
@@ -17,7 +17,7 @@
       "ok": true,
       "checked": 194,
       "findings": [],
-      "ms": 87
+      "ms": 63
     },
     {
       "id": "dead-exports",
@@ -25,24 +25,15 @@
       "ok": true,
       "checked": 732,
       "findings": [],
-      "ms": 980
+      "ms": 661
     },
     {
       "id": "api-reference",
       "title": "The API reference matches the routes",
       "ok": true,
-      "checked": 290,
-      "findings": [
-        {
-          "severity": "warn",
-          "what": "1 public routes are not in the API reference, e.g. /api/tools/.!51263!route.ts",
-          "why": "a route nobody can find is a route nobody uses",
-          "where": [
-            "src/app/api/openapi/route.ts"
-          ]
-        }
-      ],
-      "ms": 75
+      "checked": 289,
+      "findings": [],
+      "ms": 49
     },
     {
       "id": "sdk-routes",
@@ -50,7 +41,7 @@
       "ok": true,
       "checked": 124,
       "findings": [],
-      "ms": 25
+      "ms": 26
     },
     {
       "id": "examples",
@@ -75,7 +66,7 @@
           ]
         }
       ],
-      "ms": 2635
+      "ms": 3666
     },
     {
       "id": "migrations",
@@ -83,20 +74,11 @@
       "ok": true,
       "checked": 88,
       "findings": [],
-      "ms": 1
+      "ms": 0
     }
   ],
   "errors": 0,
-  "warnings": 2,
-  "changed": true,
-  "changes": [
-    {
-      "what": "dropped the export from parseTweak()",
-      "where": "src/lib/studioDraft.ts",
-      "files": [
-        "src/lib/studioDraft.ts"
-      ],
-      "status": "applied"
-    }
-  ]
+  "warnings": 1,
+  "changed": false,
+  "changes": []
 }
