@@ -51,8 +51,10 @@ export const BUILD_BUDGET = {
   goodEnough: 8.5,
   /** tokens the agent may answer one test task with */
   answerTokens: 1_200,
-  /** tokens the writer may use for a draft or a rewrite */
+  /** tokens the writer may use for a draft */
   writerTokens: 2_500,
+  /** and for a rewrite: the whole instructions again, up to 6,000 characters, with room to spare */
+  rewriteTokens: 4_000,
   /** tokens the grader may use for one verdict */
   graderTokens: 400,
   /** the most model calls a build can make: writer + (tasks × (answer + grade)) per round, plus the test-task writer */
@@ -100,6 +102,9 @@ export function clampPrice(eth: number): number {
 }
 
 // ── Remixing ──────────────────────────────────────────────────────────────────
+
+/** An agent is listed only once its best test round scored at least this (out of 10): a weak build stays a draft. */
+export const MIN_PUBLISH_SCORE = 6;
 
 /** A remix pays the agent it was copied from this share of every hire, for as long as the remix is listed. */
 export const REMIX_SHARE_BPS = 1_000;

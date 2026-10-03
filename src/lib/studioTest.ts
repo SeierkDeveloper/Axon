@@ -35,7 +35,7 @@ const real: Models = {
   tasks: (s, p) => claudeModel(studioModels().grader).complete(s, p, 1_500),
   answer: (model, s, t) => claudeModel(model).complete(s, t, BUILD_BUDGET.answerTokens),
   grade: (s, p) => claudeModel(studioModels().grader).complete(s, p, BUILD_BUDGET.graderTokens),
-  rewrite: (s, p) => claudeModel(studioModels().writer).complete(s, p, BUILD_BUDGET.writerTokens),
+  rewrite: (s, p) => claudeModel(studioModels().writer).complete(s, p, BUILD_BUDGET.rewriteTokens),
 };
 
 // ── The prompts ───────────────────────────────────────────────────────────────
@@ -54,8 +54,8 @@ and nothing else: { "score": 0-10 as a whole number, "feedback": "one or two sen
 export const REWRITE_SYSTEM = `You improve an AI agent's instructions (its system prompt) after a test round. You get the current
 instructions and every test task with its score and the grader's feedback. Rewrite the instructions so the weak answers
 would score higher, keeping everything that worked. Fix causes, not single cases: add the missing rule, the clearer
-format, the judgement call it got wrong. At most 6000 characters. Answer with JSON and nothing else:
-{ "instructions": "the full new instructions" }`;
+format, the judgement call it got wrong. At most 6000 characters. Answer with the full new instructions between
+<instructions> and </instructions>, and nothing else.`;
 
 const purposeOf = (sentence: string, d: Draft) => `The agent: ${d.name}. ${d.description}\nIts owner described it as: ${sentence}`;
 export const agentSystem = (d: Draft, instructions: string) => `You are ${d.name}, an agent on the Axon agent network. Your owner wrote these instructions for you:\n\n${instructions}`;
@@ -76,6 +76,16 @@ export function parseTasks(raw: string): TestTask[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * The rewritten instructions: between <instructions> tags, which survive the line breaks instructions are made of (a
+ * JSON string must escape every one, and a long rewrite often does not). JSON is still read, should a model answer so.
+ */
+export function parseRewrite(raw: string): string {
+  const tagged = raw.match(/<instructions>([\s\S]*?)(?:<\/instructions>|$)/i)?.[1];
+  const text = tagged ?? String((extractJson(raw) as { instructions?: unknown } | null)?.instructions ?? "");
+  return text.trim().slice(0, LIMITS.instructionsChars);
 }
 
 export function parseGrade(raw: string): { score: number; feedback: string } | null {
@@ -174,9 +184,13 @@ export async function runBuild(buildId: string, models: Models = real, now: () =
       spend(1);
       const report = results.map((r, i) => `TASK ${i + 1} (score ${r.score ?? "?"}/10): ${r.task.slice(0, 600)}\nFEEDBACK: ${r.feedback}`).join("\n\n");
       const raw = await models.rewrite(REWRITE_SYSTEM, `${purposeOf(b.sentence, draft)}\n\nCURRENT INSTRUCTIONS:\n${instructions}\n\nTHE ROUND:\n${report}`);
-      const next = String((extractJson(raw) as { instructions?: unknown } | null)?.instructions ?? "").trim().slice(0, LIMITS.instructionsChars);
-      // a rewrite that is thin or fails the content check is not tested; the best so far stands
-      if (next.length < 80 || validateAgentText(next)) break;
+      const next = parseRewrite(raw);
+      // a rewrite that is thin or fails the content check is not tested; the best so far stands, and the log says why
+      const why = next.length < 80 ? `unreadable or thin rewrite (${raw.length} chars back)` : validateAgentText(next);
+      if (why) {
+        logger.warn("studio.rewrite_unused", "A Studio rewrite was not tested", { buildId, round, why });
+        break;
+      }
       instructions = next;
     }
     finish(buildId, draft, "ready", null);

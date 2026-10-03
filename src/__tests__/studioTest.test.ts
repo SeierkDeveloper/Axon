@@ -12,7 +12,7 @@ vi.mock("@/lib/holderTier", async (orig) => ({
 }));
 
 import { startDraft, getBuild } from "@/lib/studioDraft";
-import { runBuild, roundsOf, settleStale, parseTasks, parseGrade, type Models } from "@/lib/studioTest";
+import { runBuild, roundsOf, settleStale, parseTasks, parseGrade, parseRewrite, type Models } from "@/lib/studioTest";
 import { getDb } from "@/lib/db";
 import { BUILD_BUDGET } from "@/lib/studioPolicy";
 
@@ -40,7 +40,7 @@ function models(over: Partial<Models> = {}): Models & { calls: Record<string, nu
     tasks: async () => { calls.tasks++; return TASKS; },
     answer: async (_m, system) => { calls.answer++; return system.includes("VERSION TWO") ? "great answer" : "ok answer"; },
     grade: async (_s, prompt) => { calls.grade++; return JSON.stringify({ score: prompt.includes("great answer") ? 9 : 6, feedback: "Lead with the guidance range." }); },
-    rewrite: async () => { calls.rewrite++; return JSON.stringify({ instructions: "VERSION TWO. You turn an earnings call transcript into exactly five bullets for investors. Quote the guidance range exactly." }); },
+    rewrite: async () => { calls.rewrite++; return "Here it is:\n<instructions>\nVERSION TWO. You turn an earnings call transcript into exactly five bullets for investors.\nQuote the guidance range exactly.\n</instructions>"; },
     ...over,
   };
 }
@@ -110,6 +110,13 @@ describe("a draft earns its listing", () => {
     getDb().prepare("UPDATE studio_builds SET status = 'testing', updated_at = ? WHERE id = ?").run(new Date(Date.now() - 60 * 60_000).toISOString(), id);
     settleStale(id);
     expect(getBuild(id)!.status).toBe("stopped");
+  });
+
+  it("reads a rewrite between tags, line breaks and all, a cut-off one too, and JSON as a fallback", () => {
+    expect(parseRewrite("x <instructions>\nLine one.\nLine \"two\".\n</instructions> y")).toBe('Line one.\nLine "two".');
+    expect(parseRewrite("<instructions>cut off mid")).toBe("cut off mid");
+    expect(parseRewrite('{"instructions": "from json"}')).toBe("from json");
+    expect(parseRewrite("nothing")).toBe("");
   });
 
   it("reads the models' JSON whatever surrounds it, and clamps scores", () => {
