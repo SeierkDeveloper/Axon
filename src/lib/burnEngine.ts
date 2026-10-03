@@ -42,6 +42,30 @@ const SPLITTER_ABI = parseAbi(["function sweep() returns (uint256)"]);
  */
 const MIN_TOKENS_OUT = 0n;
 
+/**
+ * The least a sweep must move before the bot pays gas for it. sweep() stopped reverting when there is nothing to move:
+ * it succeeds and moves nothing, so sending it on a clock spent gas every minute for nothing (measured 2026-10-03:
+ * about 1,700 empty sweeps a day, 0.0033 ETH). The splitter is now asked first, for free, what a sweep would move.
+ * 0.00005 ETH is about 25 times one sweep's gas, and far under the pot's 0.001 ETH burn floor, so no burn waits on it.
+ */
+const MIN_SWEEP_WEI = BigInt(Math.round(Number(process.env.AXON_MIN_SWEEP_ETH ?? 0.00005) * 1e18));
+
+/**
+ * Sweep only when it is worth the gas: a free simulation says what sweep() would move, and the transaction is sent only
+ * when that is at least MIN_SWEEP_WEI. Returns the hash when it sent one, null when there was nothing worth moving.
+ */
+export async function sweepIfWorthIt(
+  reader: ReturnType<typeof publicClient>,
+  wallet: ReturnType<typeof walletClientFor>,
+  splitter: `0x${string}`,
+): Promise<{ hash: string; amount: bigint } | null> {
+  const { result: amount } = await reader.simulateContract({ address: splitter, abi: SPLITTER_ABI, functionName: "sweep", account: wallet.account });
+  if (amount < MIN_SWEEP_WEI) return null;
+  const hash = await wallet.client.writeContract({ address: splitter, abi: SPLITTER_ABI, functionName: "sweep", account: wallet.account, chain: null });
+  await reader.waitForTransactionReceipt({ hash, timeout: 120_000 });
+  return { hash, amount };
+}
+
 export interface EngineResult {
   ok: boolean;
   /** false when there is no pot or no key yet: not an error, just nothing to drive. */
@@ -81,23 +105,17 @@ export async function runBurnEngine(): Promise<EngineResult> {
   if (!pot || !key) return idle(false);
 
   const reader = publicClient();
-  const { account, client } = walletClientFor(key);
+  const wallet = walletClientFor(key);
+  const { account, client } = wallet;
   const result = idle(true);
 
   // ── sweep ────────────────────────────────────────────────────────────────
-  // Fees sit on the curve until this runs. It reverts when there is nothing there yet, which is
-  // the normal state between trades, so a failure here never stops the burn below.
+  // Fees sit on the curve until this runs, and only a sweep worth its gas is sent; a failure here
+  // never stops the burn below.
   if (splitter) {
     try {
-      const hash = await client.writeContract({
-        address: splitter as `0x${string}`,
-        abi: SPLITTER_ABI,
-        functionName: "sweep",
-        account,
-        chain: null,
-      });
-      await reader.waitForTransactionReceipt({ hash, timeout: 120_000 });
-      result.swept = { ran: true, hash };
+      const sent = await sweepIfWorthIt(reader, wallet, splitter as `0x${string}`);
+      result.swept = sent ? { ran: true, hash: sent.hash } : { ran: false, error: "nothing worth sweeping" };
     } catch (err) {
       result.swept = { ran: false, error: why(err) };
     }

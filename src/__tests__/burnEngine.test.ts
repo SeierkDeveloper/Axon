@@ -6,9 +6,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 const reads = vi.fn();
 const writes = vi.fn();
 const waits = vi.fn();
+const sims = vi.fn();
 
 vi.mock("@/lib/evm", () => ({
-  publicClient: () => ({ readContract: reads, waitForTransactionReceipt: waits }),
+  publicClient: () => ({ readContract: reads, waitForTransactionReceipt: waits, simulateContract: sims }),
   walletClientFor: (key: string) => {
     if (!/^(0x)?[0-9a-fA-F]{64}$/.test(key.trim())) throw new Error("bad key");
     return { account: { address: "0xbot" }, client: { writeContract: writes } };
@@ -26,7 +27,8 @@ async function run() {
 
 beforeEach(() => {
   vi.resetModules();
-  reads.mockReset(); writes.mockReset(); waits.mockReset();
+  reads.mockReset(); writes.mockReset(); waits.mockReset(); sims.mockReset();
+  sims.mockResolvedValue({ result: 0n });
   waits.mockResolvedValue({ status: "success" });
   process.env.BOT_PRIVATE_KEY = KEY;
   process.env.AXON_BURN_POT_ADDRESS = POT;
@@ -36,6 +38,34 @@ afterEach(() => {
   delete process.env.BOT_PRIVATE_KEY;
   delete process.env.AXON_BURN_POT_ADDRESS;
   delete process.env.AXON_SPLITTER_ADDRESS;
+});
+
+describe("a sweep is sent only when it is worth its gas", () => {
+  const sweeps = () => writes.mock.calls.filter((c) => c[0].functionName === "sweep");
+
+  it("sends nothing when the splitter says a sweep would move nothing", async () => {
+    reads.mockResolvedValue([0n, 0n, false]);
+    const r = await run();
+    expect(sims).toHaveBeenCalledWith(expect.objectContaining({ address: SPLIT, functionName: "sweep" }));
+    expect(sweeps()).toHaveLength(0);
+    expect(r.swept).toEqual({ ran: false, error: "nothing worth sweeping" });
+  });
+
+  it("sends nothing for dust worth less than the gas", async () => {
+    reads.mockResolvedValue([0n, 0n, false]);
+    sims.mockResolvedValue({ result: 10n ** 12n }); // 0.000001 ETH
+    await run();
+    expect(sweeps()).toHaveLength(0);
+  });
+
+  it("sweeps when there is real money to move", async () => {
+    reads.mockResolvedValue([0n, 0n, false]);
+    sims.mockResolvedValue({ result: 10n ** 15n }); // 0.001 ETH
+    writes.mockResolvedValue("0xsweep");
+    const r = await run();
+    expect(sweeps()).toHaveLength(1);
+    expect(r.swept).toEqual({ ran: true, hash: "0xsweep" });
+  });
 });
 
 describe("the burn engine does nothing it should not", () => {

@@ -22,12 +22,12 @@ import { publicClient, walletClientFor } from "./evm";
 import { burnPotAddress, splitterAddress } from "./burn";
 import { weiToEth } from "./money";
 import { logger } from "./logger";
+import { sweepIfWorthIt } from "./burnEngine";
 
 const POT_ABI = parseAbi([
   "function preview() view returns (uint256 amount, uint256 nextAt, bool ready)",
   "function burn(uint256 minTokensOut) returns (uint256 ethIn, uint256 tokensOut)",
 ]);
-const SPLITTER_ABI = parseAbi(["function sweep() returns (uint256)"]);
 
 /** How often the pot is asked whether a burn is allowed. A read, so this can be tight. */
 const CHECK_MS = Number(process.env.AXON_BURN_CHECK_MS ?? 5_000);
@@ -120,16 +120,10 @@ async function tick(): Promise<void> {
   if (splitter && Date.now() - shared.lastSweep >= SWEEP_MS) {
     shared.lastSweep = Date.now();
     try {
-      const hash = await client.writeContract({
-        address: splitter as `0x${string}`,
-        abi: SPLITTER_ABI,
-        functionName: "sweep",
-        account,
-        chain: null,
-      });
-      await reader.waitForTransactionReceipt({ hash, timeout: 120_000 });
+      // only when there is something worth the gas: see sweepIfWorthIt
+      await sweepIfWorthIt(reader, walletClientFor(key), splitter as `0x${string}`);
     } catch {
-      // Reverts when there is nothing on the curve yet, which is most of the time.
+      // a node hiccup or a revert: the next sweep tick tries again
     }
   }
 
