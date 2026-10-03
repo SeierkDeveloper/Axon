@@ -233,9 +233,9 @@ export default function StudioClient() {
           {/* ── the right: the build ── */}
           <section className="min-w-0">
             {!b && !creating && (
-              <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 p-10 text-center dark:border-gray-800">
+              <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 p-6 text-center sm:p-10 dark:border-gray-800">
                 <p className="text-sm text-gray-500 dark:text-gray-400">Describe an agent on the left. Studio writes it, then you watch it get tested and improved here, answer by answer.</p>
-                <ol className="mt-6 grid w-full max-w-lg grid-cols-4 gap-2 text-left">
+                <ol className="mt-6 grid w-full max-w-lg grid-cols-2 gap-2 text-left sm:grid-cols-4">
                   {["Written", "Tested", "Improved", "Ready"].map((s, i) => (
                     <li key={s} className="rounded-xl border border-gray-200 p-3 dark:border-gray-800"><span className="font-mono text-xs text-gray-400">0{i + 1}</span><p className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{s}</p></li>
                   ))}
