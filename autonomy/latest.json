@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-03T07:44:05.331Z",
-  "finishedAt": "2026-10-03T07:44:30.929Z",
-  "commit": "92cdb88",
+  "startedAt": "2026-10-03T17:03:46.613Z",
+  "finishedAt": "2026-10-03T17:06:17.855Z",
+  "commit": "238bf9c",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 15617
+      "ms": 18224
     },
     {
       "id": "links",
@@ -17,23 +17,32 @@
       "ok": true,
       "checked": 194,
       "findings": [],
-      "ms": 57
+      "ms": 87
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 676,
+      "checked": 732,
       "findings": [],
-      "ms": 599
+      "ms": 980
     },
     {
       "id": "api-reference",
       "title": "The API reference matches the routes",
       "ok": true,
-      "checked": 265,
-      "findings": [],
-      "ms": 34
+      "checked": 290,
+      "findings": [
+        {
+          "severity": "warn",
+          "what": "1 public routes are not in the API reference, e.g. /api/tools/.!51263!route.ts",
+          "why": "a route nobody can find is a route nobody uses",
+          "where": [
+            "src/app/api/openapi/route.ts"
+          ]
+        }
+      ],
+      "ms": 75
     },
     {
       "id": "sdk-routes",
@@ -41,7 +50,7 @@
       "ok": true,
       "checked": 124,
       "findings": [],
-      "ms": 21
+      "ms": 25
     },
     {
       "id": "examples",
@@ -49,7 +58,7 @@
       "ok": true,
       "checked": 35,
       "findings": [],
-      "ms": 10
+      "ms": 11
     },
     {
       "id": "packages",
@@ -66,19 +75,28 @@
           ]
         }
       ],
-      "ms": 3685
+      "ms": 2635
     },
     {
       "id": "migrations",
       "title": "Migrations are complete and in order",
       "ok": true,
-      "checked": 81,
+      "checked": 88,
       "findings": [],
       "ms": 1
     }
   ],
   "errors": 0,
-  "warnings": 1,
-  "changed": false,
-  "changes": []
+  "warnings": 2,
+  "changed": true,
+  "changes": [
+    {
+      "what": "dropped the export from parseTweak()",
+      "where": "src/lib/studioDraft.ts",
+      "files": [
+        "src/lib/studioDraft.ts"
+      ],
+      "status": "applied"
+    }
+  ]
 }
