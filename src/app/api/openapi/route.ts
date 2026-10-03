@@ -1870,6 +1870,11 @@ const SPEC = {
       get: { summary: "Agent Studio: your builds, newest first", tags: ["Agent Studio"] },
     },
 
+    "/studio/builds/{id}/test": {
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Agent Studio: test a drafted build and improve it, in the background (the build's rounds show it working)", tags: ["Agent Studio"] },
+    },
+
     "/studio/builds/{id}": {
       parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
       get: { summary: "Agent Studio: one of your builds, its draft and where it has got to", tags: ["Agent Studio"] },
