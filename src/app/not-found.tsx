@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AgentCore from "@/components/AgentCore";
 import Image from "next/image";
 
 export const metadata = { title: "Not Found | Axon" };
@@ -18,6 +19,7 @@ export default function NotFound() {
       </nav>
 
       <main className="flex-1 flex flex-col items-center justify-center px-6 text-center">
+        <div className="mb-8"><AgentCore size={180} label="Axon looking for the page" /></div>
         <p className="text-xs font-mono text-gray-300 dark:text-gray-600 tracking-widest mb-6">404</p>
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-3">Page not found</h1>
         <p className="text-gray-400 dark:text-gray-500 text-sm mb-10 max-w-sm">

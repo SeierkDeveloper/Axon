@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 
 // The agent's face: Studio's centrepiece. A glossy black head, like a small robot's screen, with two glowing eyes that
 // follow the cursor around the page while the head leans a little towards it. The eyes blink at an uneven rhythm and
@@ -64,40 +64,42 @@ export default function AgentCore({ state = "idle", size = 240, label }: { state
   }, []);
 
   const h = Math.round(size * 0.72);
+  // gradients and the glow are referenced by id: each face gets its own, so two on one page never share (or lose) them
+  const u = useId().replace(/[^a-zA-Z0-9]/g, "");
   return (
     <div ref={root} className={`agent-face is-${state}`} style={{ width: size, height: h }} role="img" aria-label={label ?? `Agent: ${state}`}>
       <div ref={head} className="agent-face-head">
         <svg viewBox="0 0 240 172" width={size} height={h} aria-hidden="true">
           <defs>
-            <linearGradient id="face-shell" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={`face-shell-${u}`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#2a2a2f" />
               <stop offset="55%" stopColor="#111114" />
               <stop offset="100%" stopColor="#050506" />
             </linearGradient>
-            <radialGradient id="face-screen" cx="50%" cy="38%" r="70%">
+            <radialGradient id={`face-screen-${u}`} cx="50%" cy="38%" r="70%">
               <stop offset="0%" stopColor="#141418" />
               <stop offset="100%" stopColor="#000000" />
             </radialGradient>
-            <linearGradient id="face-gloss" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={`face-gloss-${u}`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#ffffff" stopOpacity="0.16" />
               <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
             </linearGradient>
-            <filter id="face-glow" x="-60%" y="-60%" width="220%" height="220%">
+            <filter id={`face-glow-${u}`} x="-60%" y="-60%" width="220%" height="220%">
               <feGaussianBlur stdDeviation="7" />
             </filter>
           </defs>
 
           {/* the head and its screen */}
-          <rect x="6" y="6" width="228" height="160" rx="52" fill="url(#face-shell)" className="face-shell" />
+          <rect x="6" y="6" width="228" height="160" rx="52" fill={`url(#face-shell-${u})`} className="face-shell" />
           <rect x="6.5" y="6.5" width="227" height="159" rx="51.5" fill="none" className="face-edge" />
-          <rect x="20" y="20" width="200" height="132" rx="40" fill="url(#face-screen)" />
-          <path d="M44 24 H196 a36 36 0 0 1 20 10 Q120 46 26 40 a36 36 0 0 1 18 -16 Z" fill="url(#face-gloss)" />
+          <rect x="20" y="20" width="200" height="132" rx="40" fill={`url(#face-screen-${u})`} />
+          <path d="M44 24 H196 a36 36 0 0 1 20 10 Q120 46 26 40 a36 36 0 0 1 18 -16 Z" fill={`url(#face-gloss-${u})`} />
 
           {/* the eyes: they follow the cursor (look), blink (lids), and take the build's expression (mood) */}
           <g ref={look}>
             <g className="face-mood">
               <g ref={lids} className="face-lids">
-                <g className="face-eyes-glow" filter="url(#face-glow)">
+                <g className="face-eyes-glow" filter={`url(#face-glow-${u})`}>
                   <rect x="70" y="60" width="32" height="52" rx="16" />
                   <rect x="138" y="60" width="32" height="52" rx="16" />
                 </g>

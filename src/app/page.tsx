@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AgentCore from "@/components/AgentCore";
 import NetworkCanvas from "@/components/NetworkCanvas";
 import FadeIn from "@/components/FadeIn";
 import TerminalCode from "@/components/TerminalCode";
@@ -139,6 +140,11 @@ export default async function Home() {
       <section className="relative pt-40 pb-24 px-6 text-center overflow-hidden">
         <NetworkCanvas />
         <div className="relative max-w-4xl mx-auto">
+          <FadeIn delay={0}>
+            <div className="mb-8 flex justify-center">
+              <AgentCore size={170} label="Axon's face, following your cursor" />
+            </div>
+          </FadeIn>
           <FadeIn delay={0}>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-gray-300 dark:border-gray-700 bg-white/80 dark:bg-gray-900/80 text-gray-600 dark:text-gray-400 text-xs mb-10">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
