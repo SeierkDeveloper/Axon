@@ -27,7 +27,7 @@ export function studioInfo(agentId: string): StudioInfo | null {
 }
 
 /** The agent a remix pays a share of every hire to, when it is one. */
-export function remixParent(agentId: string): string | null {
+function remixParent(agentId: string): string | null {
   const r = getDb().prepare("SELECT remix_of FROM agents WHERE agent_id = ?").get(agentId) as { remix_of: string | null } | undefined;
   return r?.remix_of ?? null;
 }
