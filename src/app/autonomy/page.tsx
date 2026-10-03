@@ -84,8 +84,8 @@ export default function AutonomyPage() {
   return (
     <div className="bg-white dark:bg-[#0a0a0a] min-h-screen text-[#0a0a0a] dark:text-white">
       <SiteNav />
-      <main className="max-w-3xl mx-auto px-6 pt-32 pb-24">
-        <div className="mb-6"><AgentCore state="testing" size={130} label="Axon checking the network" /></div>
+      <main className="max-w-3xl mx-auto px-6 pt-24 pb-24">
+        <div className="mb-10"><AgentCore size={130} label="Axon checking the network" /></div>
         <p className="text-xs font-mono text-gray-400 dark:text-gray-500 tracking-wider mb-3">AUTONOMY</p>
         <h1 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white mb-4">Axon runs itself.</h1>
         <p className="text-gray-500 dark:text-gray-400 leading-relaxed mb-10">

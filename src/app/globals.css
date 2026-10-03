@@ -125,6 +125,18 @@ body {
 /* failed: drooping */
 .agent-face.is-failed .face-lids { transform: scaleY(.38) translateY(16px); }
 .agent-face.is-failed .face-eyes rect { fill: #fca5a5; }
+/* travel (between pages): a glance one way, then the other, back to the middle and a blink */
+.agent-face.is-travel .face-mood { animation: face-travel .9s ease-in-out both; }
+.agent-face.is-travel .face-lids { animation: face-blink .9s ease-in-out both; }
+@keyframes face-travel { 0% { transform: translate(0, 0); } 28% { transform: translate(-16px, -3px); } 60% { transform: translate(16px, -3px); } 85%, 100% { transform: translate(0, 0); } }
+@keyframes face-blink { 0%, 84% { transform: scaleY(1); } 90% { transform: scaleY(.08); } 96%, 100% { transform: scaleY(1); } }
+
+/* the screen between pages, with the face on it */
+.page-transition { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: #ffffff; animation: page-in .2s ease both; }
+.dark .page-transition { background: #0a0a0a; }
+.page-transition.is-out { animation: page-out .2s ease both; }
+@keyframes page-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes page-out { from { opacity: 1; } to { opacity: 0; } }
 @keyframes face-scan { 0%, 100% { transform: translateX(-14px); } 50% { transform: translateX(14px); } }
 @keyframes face-hop { 0%, 100% { translate: 0 0; } 50% { translate: 0 -5px; } }
 

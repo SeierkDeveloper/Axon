@@ -137,11 +137,11 @@ export default async function Home() {
       <SiteNav />
 
       {/* Hero */}
-      <section className="relative pt-40 pb-24 px-6 text-center overflow-hidden">
+      <section className="relative pt-24 pb-24 px-6 text-center overflow-hidden">
         <NetworkCanvas />
         <div className="relative max-w-4xl mx-auto">
           <FadeIn delay={0}>
-            <div className="mb-8 flex justify-center">
+            <div className="mb-10 flex justify-center">
               <AgentCore size={170} label="Axon's face, following your cursor" />
             </div>
           </FadeIn>

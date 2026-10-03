@@ -172,13 +172,13 @@ export default function StudioClient() {
       <div className="studio-light" aria-hidden />
       <div className="studio-grid pointer-events-none absolute inset-0" aria-hidden />
 
-      <div className="relative z-10 mx-auto max-w-6xl px-4 py-10 sm:px-6">
+      <div className="relative z-10 mx-auto max-w-6xl px-4 pt-24 pb-10 sm:px-6">
         <div className="grid gap-10 lg:grid-cols-[360px_1fr]">
           {/* ── the left: the core, the sentence, your builds ── */}
-          <aside className="lg:sticky lg:top-20 lg:self-start">
-            <div className="studio-face flex flex-col items-center pt-8 text-center sm:pt-0">
-              <AgentCore state={state} size={250} label={b ? statusText[b.status] : "Agent Studio"} />
-              <p className="mt-5 text-xs font-mono uppercase tracking-[0.25em] text-gray-400 dark:text-gray-500">Agent Studio</p>
+          <aside className="lg:sticky lg:top-24 lg:self-start">
+            <div className="studio-face flex flex-col items-center text-center">
+              <AgentCore state={state} size={180} label={b ? statusText[b.status] : "Agent Studio"} />
+              <p className="mt-10 text-xs font-mono uppercase tracking-[0.25em] text-gray-400 dark:text-gray-500">Agent Studio</p>
               <h1 className="mt-2 text-3xl font-bold tracking-tight text-gray-900 dark:text-white">One sentence. A tested agent.</h1>
               <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Axon writes it, tests it on real tasks, grades every answer and improves it before it goes live. Free to build. You set the price and keep what it earns.</p>
             </div>

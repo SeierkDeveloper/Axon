@@ -3,14 +3,15 @@
 import { useEffect, useId, useRef } from "react";
 
 // The agent's face: Studio's centrepiece. A glossy black head, like a small robot's screen, with two glowing eyes that
-// follow the cursor around the page while the head leans a little towards it. The eyes blink at an uneven rhythm and
+// follow the cursor around the page while the head leans a little towards it; left alone it holds still. The eyes
+// blink at an uneven rhythm and
 // show what the build is doing: narrowed and glancing up while the draft is written, scanning side to side while the
 // tests run, a focused squint while it improves, happy arcs when it is done, drooping if it failed.
 //
 // Following the cursor runs in a requestAnimationFrame loop with easing, never in React state, so it costs no renders.
 // With reduced motion asked for, the face looks straight ahead and holds still.
 
-export type CoreState = "idle" | "drafting" | "testing" | "improving" | "ready" | "failed";
+export type CoreState = "idle" | "drafting" | "testing" | "improving" | "ready" | "failed" | "travel";
 
 export default function AgentCore({ state = "idle", size = 240, label }: { state?: CoreState; size?: number; label?: string }) {
   const root = useRef<HTMLDivElement>(null);
@@ -21,7 +22,7 @@ export default function AgentCore({ state = "idle", size = 240, label }: { state
   useEffect(() => {
     const el = root.current;
     if (!el || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    let tx = 0, ty = 0, x = 0, y = 0, raf = 0, idleAt = performance.now();
+    let tx = 0, ty = 0, x = 0, y = 0, raf = 0;
     const onMove = (e: PointerEvent) => {
       const r = el.getBoundingClientRect();
       const dx = e.clientX - (r.left + r.width / 2);
@@ -31,15 +32,9 @@ export default function AgentCore({ state = "idle", size = 240, label }: { state
       const reach = Math.min(1, d / (r.width * 1.4));
       tx = (dx / d) * reach;
       ty = (dy / d) * reach;
-      idleAt = performance.now();
     };
-    const tick = (now: number) => {
-      // left alone, it looks around by itself
-      if (now - idleAt > 3_500) {
-        const t = now / 1_000;
-        tx = Math.sin(t * 0.55) * 0.55 + Math.sin(t * 1.7) * 0.08;
-        ty = Math.cos(t * 0.4) * 0.3;
-      }
+    // left alone it holds still and only blinks; when the cursor moves, its eyes go to it
+    const tick = () => {
       x += (tx - x) * 0.14;
       y += (ty - y) * 0.14;
       look.current?.setAttribute("transform", `translate(${(x * 20).toFixed(2)} ${(y * 14).toFixed(2)})`);
