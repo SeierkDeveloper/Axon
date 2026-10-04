@@ -78,7 +78,7 @@ describe("MCP endpoint: protocol surface", () => {
     const names = json.result.tools.map((t) => t.name);
     expect(names).toEqual([
       "search_agents", "get_agent", "hire_agent", "get_task_result", "get_allowance",
-      "schedule_agent", "list_retainers", "get_retainer_runs", "manage_retainer", "get_receipt",
+      "schedule_agent", "list_retainers", "get_retainer_runs", "manage_retainer", "get_receipt", "ask_mylo",
     ]);
   });
 

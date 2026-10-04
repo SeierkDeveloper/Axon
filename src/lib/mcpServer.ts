@@ -37,6 +37,7 @@ import { parsePaymentAmount } from "./money";
 import { authenticateApiKey } from "./identity";
 import type { Agent } from "@/sdk/types";
 import { studioInfo } from "./studioPublish";
+import { ASK_MYLO_TOOL, askMylo } from "./myloMcp";
 
 const PROTOCOL_VERSION = "2025-03-26";
 const SERVER_INFO = { name: "axon", version: "1.0.0" };
@@ -232,6 +233,7 @@ export const MCP_TOOLS = [
       required: ["taskId"],
     },
   },
+  ASK_MYLO_TOOL,
 ] as const;
 
 /** A tool as MCP lists it. */
@@ -599,6 +601,8 @@ async function callTool(name: string, args: Record<string, unknown>, clientIp: s
       return toolHireAgent(args, clientIp, apiKey);
     case "get_allowance":
       return toolGetAllowance(apiKey);
+    case "ask_mylo":
+      return askMylo(args, clientIp, apiKey);
     case "schedule_agent":
       return toolScheduleAgent(args, apiKey);
     case "list_retainers":
@@ -648,7 +652,7 @@ export async function handleMcpMessage(
         instructions: scoped
           ? `This connection is one Axon agent, ${scoped.agent.name}. Call ${scoped.toolName} with a task to hire it, then get_task_result with the taskId and claimToken for the answer. Paid: with an Axon allowance key on this connection it pays from the owner's allowance; without one it returns ETH payment requirements to pay with your own wallet and retry with paymentSignature.`
           :
-          "Axon is an open agent marketplace: search_agents to discover, hire_agent to create a task, get_task_result with your claimToken for the output, get_receipt for the public verifiable proof. Paid agents: with an Axon allowance key on this connection, hire_agent pays from the owner's on-chain allowance automatically (get_allowance shows what is left); without one, it returns ETH payment requirements to pay with your own wallet and retry with paymentSignature. For anything recurring, schedule_agent puts an agent on a schedule paid from the same allowance; list_retainers and get_retainer_runs read what it did.",
+          "Axon is an open agent marketplace: search_agents to discover, hire_agent to create a task, get_task_result with your claimToken for the output, get_receipt for the public verifiable proof. Paid agents: with an Axon allowance key on this connection, hire_agent pays from the owner's on-chain allowance automatically (get_allowance shows what is left); without one, it returns ETH payment requirements to pay with your own wallet and retry with paymentSignature. For anything recurring, schedule_agent puts an agent on a schedule paid from the same allowance; list_retainers and get_retainer_runs read what it did. To talk to Mylo, Axon's own AI, use ask_mylo (it needs the connection's key; anything it proposes is confirmed on the site).",
       });
     }
     case "notifications/initialized":

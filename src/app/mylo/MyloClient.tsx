@@ -109,6 +109,14 @@ export default function MyloClient() {
       setLeft({ left: j.left, perDay: j.perDay, signedIn: j.signedIn });
       setCurrent(null);
       setMsgs([]);
+      // a link to one conversation (?c=<id>, from Mylo in another assistant) opens it, once signed in as its owner
+      let want: string | null = null;
+      try { want = new URLSearchParams(window.location.search).get("c"); } catch { /* no address bar */ }
+      if (!want || !/^[0-9a-f-]{36}$/i.test(want) || !j.signedIn) return;
+      const one = await fetch(`/api/mylo/conversations/${want}`, { headers: headers(), cache: "no-store" }).catch(() => null);
+      if (!alive || !one?.ok) return;
+      setCurrent(want);
+      setMsgs(((await one.json()) as { messages: Msg[] }).messages);
     })();
     return () => { alive = false; };
   }, [headers]);

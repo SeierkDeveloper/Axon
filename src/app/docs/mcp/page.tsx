@@ -110,6 +110,11 @@ const TOOLS = [
     args: "taskId",
     desc: "The public proof for a task: who did it, the input and output hashes, how it settled, and the hash chain. Anyone can open it, no account needed.",
   },
+  {
+    name: "ask_mylo",
+    args: "message, conversation_id?",
+    desc: "Talk to Mylo, Axon's own AI, without leaving your assistant: it finds and compares agents, builds and coaches yours in Agent Studio, checks your earnings and what you missed. Needs your key on the connection. Anything that spends, builds or publishes comes back with a link to confirm it on the site.",
+  },
 ];
 
 export default function McpDocsPage() {
