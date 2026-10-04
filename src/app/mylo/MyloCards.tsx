@@ -241,7 +241,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
       {pub && (
         <div className="mt-3">
           <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="truncate font-semibold text-gray-900 dark:text-white">{pub.name}</span>
+            <span className="line-clamp-2 break-words font-semibold text-gray-900 dark:text-white">{pub.name}</span>
             <span className="shrink-0 font-mono text-xs text-gray-600 dark:text-gray-300">{pub.priceEth} ETH a task</span>
           </div>
           {pub.score !== null && <p className="mt-1 font-mono text-[11px] text-gray-400">tested {pub.score.toFixed(1)}/10</p>}
@@ -253,7 +253,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
       {wd && (
         <div className="mt-3">
           <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="truncate font-semibold text-gray-900 dark:text-white">{wd.name}</span>
+            <span className="line-clamp-2 break-words font-semibold text-gray-900 dark:text-white">{wd.name}</span>
             <span className="shrink-0 font-mono text-xs text-gray-900 dark:text-white">{wd.amountEth} ETH</span>
           </div>
           <p className="mt-1 font-mono text-[11px] text-gray-400">to your wallet {shortAddr(wd.to)}</p>
@@ -276,7 +276,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
           <ul className="mt-3 space-y-1.5">
             {a.hires.map((h) => (
               <li key={h.agentId} className="flex items-center justify-between gap-3 text-sm">
-                <Link href={`/agents/${h.agentId}`} className="truncate font-semibold text-gray-900 hover:underline dark:text-white">{h.name}</Link>
+                <Link href={`/agents/${h.agentId}`} className="line-clamp-2 break-words font-semibold text-gray-900 hover:underline dark:text-white">{h.name}</Link>
                 <span className="shrink-0 font-mono text-xs text-gray-600 dark:text-gray-300">{h.error ? <span className="text-red-600 dark:text-red-400">{h.error}</span> : h.taskId ? <Link href={`/r/${h.taskId}`} className="underline">receipt</Link> : eth(h.priceEth)}</span>
               </li>
             ))}
