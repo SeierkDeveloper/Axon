@@ -1,7 +1,7 @@
 // Mylo, phase 1: a turn of conversation, and the routes the page talks to. The model is a stand-in; nothing is spent.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { runTurn, toTurns, titleOf, forHistory, noteOf, dashCleaner, MYLO_SYSTEM, type MyloEvent, type Streamer } from "@/lib/myloChat";
+import { runTurn, toTurns, titleOf, contextOf, noteOf, dashCleaner, MYLO_SYSTEM, type MyloEvent, type Streamer } from "@/lib/myloChat";
 import type { Action } from "@/lib/myloActions";
 import { MESSAGES_PER_ADDRESS_PER_DAY, MESSAGES_PER_DAY, TURN_BUDGET } from "@/lib/myloPolicy";
 import { addMessage, addressKeyOf, historyOf, ownerOf, limitKeyOf, remember, startConversation, conversationsOf } from "@/lib/myloStore";
@@ -141,10 +141,11 @@ describe("how Mylo's words come out", () => {
     expect(out).not.toContain("\u2014");
   });
 
-  it("rereads the agents it showed, with their ids, so it can hire without searching again", () => {
-    const m = forHistory({ role: "assistant", content: "Found two.", meta: { cards: [{ kind: "agents", agents: [{ agentId: "rnw", name: "Release Notes Writer", priceEth: 0.0012 }, { agentId: "qq", name: "Quick Quill", priceEth: null }] }] } });
-    expect(m.content).toBe("Found two.\n\n[Agents shown: Release Notes Writer (id rnw, 0.0012 ETH); Quick Quill (id qq, free)]");
-    expect(forHistory({ role: "user", content: "hi", meta: null }).content).toBe("hi");
+  it("rereads the agents it showed, with their ids, in its instructions and not in its own words", () => {
+    const ctx = contextOf([{ role: "assistant", meta: { cards: [{ kind: "agents", agents: [{ agentId: "rnw", name: "Release Notes Writer", priceEth: 0.0012 }, { agentId: "qq", name: "Quick Quill", priceEth: null }] }] } }, { role: "user", meta: null }], []);
+    expect(ctx).toContain("Agents you showed in this conversation: Release Notes Writer (id rnw, 0.0012 ETH); Quick Quill (id qq, free).");
+    expect(ctx).toContain("never quote it");
+    expect(contextOf([], [])).toBe("");
   });
 });
 
@@ -179,8 +180,28 @@ describe("Mylo never promises a card it didn't make", () => {
 
   it("rereads what it set up earlier, with its ids and status", () => {
     const build = { id: "a1", kind: "build", status: "done", hires: [], detail: { sentence: "s", change: null, buildId: "b-123", name: "Notes", stage: "ready", round: 2, score: 8.4, error: null } } as unknown as Action;
-    const note = noteOf(build);
-    expect(note).toBe("[Build Notes: build_id b-123, done, Studio stage ready, scored 8.4]");
-    expect(forHistory({ role: "assistant", content: "Built.", meta: { actionId: "a1" } }, new Map([["a1", note]])).content).toBe(`Built.\n\n${note}`);
+    expect(noteOf(build)).toBe("build of Notes, build_id b-123, done, Studio stage ready, scored 8.4");
+    expect(contextOf([], [build])).toContain("What you set up in this conversation, oldest first:\n- build of Notes, build_id b-123");
+  });
+
+  it("keeps the extra step quiet when it then sets the thing up, and shows what it says when it doesn't", async () => {
+    const me = owner();
+    let call = 0;
+    const ev = await run({ owner: me, wallet: me, speaker: "base", text: "Publish it" }, async (_a, onText) => {
+      call++;
+      if (call === 1) { onText("I've proposed it."); return { blocks: [{ type: "text", text: "I've proposed it." }], stop: "end_turn" }; }
+      if (call === 2) { onText("You're right, let me call the tool."); return { blocks: [{ type: "text", text: "You're right, let me call the tool." }, { type: "tool_use", id: "t1", name: "network_pulse", input: {} }], stop: "tool_use" }; }
+      onText("It's in the page now."); return { blocks: [{ type: "text", text: "It's in the page now." }], stop: "end_turn" };
+    });
+    const said = ev.filter((e) => e.type === "text").map((e) => (e as { delta: string }).delta).join("");
+    expect(said).not.toMatch(/You're right/);
+    expect(said).toMatch(/It's in the page now/);
+    let c2 = 0;
+    const ev2 = await run({ owner: me, wallet: me, speaker: "base", text: "Publish it" }, async (_a, onText) => {
+      c2++;
+      const t = c2 === 1 ? "I've proposed it." : "Nothing was set up yet, sorry. Which build do you mean?";
+      onText(t); return { blocks: [{ type: "text", text: t }], stop: "end_turn" };
+    });
+    expect(ev2.filter((e) => e.type === "text").map((e) => (e as { delta: string }).delta).join("")).toMatch(/Nothing was set up yet/);
   });
 });

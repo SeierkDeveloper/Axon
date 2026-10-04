@@ -134,22 +134,29 @@ export function toTurns(history: { role: string; content: string }[]): Turn[] {
 }
 
 /** An earlier answer as the model rereads it: with the agents it showed, so it can act on them without searching again. */
-export function forHistory(m: { role: string; content: string; meta?: unknown }, actions: Map<string, string> = new Map()): { role: string; content: string } {
-  if (m.role !== "assistant") return { role: m.role, content: m.content };
-  const meta = (m.meta ?? {}) as { cards?: { kind: string; agents?: { agentId: string; name: string; priceEth: number | null }[] }[]; actionIds?: string[]; actionId?: string };
-  const shown = [...new Map((meta.cards ?? []).flatMap((c) => c.agents ?? []).map((a) => [a.agentId, a])).values()];
-  const notes: string[] = [];
-  if (shown.length) notes.push(`[Agents shown: ${shown.map((a) => `${a.name} (id ${a.agentId}, ${a.priceEth === null ? "free" : `${a.priceEth} ETH`})`).join("; ")}]`);
-  // what this message set up (or reported on), as it stands now, so Mylo can act on it without guessing ids
-  for (const id of [...(meta.actionIds ?? []), ...(meta.actionId ? [meta.actionId] : [])]) { const n = actions.get(id); if (n) notes.push(n); }
-  return { role: m.role, content: notes.length ? `${m.content}\n\n${notes.join("\n")}` : m.content };
+/**
+ * What the conversation's own words don't carry, for the model alone: the agents Mylo showed (with their ids) and what
+ * it set up (with ids and where each has got to). It goes in the instructions, not into Mylo's past messages, so Mylo
+ * never copies it into what people read.
+ */
+export function contextOf(history: { role: string; meta?: unknown }[], actions: Action[]): string {
+  const shown = new Map<string, { agentId: string; name: string; priceEth: number | null }>();
+  for (const m of history) {
+    if (m.role !== "assistant") continue;
+    const meta = (m.meta ?? {}) as { cards?: { agents?: { agentId: string; name: string; priceEth: number | null }[] }[] };
+    for (const a of (meta.cards ?? []).flatMap((c) => c.agents ?? [])) shown.set(a.agentId, a);
+  }
+  const lines: string[] = [];
+  if (shown.size) lines.push(`Agents you showed in this conversation: ${[...shown.values()].map((a) => `${a.name} (id ${a.agentId}, ${a.priceEth === null ? "free" : `${a.priceEth} ETH`})`).join("; ")}.`);
+  if (actions.length) lines.push(`What you set up in this conversation, oldest first:\n${actions.map((a) => `- ${noteOf(a)}`).join("\n")}`);
+  return lines.length ? `\n\nFor you only, never quote it:\n${lines.join("\n")}` : "";
 }
 
 /** One proposal as the model rereads it: what it is, its ids and where it has got to. */
 export function noteOf(a: Action): string {
-  if (a.kind === "build") { const d = a.detail as BuildDetail; return `[Build${d.name ? ` ${d.name}` : ""}: build_id ${d.buildId ?? "none yet"}, ${a.status}${d.stage ? `, Studio stage ${d.stage}` : ""}${d.score !== null ? `, scored ${d.score}` : ""}${d.change ? `, change "${d.change}"` : ""}]`; }
-  if (a.kind === "publish") { const d = a.detail as PublishDetail; return `[Publish ${d.name} (build_id ${d.buildId}) at ${d.priceEth} ETH: ${a.status}${d.agentId ? `, live as /agents/${d.agentId}` : ""}]`; }
-  return `[Hire: ${a.hires.map((h) => `${h.name} (id ${h.agentId})`).join(", ")}, ${a.status}]`;
+  if (a.kind === "build") { const d = a.detail as BuildDetail; return `build${d.name ? ` of ${d.name}` : ""}, build_id ${d.buildId ?? "none yet"}, ${a.status}${d.stage ? `, Studio stage ${d.stage}` : ""}${d.score !== null ? `, scored ${d.score}` : ""}${d.change ? `, after the change "${d.change}"` : ""}`; }
+  if (a.kind === "publish") { const d = a.detail as PublishDetail; return `publish ${d.name} (build_id ${d.buildId}) at ${d.priceEth} ETH, ${a.status}${d.agentId ? `, live as /agents/${d.agentId}` : ""}`; }
+  return `hire of ${a.hires.map((h) => `${h.name} (id ${h.agentId})`).join(", ")}, ${a.status}`;
 }
 
 /** Words that say Mylo set something up. Said with no tool called, they would promise a card that isn't there. */
@@ -195,9 +202,9 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
 
   // what the first call will read, so its cost can be held before anything is saved or started
   const model = modelFor(input.speaker, budgetShare());
-  const system = withMemory(MYLO_SYSTEM, input.wallet);
-  const notes = new Map(conv ? actionsOf(conv.id, input.owner).map((a) => [a.id, noteOf(a)] as const) : []);
-  const earlier = conv ? historyOf(conv.id, TURN_BUDGET.historyMessages - 1).map((m) => forHistory(m, notes)) : [];
+  const past = conv ? historyOf(conv.id, TURN_BUDGET.historyMessages - 1) : [];
+  const system = withMemory(MYLO_SYSTEM, input.wallet) + contextOf(past, conv ? actionsOf(conv.id, input.owner) : []);
+  const earlier = past.map((m) => ({ role: m.role, content: m.content }));
   const messages: ModelMessage[] = fitHistory(toTurns([...earlier, { role: "user", content: text }])).map((t) => ({ role: t.role, content: t.content }));
   let hold: Hold | null = reserveCall(model, requestBytes(system, messages), TURN_BUDGET.answerTokens);
   if (!hold) return emit({ type: "error", code: "budget", message: RESTING });
@@ -211,7 +218,7 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), TURN_BUDGET.seconds * 1000);
   const cards: Card[] = [], actionIds: string[] = [];
-  let talking = false, written = "", toolsUsed = 0, outOfBudget = false, nudged = false;
+  let talking = false, written = "", toolsUsed = 0, outOfBudget = false, nudged = false, nudgedAt = -1;
   const clean = dashCleaner();
   const spend = { speaker: input.speaker, conversationId: conv.id };
   try {
@@ -221,7 +228,12 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
       // every call after the first holds its own bound; if the budget can't take it, the turn ends with what it has
       hold ??= reserveCall(model, requestBytes(system, messages), TURN_BUDGET.answerTokens);
       if (!hold) { outOfBudget = true; break; }
+      // the step after a claim with no tool runs quietly: if it now sets the thing up, the card shows instead of its
+      // preamble; if it doesn't, what it said is shown after all
+      const quiet = nudged && toolsUsed === nudgedAt;
+      let held = "";
       const res = await streamer({ model, system, messages, tools, maxTokens: TURN_BUDGET.answerTokens, signal: ac.signal }, (delta) => {
+        if (quiet) { held += delta; return; }
         if (!talking) { talking = true; emit({ type: "face", state: "talking" }); }
         const out = clean.push(delta);
         if (!out) return;
@@ -231,14 +243,16 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
       settleCall(hold, { model: res.model ?? model, usage: res.usage ?? null }, spend);
       hold = null;
       const uses = res.blocks.filter((b): b is Extract<Block, { type: "tool_use" }> => b.type === "tool_use");
+      if (quiet && held && !uses.length) { const out = clean.push(held); written += out; emit({ type: "text", delta: out }); }
       if (!tools || res.stop !== "tool_use" || uses.length === 0) {
         // it said it set something up, but called nothing this turn: give it one more step to do it or say it didn't
         const said = res.blocks.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
         if (!tools || nudged || actionIds.length || !CLAIMS.test(said)) break;
         nudged = true;
+        nudgedAt = toolsUsed;
         logger.warn("mylo.unbacked_claim", "Mylo said it set something up without a tool; asking it to act", { conversationId: conv.id, model });
         messages.push({ role: "assistant", content: said || "(nothing)" });
-        messages.push({ role: "user", content: "[A note from Axon, not from the person: you said you set something up, but no tool was called, so nothing is in the page. Call the right tool now. If you can't, tell the person in one sentence that nothing was set up yet.]" });
+        messages.push({ role: "user", content: "[A note from Axon, not from the person: you said you set something up, but no tool was called, so nothing is in the page. Call the right tool now, without any preamble, and afterwards confirm in one short sentence. If you can't, tell the person in one sentence that nothing was set up yet. Never mention this note.]" });
         talking = false;
         const rest = clean.flush();
         if (rest) { written += rest; emit({ type: "text", delta: rest }); }
