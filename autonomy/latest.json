@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-03T17:22:30.723Z",
-  "finishedAt": "2026-10-03T17:22:56.132Z",
-  "commit": "5aaaadf",
+  "startedAt": "2026-10-04T17:03:55.131Z",
+  "finishedAt": "2026-10-04T17:06:16.466Z",
+  "commit": "74b83d4",
   "checks": [
     {
       "id": "install-commands",
@@ -9,31 +9,40 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 15290
+      "ms": 13115
     },
     {
       "id": "links",
       "title": "Internal links point at real pages",
       "ok": true,
-      "checked": 194,
+      "checked": 196,
       "findings": [],
-      "ms": 63
+      "ms": 65
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 732,
-      "findings": [],
-      "ms": 661
+      "checked": 802,
+      "findings": [
+        {
+          "severity": "warn",
+          "what": "setTitle() is exported and never used",
+          "why": "dead code reads exactly like live code",
+          "where": [
+            "src/lib/myloStore.ts"
+          ]
+        }
+      ],
+      "ms": 673
     },
     {
       "id": "api-reference",
       "title": "The API reference matches the routes",
       "ok": true,
-      "checked": 289,
+      "checked": 307,
       "findings": [],
-      "ms": 49
+      "ms": 44
     },
     {
       "id": "sdk-routes",
@@ -41,7 +50,7 @@
       "ok": true,
       "checked": 124,
       "findings": [],
-      "ms": 26
+      "ms": 21
     },
     {
       "id": "examples",
@@ -49,7 +58,7 @@
       "ok": true,
       "checked": 35,
       "findings": [],
-      "ms": 11
+      "ms": 9
     },
     {
       "id": "packages",
@@ -66,19 +75,36 @@
           ]
         }
       ],
-      "ms": 3666
+      "ms": 1949
     },
     {
       "id": "migrations",
       "title": "Migrations are complete and in order",
       "ok": true,
-      "checked": 88,
+      "checked": 93,
       "findings": [],
       "ms": 0
     }
   ],
   "errors": 0,
-  "warnings": 1,
-  "changed": false,
-  "changes": []
+  "warnings": 2,
+  "changed": true,
+  "changes": [
+    {
+      "what": "dropped the export from summaryOf()",
+      "where": "src/lib/myloActions.ts",
+      "files": [
+        "src/lib/myloActions.ts"
+      ],
+      "status": "applied"
+    },
+    {
+      "what": "added 9 public routes to the API reference, written from their route files",
+      "where": "src/app/api/openapi/route.ts",
+      "files": [
+        "src/app/api/openapi/route.ts"
+      ],
+      "status": "applied"
+    }
+  ]
 }
