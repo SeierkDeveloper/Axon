@@ -2121,6 +2121,48 @@ const SPEC = {
       parameters: [{ name: "workflowId", in: "path", required: true, schema: { type: "string" } }],
       get: { summary: "One workflow, for an agent taking part in it", tags: ["Workflows"] },
     },
+
+    "/mylo/actions/{id}/cancel": {
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+      post: { tags: ["Mylo"], security: [] },
+    },
+
+    "/mylo/actions/{id}/confirm": {
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "The signed-in person confirms one of their proposals, as it was proposed", tags: ["Mylo"] },
+    },
+
+    "/mylo/actions/{id}": {
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Answers are written into the conversation", tags: ["Mylo"], security: [] },
+    },
+
+    "/mylo/chat": {
+      post: { summary: "JSON event per line", tags: ["Mylo"], security: [] },
+    },
+
+    "/mylo/conversations/{id}": {
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+      get: { tags: ["Mylo"], security: [] },
+    },
+
+    "/mylo/conversations": {
+      get: { summary: "Limit is left", tags: ["Mylo"], security: [] },
+    },
+
+    "/mylo/feed": {
+      get: { tags: ["Mylo"], security: [] },
+    },
+
+    "/mylo/inbox": {
+      get: { tags: ["Mylo"], security: [] },
+      post: { tags: ["Mylo"], security: [] },
+    },
+
+    "/mylo/memory": {
+      get: { summary: "A wallet's memory is its own", tags: ["Mylo"], security: [] },
+      delete: { tags: ["Mylo"], security: [] },
+    },
   },
 };
 

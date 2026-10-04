@@ -92,7 +92,7 @@ function insert(ctx: { owner: string; wallet: string; conversationId: string }, 
 }
 
 /** What the person is asked to confirm, in words. */
-export function summaryOf(a: Pick<Action, "hires"> & Partial<Pick<Action, "kind" | "detail">>): string {
+function summaryOf(a: Pick<Action, "hires"> & Partial<Pick<Action, "kind" | "detail">>): string {
   if (a.kind === "build") { const d = a.detail as BuildDetail; return d.change ? `Change ${d.name ?? "the agent"}: "${d.change}", then test it again.` : `Build an agent: "${d.sentence}".`; }
   if (a.kind === "publish") { const d = a.detail as PublishDetail; return `Publish ${d.name} on Axon at ${d.priceEth} ETH a task.`; }
   if (a.kind === "withdraw") { const d = a.detail as WithdrawDetail; return `Withdraw ${d.amountEth} ETH that ${d.name} earned, to your wallet ${shortWallet(d.to)}.`; }
