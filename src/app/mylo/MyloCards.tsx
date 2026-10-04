@@ -195,7 +195,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
       if (!res.ok || !j.action) throw new Error(j.error ?? "The hire didn't start.");
       setA(j.action);
       try { localStorage.removeItem(paidKey(a.id)); } catch { /* fine */ }
-      if (stopped) setErr("You stopped before paying every agent, so only the ones you paid for were hired.");
+      if (stopped) setErr(`${/reject|denied|4001/i.test(stopped) ? "You declined the next payment" : stopped.startsWith("INSUFFICIENT_FUNDS") ? "Not enough ETH for the next payment" : `The next payment didn't go through (${stopped})`}, so only the agents you paid for were hired.`);
     } catch (e) {
       const m = e instanceof Error ? e.message : "Something went wrong.";
       setErr(m.startsWith("INSUFFICIENT_FUNDS") ? "Not enough ETH in this wallet for that." : m === "WALLET_NOT_FOUND" ? "No wallet found in this browser." : /reject|denied|4001/i.test(m) ? "You declined in your wallet. Nothing was paid." : m);
