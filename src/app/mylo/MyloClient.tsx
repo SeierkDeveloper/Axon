@@ -188,7 +188,8 @@ export default function MyloClient() {
                       {m.content ? <MarkdownOutput text={m.content} /> : !m.working && <span className="inline-flex gap-1 py-1" aria-label="Mylo is thinking"><i className="mylo-dot" /><i className="mylo-dot" /><i className="mylo-dot" /></span>}
                       {m.working && <p className={`flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 ${m.content ? "mt-2" : ""}`}><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gray-900 dark:bg-white" />{m.working}…</p>}
                     </div>
-                    {m.cards?.map((c, i) => <Card key={i} card={c} />)}
+                    {/* a proposal names its agents itself, so the list it was picked from isn't shown again */}
+                    {m.cards?.filter((c) => !(m.actions?.length && c.kind === "agents")).map((c, i) => <Card key={i} card={c} />)}
                     {m.actions?.map((a) => <ActionCard key={a.id} initial={a} headers={headers} onMessage={arrived} />)}
                   </div>
                 </div>

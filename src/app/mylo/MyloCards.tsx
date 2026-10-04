@@ -54,7 +54,7 @@ export function Card({ card }: { card: CardData }) {
       {rows.map((a, i) => (
         <Link key={a.agentId} href={`/agents/${a.agentId}`} className={`flex items-center gap-3 px-4 py-3 transition hover:bg-gray-50 dark:hover:bg-gray-900 ${i ? "border-t border-gray-100 dark:border-gray-800" : ""}`}>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">{a.name}</p>
+            <p className="line-clamp-2 break-words text-sm font-semibold text-gray-900 dark:text-white">{a.name}</p>
             <p className="truncate text-xs text-gray-500 dark:text-gray-400">{[a.category, a.description].filter(Boolean).join(" · ") || a.agentId}</p>
           </div>
           <div className="shrink-0 text-right">

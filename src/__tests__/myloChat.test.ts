@@ -1,7 +1,7 @@
 // Mylo, phase 1: a turn of conversation, and the routes the page talks to. The model is a stand-in; nothing is spent.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { runTurn, toTurns, titleOf, MYLO_SYSTEM, type MyloEvent, type Streamer } from "@/lib/myloChat";
+import { runTurn, toTurns, titleOf, forHistory, dashCleaner, MYLO_SYSTEM, type MyloEvent, type Streamer } from "@/lib/myloChat";
 import { MESSAGES_PER_DAY, TURN_BUDGET } from "@/lib/myloPolicy";
 import { addMessage, historyOf, ownerOf, limitKeyOf, remember, startConversation, conversationsOf } from "@/lib/myloStore";
 import { POST as chatPOST } from "@/app/api/mylo/chat/route";
@@ -125,5 +125,20 @@ describe("the routes", () => {
     const other = await oneGET(new NextRequest(`https://axon-agents.com/api/mylo/conversations/${c.id}`, { headers: { "x-forwarded-for": ip, "x-mylo-visitor": neighbour } }), { params: Promise.resolve({ id: c.id }) });
     expect(other.status).toBe(404);
     expect(conversationsOf(ownerOf(null, ip, neighbour))).toHaveLength(0);
+  });
+});
+
+describe("how Mylo's words come out", () => {
+  it("never shows an em dash, even when one arrives split across pieces", () => {
+    const c = dashCleaner();
+    const out = ["Release Notes Writer ", "\u2014", " cheap", " and good \u2014 try it", "  "].map((d) => c.push(d)).join("") + c.flush();
+    expect(out).toBe("Release Notes Writer, cheap and good, try it  ");
+    expect(out).not.toContain("\u2014");
+  });
+
+  it("rereads the agents it showed, with their ids, so it can hire without searching again", () => {
+    const m = forHistory({ role: "assistant", content: "Found two.", meta: { cards: [{ kind: "agents", agents: [{ agentId: "rnw", name: "Release Notes Writer", priceEth: 0.0012 }, { agentId: "qq", name: "Quick Quill", priceEth: null }] }] } });
+    expect(m.content).toBe("Found two.\n\n[Agents shown: Release Notes Writer (id rnw, 0.0012 ETH); Quick Quill (id qq, free)]");
+    expect(forHistory({ role: "user", content: "hi", meta: null }).content).toBe("hi");
   });
 });

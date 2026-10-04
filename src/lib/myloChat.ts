@@ -69,7 +69,8 @@ What you cannot do yet: build agents in Studio, look at someone's own agents or 
 its receipt shows what happened.
 
 How you talk: short, warm and clear, in plain English. Answer the question first. Use a short list only when it really
-helps. Never use em dashes or emojis. Never invent numbers, prices, agents, results or features; if you don't know,
+helps. Never use em dashes or emojis. Never name your tools to the person (say "I can compare them", not the tool's
+name). Your earlier messages note the agents you showed and their ids: use those ids instead of searching again. Never invent numbers, prices, agents, results or features; if you don't know,
 say so and say where to find out. Never promise returns or give financial advice. Never ask for a private key, a seed
 phrase or a password, and tell anyone who offers one to keep it to themselves.`;
 
@@ -94,6 +95,32 @@ export function toTurns(history: { role: string; content: string }[]): Turn[] {
   return out;
 }
 
+/** An earlier answer as the model rereads it: with the agents it showed, so it can act on them without searching again. */
+export function forHistory(m: { role: string; content: string; meta?: unknown }): { role: string; content: string } {
+  const cards = ((m.meta ?? {}) as { cards?: { kind: string; agents?: { agentId: string; name: string; priceEth: number | null }[] }[] }).cards ?? [];
+  const shown = [...new Map(cards.flatMap((c) => c.agents ?? []).map((a) => [a.agentId, a])).values()];
+  if (m.role !== "assistant" || !shown.length) return { role: m.role, content: m.content };
+  return { role: m.role, content: `${m.content}\n\n[Agents shown: ${shown.map((a) => `${a.name} (id ${a.agentId}, ${a.priceEth === null ? "free" : `${a.priceEth} ETH`})`).join("; ")}]` };
+}
+
+/**
+ * Takes em dashes out of Mylo's words as they stream. A dash can arrive with its spaces split across pieces, so the
+ * spaces and dashes at the end of each piece wait for the next one.
+ */
+export function dashCleaner() {
+  const fix = (s: string) => s.replace(/\s*\u2014[\s\u2014]*/g, ", ");
+  let held = "";
+  return {
+    push(delta: string): string {
+      const s = held + delta;
+      const m = /[\s\u2014]*$/.exec(s)!;
+      held = m[0];
+      return fix(s.slice(0, m.index));
+    },
+    flush(): string { const h = fix(held); held = ""; return h; },
+  };
+}
+
 let replying = 0;
 
 export interface TurnInput { owner: string; limitKey?: string; wallet: string | null; speaker: Speaker; text: string; conversationId?: string | null }
@@ -114,7 +141,7 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
   emit({ type: "conversation", id: conv.id, title: conv.title });
 
   addMessage(conv.id, input.owner, "user", text, null, limitKey);
-  const turns = toTurns(historyOf(conv.id, TURN_BUDGET.historyMessages));
+  const turns = toTurns(historyOf(conv.id, TURN_BUDGET.historyMessages).map(forHistory));
   emit({ type: "face", state: "thinking" });
 
   replying++;
@@ -124,14 +151,17 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
   const messages: ModelMessage[] = turns.map((t) => ({ role: t.role, content: t.content }));
   const cards: Card[] = [], actionIds: string[] = [];
   let talking = false, written = "", toolsUsed = 0;
+  const clean = dashCleaner();
   try {
     for (;;) {
       // the last call has tools off, so a turn always ends in words
       const tools = toolsUsed < TURN_BUDGET.toolCalls;
       const res = await streamer({ system, messages, tools, maxTokens: TURN_BUDGET.answerTokens, signal: ac.signal }, (delta) => {
         if (!talking) { talking = true; emit({ type: "face", state: "talking" }); }
-        written += delta;
-        emit({ type: "text", delta });
+        const out = clean.push(delta);
+        if (!out) return;
+        written += out;
+        emit({ type: "text", delta: out });
       });
       const uses = res.blocks.filter((b): b is Extract<Block, { type: "tool_use" }> => b.type === "tool_use");
       if (!tools || res.stop !== "tool_use" || uses.length === 0) break;
@@ -140,6 +170,8 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
       for (const u of uses) {
         toolsUsed++;
         talking = false;
+        const rest = clean.flush();
+        if (rest) { written += rest; emit({ type: "text", delta: rest }); }
         if (written && !written.endsWith("\n")) { written += "\n\n"; emit({ type: "text", delta: "\n\n" }); }
         emit({ type: "face", state: "working" });
         const out = await runTool(u.name, u.input ?? {}, { wallet: input.wallet, owner: input.owner, conversationId: conv.id });
