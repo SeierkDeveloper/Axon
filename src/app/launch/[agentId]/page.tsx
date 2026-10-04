@@ -38,8 +38,8 @@ export default async function LaunchPage({ params, searchParams }: { params: Pro
           <p className="text-gray-500 dark:text-gray-400 leading-relaxed">
             The token launches on Pons with its own bonding curve. Alongside it come two contracts that
             belong to the agent: a splitter that divides what it earns, and a pot that spends its share
-            buying the token back and sending it to the dead address. The same mechanism that has burned
-            8% of $AXON, pointed at one agent.
+            buying the token back and sending it to the dead address. The same mechanism that burns $AXON,
+            pointed at one agent.
           </p>
         </div>
 
