@@ -81,7 +81,8 @@ What you can do with your tools:
   task and price, and they confirm and pay from their own wallet or allowance. After proposing, say what you proposed
   and that it waits for their OK. Never say a hire is done, paid or running, and never pretend to have an agent's
   answer: it arrives in the conversation when the agent finishes. Write the task for the agent fully and clearly.
-- Only say you proposed, set up or started something after a tool did it in this turn. The page shows a card only
+- Call the tool first, then say what you did, once. Only say you proposed, set up or started something after a tool
+  did it in this turn. The page shows a card only
   for what a tool created; never describe a button or card that wasn't made. Your earlier messages end with notes in
   square brackets of what you set up and its ids and status; use them.
 - Before proposing, make sure you know what the person wants done. If it is unclear, ask one short question first.
@@ -180,6 +181,28 @@ export function dashCleaner() {
   };
 }
 
+/**
+ * Drops lines that are only a bracketed note ("[Build … build_id …]"): the model's bookkeeping, never for people. A
+ * line that starts with "[" is held until it is clearly something else (a link, or more after the bracket) or ends.
+ */
+export function noteFilter() {
+  let line = "";
+  const note = (l: string) => /^\s*\[[^\]\n]*\]\s*$/.test(l);
+  const undecided = (l: string) => /^\s*\[/.test(l) && !/\]\(/.test(l) && !/\][^\s(]/.test(l);
+  return {
+    push(delta: string): string {
+      let out = "";
+      for (const ch of delta) {
+        line += ch;
+        if (ch === "\n") { if (!note(line)) out += line; line = ""; }
+      }
+      if (line && !undecided(line)) { out += line; line = ""; }
+      return out;
+    },
+    flush(): string { const l = line; line = ""; return note(l) ? "" : l; },
+  };
+}
+
 let replying = 0;
 
 export interface TurnInput { owner: string; limitKey?: string; addressKey?: string | null; wallet: string | null; speaker: Speaker; text: string; conversationId?: string | null }
@@ -219,7 +242,10 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
   const timer = setTimeout(() => ac.abort(), TURN_BUDGET.seconds * 1000);
   const cards: Card[] = [], actionIds: string[] = [];
   let talking = false, written = "", toolsUsed = 0, outOfBudget = false, nudged = false, nudgedAt = -1;
-  const clean = dashCleaner();
+  const clean = dashCleaner(), notes = noteFilter();
+  // what people read: em dashes taken out, then bookkeeping lines
+  const tidy = (d: string) => notes.push(clean.push(d));
+  const tidyFlush = () => notes.push(clean.flush()) + notes.flush();
   const spend = { speaker: input.speaker, conversationId: conv.id };
   try {
     for (;;) {
@@ -235,7 +261,7 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
       const res = await streamer({ model, system, messages, tools, maxTokens: TURN_BUDGET.answerTokens, signal: ac.signal }, (delta) => {
         if (quiet) { held += delta; return; }
         if (!talking) { talking = true; emit({ type: "face", state: "talking" }); }
-        const out = clean.push(delta);
+        const out = tidy(delta);
         if (!out) return;
         written += out;
         emit({ type: "text", delta: out });
@@ -243,7 +269,7 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
       settleCall(hold, { model: res.model ?? model, usage: res.usage ?? null }, spend);
       hold = null;
       const uses = res.blocks.filter((b): b is Extract<Block, { type: "tool_use" }> => b.type === "tool_use");
-      if (quiet && held && !uses.length) { const out = clean.push(held); written += out; emit({ type: "text", delta: out }); }
+      if (quiet && held && !uses.length) { const out = tidy(held); written += out; emit({ type: "text", delta: out }); }
       if (!tools || res.stop !== "tool_use" || uses.length === 0) {
         // it said it set something up, but called nothing this turn: give it one more step to do it or say it didn't
         const said = res.blocks.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
@@ -254,7 +280,7 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
         messages.push({ role: "assistant", content: said || "(nothing)" });
         messages.push({ role: "user", content: "[A note from Axon, not from the person: you said you set something up, but no tool was called, so nothing is in the page. Call the right tool now, without any preamble, and afterwards confirm in one short sentence. If you can't, tell the person in one sentence that nothing was set up yet. Never mention this note.]" });
         talking = false;
-        const rest = clean.flush();
+        const rest = tidyFlush();
         if (rest) { written += rest; emit({ type: "text", delta: rest }); }
         if (written && !written.endsWith("\n")) { written += "\n\n"; emit({ type: "text", delta: "\n\n" }); }
         continue;
@@ -264,7 +290,7 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
       for (const u of uses) {
         toolsUsed++;
         talking = false;
-        const rest = clean.flush();
+        const rest = tidyFlush();
         if (rest) { written += rest; emit({ type: "text", delta: rest }); }
         if (written && !written.endsWith("\n")) { written += "\n\n"; emit({ type: "text", delta: "\n\n" }); }
         emit({ type: "face", state: "working" });
@@ -280,7 +306,7 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
       }
       messages.push({ role: "user", content: results });
     }
-    const rest = clean.flush();
+    const rest = tidyFlush();
     if (rest) { written += rest; emit({ type: "text", delta: rest }); }
     if (outOfBudget) {
       const note = "I've reached today's limit, so I stopped here. Ask me again after midnight UTC.";

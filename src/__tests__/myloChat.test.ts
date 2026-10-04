@@ -1,7 +1,7 @@
 // Mylo, phase 1: a turn of conversation, and the routes the page talks to. The model is a stand-in; nothing is spent.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
-import { runTurn, toTurns, titleOf, contextOf, noteOf, dashCleaner, MYLO_SYSTEM, type MyloEvent, type Streamer } from "@/lib/myloChat";
+import { runTurn, toTurns, titleOf, contextOf, noteOf, noteFilter, dashCleaner, MYLO_SYSTEM, type MyloEvent, type Streamer } from "@/lib/myloChat";
 import type { Action } from "@/lib/myloActions";
 import { MESSAGES_PER_ADDRESS_PER_DAY, MESSAGES_PER_DAY, TURN_BUDGET } from "@/lib/myloPolicy";
 import { addMessage, addressKeyOf, historyOf, ownerOf, limitKeyOf, remember, startConversation, conversationsOf } from "@/lib/myloStore";
@@ -203,5 +203,16 @@ describe("Mylo never promises a card it didn't make", () => {
       onText(t); return { blocks: [{ type: "text", text: t }], stop: "end_turn" };
     });
     expect(ev2.filter((e) => e.type === "text").map((e) => (e as { delta: string }).delta).join("")).toMatch(/Nothing was set up yet/);
+  });
+});
+
+describe("what people read never carries Mylo's bookkeeping", () => {
+  it("drops a line that is only a bracketed note, even split across pieces, and keeps links and real text", () => {
+    const f = noteFilter();
+    const pieces = ["Ready to publish.\n\n[Release Notes", " Writer published, build_id 1f0, price 0.0006 ETH]", "\n\nTap Publish. Or ", "[open it in Studio](/studio?build=1)", " any time.\n[x] done\n"];
+    const out = pieces.map((p) => f.push(p)).join("") + f.flush();
+    expect(out).toBe("Ready to publish.\n\n\nTap Publish. Or [open it in Studio](/studio?build=1) any time.\n[x] done\n");
+    const g = noteFilter();
+    expect(g.push("[Build Notes: build_id b-1, done]") + g.flush()).toBe("");
   });
 });
