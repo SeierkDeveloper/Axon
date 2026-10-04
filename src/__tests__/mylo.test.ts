@@ -1,7 +1,7 @@
 // Mylo, phase 0: the rules and the records.
 import { describe, it, expect } from "vitest";
 import { getDb } from "@/lib/db";
-import { messagesAllowed, MESSAGES_PER_DAY, myloEnabled, myloModels, shortWallet, toolGate, TOOLS, MEMORY } from "@/lib/myloPolicy";
+import { messagesAllowed, MESSAGES_PER_DAY, myloEnabled, myloModels, shortWallet, toolGate, TOOLS, MEMORY, MESSAGES_PER_ADDRESS_PER_DAY } from "@/lib/myloPolicy";
 import {
   ownerOf, startConversation, getConversation, conversationsOf, addMessage, historyOf, sentToday,
   remember, forget, memoryOf, notify, inboxOf, markRead, think, feed,
@@ -18,14 +18,14 @@ describe("Mylo's rules", () => {
     expect(myloModels({ MYLO_MODEL: "claude-opus-5-5" }).chat).toBe("claude-opus-5-5");
   });
 
-  it("lets a speaker send up to their tier's daily limit, and says how to get more", () => {
-    expect(messagesAllowed("guest", MESSAGES_PER_DAY.guest - 1).ok).toBe(true);
-    const g = messagesAllowed("guest", MESSAGES_PER_DAY.guest);
-    expect(g.ok).toBe(false);
-    expect(!g.ok && g.reason).toMatch(/Sign in with a wallet/);
+  it("talks to signed-in wallets only, each up to its tier's daily limit, and one address can't multiply it", () => {
+    const g = messagesAllowed("guest", 0);
+    expect(!g.ok && g.reason).toMatch(/Sign in with your wallet/);
+    expect(messagesAllowed("base", MESSAGES_PER_DAY.base - 1).ok).toBe(true);
     const b = messagesAllowed("base", MESSAGES_PER_DAY.base);
     expect(!b.ok && b.reason).toMatch(/Holding more \$AXON/);
     expect(MESSAGES_PER_DAY.operator).toBeGreaterThan(MESSAGES_PER_DAY.holder);
+    expect(messagesAllowed("operator", 0, MESSAGES_PER_ADDRESS_PER_DAY).ok).toBe(false);
   });
 
   it("never lets anything that spends run without a confirmation, and keeps your things behind a wallet", () => {

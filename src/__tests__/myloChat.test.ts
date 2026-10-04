@@ -2,8 +2,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { runTurn, toTurns, titleOf, forHistory, dashCleaner, MYLO_SYSTEM, type MyloEvent, type Streamer } from "@/lib/myloChat";
-import { MESSAGES_PER_DAY, TURN_BUDGET } from "@/lib/myloPolicy";
-import { addMessage, historyOf, ownerOf, limitKeyOf, remember, startConversation, conversationsOf } from "@/lib/myloStore";
+import { MESSAGES_PER_ADDRESS_PER_DAY, MESSAGES_PER_DAY, TURN_BUDGET } from "@/lib/myloPolicy";
+import { addMessage, addressKeyOf, historyOf, ownerOf, limitKeyOf, remember, startConversation, conversationsOf } from "@/lib/myloStore";
 import { POST as chatPOST } from "@/app/api/mylo/chat/route";
 import { GET as listGET } from "@/app/api/mylo/conversations/route";
 import { GET as oneGET } from "@/app/api/mylo/conversations/[id]/route";
@@ -38,19 +38,23 @@ describe("a turn with Mylo", () => {
     expect(seen!.maxTokens).toBe(TURN_BUDGET.answerTokens);
   });
 
-  it("turns away an empty or oversized message, someone else's conversation, and a speaker over the day's limit", async () => {
+  it("turns away a visitor, an empty or oversized message, someone else's conversation, and a wallet over the day's limit", async () => {
     const me = owner(), other = owner();
     expect((await run({ owner: me, wallet: me, speaker: "base", text: "   " }, say("x")))[0]).toMatchObject({ type: "error", code: "input" });
     expect((await run({ owner: me, wallet: me, speaker: "base", text: "x".repeat(TURN_BUDGET.inputChars + 1) }, say("x")))[0]).toMatchObject({ type: "error", code: "input" });
     const theirs = startConversation(other, "theirs");
     expect((await run({ owner: me, wallet: me, speaker: "base", text: "hi", conversationId: theirs.id }, say("x")))[0]).toMatchObject({ type: "error", code: "not_found" });
-    const guest = ownerOf(null, `198.51.100.${n}`), key = limitKeyOf(null, `198.51.100.${n}`);
-    const c = startConversation(guest, "busy");
-    for (let i = 0; i < MESSAGES_PER_DAY.guest; i++) addMessage(c.id, guest, "user", `m${i}`, null, key);
-    // a fresh browser on the same address: new conversations, the same day's count
-    const limited = await run({ owner: ownerOf(null, `198.51.100.${n}`, "1b4e28ba-2fa1-11d2-883f-0016d3cca427"), limitKey: key, wallet: null, speaker: "guest", text: "one more" }, say("x"));
-    expect(limited[0]).toMatchObject({ type: "error", code: "limit" });
-    expect((limited[0] as { message: string }).message).toMatch(/Sign in with a wallet/);
+    // no wallet, no conversation: nothing is started or saved
+    const guest = await run({ owner: ownerOf(null, `198.51.100.${n}`), limitKey: limitKeyOf(null, `198.51.100.${n}`), wallet: null, speaker: "guest", text: "hello" }, say("x"));
+    expect(guest).toEqual([{ type: "error", code: "signin", message: expect.stringMatching(/Sign in with your wallet/) }]);
+    const busy = owner(), c = startConversation(busy, "busy");
+    for (let i = 0; i < MESSAGES_PER_DAY.base; i++) addMessage(c.id, busy, "user", `m${i}`, null, busy);
+    expect((await run({ owner: busy, wallet: busy, speaker: "base", text: "one more" }, say("x")))[0]).toMatchObject({ type: "error", code: "limit" });
+    // a new wallet from an address that has already sent its day's worth gets nothing more
+    const addr = addressKeyOf(`198.51.100.${n}`), fresh = owner(), c2 = startConversation(fresh, "fresh");
+    for (let i = 0; i < MESSAGES_PER_ADDRESS_PER_DAY; i++) addMessage(c2.id, fresh, "user", `m${i}`, null, `other-${i % 7}`, addr);
+    const another = owner();
+    expect((await run({ owner: another, wallet: another, speaker: "operator", addressKey: addr, text: "hi" }, say("x")))[0]).toMatchObject({ type: "error", code: "limit" });
   });
 
   it("is quiet when switched off", async () => {
@@ -115,13 +119,13 @@ describe("the routes", () => {
     addMessage(c.id, me, "assistant", "a", null, limitKeyOf(null, ip));
     const list = await (await listGET(new NextRequest("https://axon-agents.com/api/mylo/conversations", { headers: { "x-forwarded-for": ip, "x-mylo-visitor": visitor } }))).json();
     expect(list.conversations.map((x: { id: string }) => x.id)).toContain(c.id);
-    expect(list).toMatchObject({ signedIn: false, perDay: MESSAGES_PER_DAY.guest, left: MESSAGES_PER_DAY.guest - 1 });
+    expect(list).toMatchObject({ signedIn: false, perDay: 0, left: 0 });
     const one = await (await oneGET(new NextRequest(`https://axon-agents.com/api/mylo/conversations/${c.id}`, { headers: { "x-forwarded-for": ip, "x-mylo-visitor": visitor } }), { params: Promise.resolve({ id: c.id }) })).json();
     expect(one.messages.map((m: { content: string }) => m.content)).toEqual(["q", "a"]);
     // someone else on the same network, in their own browser, sees none of it but shares the address's day count
     const theirs = await (await listGET(new NextRequest("https://axon-agents.com/api/mylo/conversations", { headers: { "x-forwarded-for": ip, "x-mylo-visitor": neighbour } }))).json();
     expect(theirs.conversations).toHaveLength(0);
-    expect(theirs.left).toBe(MESSAGES_PER_DAY.guest - 1);
+    expect(theirs.left).toBe(0);
     const other = await oneGET(new NextRequest(`https://axon-agents.com/api/mylo/conversations/${c.id}`, { headers: { "x-forwarded-for": ip, "x-mylo-visitor": neighbour } }), { params: Promise.resolve({ id: c.id }) });
     expect(other.status).toBe(404);
     expect(conversationsOf(ownerOf(null, ip, neighbour))).toHaveLength(0);

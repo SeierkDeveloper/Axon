@@ -5,11 +5,16 @@
 // Mylo works with tools (myloTools): it looks things up on the live network and shows them as cards, and it proposes
 // hires that the person confirms and pays for in the page. A turn may call tools a bounded number of times; the last
 // call is made with tools off, so every turn ends in words.
+//
+// Cost: Mylo talks to signed-in wallets only. The model is chosen per message ($AXON holders get the better one while
+// the day's budget allows), and every call reserves its upper bound from the day's budget before it is made and
+// records its real cost after (myloBudget), so Mylo can't spend past the budget however many people talk at once.
 
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "./logger";
-import { messagesAllowed, myloEnabled, myloModels, MAX_REPLYING_TOTAL, TURN_BUDGET, type Speaker } from "./myloPolicy";
-import { addMessage, getConversation, historyOf, memoryOf, sentToday, startConversation } from "./myloStore";
+import { messagesAllowed, modelFor, myloEnabled, myloModels, MAX_REPLYING_TOTAL, TURN_BUDGET, type Speaker, type Usage } from "./myloPolicy";
+import { addMessage, getConversation, historyOf, memoryOf, sentFromAddress, sentToday, startConversation } from "./myloStore";
+import { budgetShare, reserveCall, settleCall, type Hold } from "./myloBudget";
 import { MYLO_TOOL_DEFS, runTool, forModel, type Card } from "./myloTools";
 import { getAction, viewOf } from "./myloActions";
 
@@ -22,7 +27,7 @@ export type MyloEvent =
   | { type: "action"; action: ReturnType<typeof viewOf> }
   | { type: "text"; delta: string }
   | { type: "done"; messageId: string }
-  | { type: "error"; code: "off" | "input" | "limit" | "busy" | "not_found" | "model"; message: string };
+  | { type: "error"; code: "off" | "signin" | "input" | "limit" | "budget" | "busy" | "not_found" | "model"; message: string };
 
 export interface Turn { role: "user" | "assistant"; content: string }
 
@@ -31,8 +36,22 @@ export type Block = { type: "text"; text: string } | { type: "tool_use"; id: str
 /** What goes to the model: the conversation so far, including this turn's tool calls and their results. */
 export type ModelMessage = { role: "user" | "assistant"; content: string | ({ type: "text"; text: string } | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> } | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean })[] };
 
-/** One call to the model: streams its words through onText and returns all it said, and whether it wants tools. */
-export type Streamer = (args: { system: string; messages: ModelMessage[]; tools: boolean; maxTokens: number; signal: AbortSignal }, onText: (delta: string) => void) => Promise<{ blocks: Block[]; stop: string }>;
+/** One call to the model: streams its words through onText and returns all it said, whether it wants tools, and what
+ *  the call used (the model that answered and its own token counts), which is what the budget records. */
+export type Streamer = (args: { model: string; system: string; messages: ModelMessage[]; tools: boolean; maxTokens: number; signal: AbortSignal }, onText: (delta: string) => void) => Promise<{ blocks: Block[]; stop: string; model?: string; usage?: Usage }>;
+
+/** The size of a call in bytes, as sent: a token is never less than a byte, so this bounds what it can be billed. */
+export const requestBytes = (system: string, messages: ModelMessage[]) => Buffer.byteLength(JSON.stringify({ system, messages, tools: MYLO_TOOL_DEFS }), "utf8");
+
+/** The conversation as the model rereads it: each message cut to a length, and only as much recent history as fits. */
+export function fitHistory(turns: Turn[]): Turn[] {
+  const cut = turns.map((t) => (t.content.length > TURN_BUDGET.historyMessageChars ? { ...t, content: `${t.content.slice(0, TURN_BUDGET.historyMessageChars)}…(cut)` } : t));
+  let total = 0, from = cut.length;
+  while (from > 0 && total + cut[from - 1].content.length <= TURN_BUDGET.historyChars) total += cut[--from].content.length;
+  const kept = cut.slice(Math.min(from, cut.length - 1));
+  while (kept.length > 1 && kept[0].role !== "user") kept.shift();
+  return kept;
+}
 
 export const MYLO_SYSTEM = `You are Mylo, Axon's own AI. On axon-agents.com you are the small black robot head with two
 glowing eyes that follows the visitor's cursor. People come to you to understand Axon and to get things done on it.
@@ -124,46 +143,60 @@ export function dashCleaner() {
 
 let replying = 0;
 
-export interface TurnInput { owner: string; limitKey?: string; wallet: string | null; speaker: Speaker; text: string; conversationId?: string | null }
+export interface TurnInput { owner: string; limitKey?: string; addressKey?: string | null; wallet: string | null; speaker: Speaker; text: string; conversationId?: string | null }
+
+const RESTING = "Mylo has done all the talking it can for today and is resting until midnight UTC. Everything else on Axon works as usual.";
 
 export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, streamer: Streamer = realStreamer): Promise<void> {
   if (!myloEnabled()) return emit({ type: "error", code: "off", message: "Mylo is resting just now. Everything else on Axon works as usual." });
   const text = input.text.replace(/\r\n/g, "\n").trim();
   if (!text) return emit({ type: "error", code: "input", message: "Say something to Mylo first." });
   if (text.length > TURN_BUDGET.inputChars) return emit({ type: "error", code: "input", message: `Keep a message under ${TURN_BUDGET.inputChars.toLocaleString("en-US")} characters.` });
+  if (input.speaker === "guest" || !input.wallet) return emit({ type: "error", code: "signin", message: "Sign in with your wallet to talk to Mylo. It's free." });
   const limitKey = input.limitKey ?? input.owner;
-  const allowed = messagesAllowed(input.speaker, sentToday(limitKey));
+  const allowed = messagesAllowed(input.speaker, sentToday(limitKey), input.addressKey ? sentFromAddress(input.addressKey) : 0);
   if (!allowed.ok) return emit({ type: "error", code: "limit", message: allowed.reason });
   if (replying >= MAX_REPLYING_TOTAL) return emit({ type: "error", code: "busy", message: "Mylo is answering a lot of people right now. Try again in a moment." });
 
   let conv = input.conversationId ? getConversation(input.conversationId, input.owner) : null;
   if (input.conversationId && !conv) return emit({ type: "error", code: "not_found", message: "That conversation isn't yours, or it's gone." });
+
+  // what the first call will read, so its cost can be held before anything is saved or started
+  const model = modelFor(input.speaker, budgetShare());
+  const system = withMemory(MYLO_SYSTEM, input.wallet);
+  const earlier = conv ? historyOf(conv.id, TURN_BUDGET.historyMessages - 1).map(forHistory) : [];
+  const messages: ModelMessage[] = fitHistory(toTurns([...earlier, { role: "user", content: text }])).map((t) => ({ role: t.role, content: t.content }));
+  let hold: Hold | null = reserveCall(model, requestBytes(system, messages), TURN_BUDGET.answerTokens);
+  if (!hold) return emit({ type: "error", code: "budget", message: RESTING });
+
   conv ??= startConversation(input.owner, titleOf(text));
   emit({ type: "conversation", id: conv.id, title: conv.title });
-
-  addMessage(conv.id, input.owner, "user", text, null, limitKey);
-  const turns = toTurns(historyOf(conv.id, TURN_BUDGET.historyMessages).map(forHistory));
+  addMessage(conv.id, input.owner, "user", text, null, limitKey, input.addressKey ?? null);
   emit({ type: "face", state: "thinking" });
 
   replying++;
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), TURN_BUDGET.seconds * 1000);
-  const system = withMemory(MYLO_SYSTEM, input.wallet);
-  const messages: ModelMessage[] = turns.map((t) => ({ role: t.role, content: t.content }));
   const cards: Card[] = [], actionIds: string[] = [];
-  let talking = false, written = "", toolsUsed = 0;
+  let talking = false, written = "", toolsUsed = 0, outOfBudget = false;
   const clean = dashCleaner();
+  const spend = { speaker: input.speaker, conversationId: conv.id };
   try {
     for (;;) {
       // the last call has tools off, so a turn always ends in words
       const tools = toolsUsed < TURN_BUDGET.toolCalls;
-      const res = await streamer({ system, messages, tools, maxTokens: TURN_BUDGET.answerTokens, signal: ac.signal }, (delta) => {
+      // every call after the first holds its own bound; if the budget can't take it, the turn ends with what it has
+      hold ??= reserveCall(model, requestBytes(system, messages), TURN_BUDGET.answerTokens);
+      if (!hold) { outOfBudget = true; break; }
+      const res = await streamer({ model, system, messages, tools, maxTokens: TURN_BUDGET.answerTokens, signal: ac.signal }, (delta) => {
         if (!talking) { talking = true; emit({ type: "face", state: "talking" }); }
         const out = clean.push(delta);
         if (!out) return;
         written += out;
         emit({ type: "text", delta: out });
       });
+      settleCall(hold, { model: res.model ?? model, usage: res.usage ?? null }, spend);
+      hold = null;
       const uses = res.blocks.filter((b): b is Extract<Block, { type: "tool_use" }> => b.type === "tool_use");
       if (!tools || res.stop !== "tool_use" || uses.length === 0) break;
       messages.push({ role: "assistant", content: res.blocks.map((b) => (b.type === "text" ? { type: "text" as const, text: b.text } : { type: "tool_use" as const, id: b.id, name: b.name, input: b.input })) });
@@ -187,10 +220,20 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
       }
       messages.push({ role: "user", content: results });
     }
+    const rest = clean.flush();
+    if (rest) { written += rest; emit({ type: "text", delta: rest }); }
+    if (outOfBudget) {
+      const note = "I've reached today's limit, so I stopped here. Ask me again after midnight UTC.";
+      const sep = written.trim() ? "\n\n" : "";
+      written += sep + note;
+      emit({ type: "text", delta: sep + note });
+    }
     const saved = addMessage(conv.id, input.owner, "assistant", written.trim(), cards.length || actionIds.length ? { cards, actionIds } : null);
     emit({ type: "face", state: "happy" });
     emit({ type: "done", messageId: saved.id });
   } catch (err) {
+    // a call that failed is counted at its bound: it may have been billed for what it got through
+    if (hold) settleCall(hold, null, spend);
     const timedOut = ac.signal.aborted;
     logger.warn("mylo.turn_failed", "A Mylo turn failed", { conversationId: conv.id, timedOut, reason: err instanceof Error ? err.message : String(err) });
     // what was already said (and any cards or proposals made) stays, marked as cut short
@@ -217,29 +260,35 @@ const unavailable = (err: unknown) => {
   try { return err instanceof Anthropic.NotFoundError || err instanceof Anthropic.PermissionDeniedError; } catch { return false; }
 };
 
-const realStreamer: Streamer = async ({ system, messages, tools, maxTokens, signal }, onText) => {
+const realStreamer: Streamer = async ({ model: chosen, system, messages, tools, maxTokens, signal }, onText) => {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
   const client = new Anthropic({ apiKey });
   const models = myloModels();
+  // the instructions (and the tools before them) are the same in every call, so they are cached and read back at a
+  // tenth of the price; what Mylo remembers about this wallet follows, uncached
+  const fixed = system.startsWith(MYLO_SYSTEM) ? MYLO_SYSTEM : system;
+  const blocks: Anthropic.TextBlockParam[] = [{ type: "text", text: fixed, cache_control: { type: "ephemeral" } }];
+  if (system.length > fixed.length) blocks.push({ type: "text", text: system.slice(fixed.length).trim() });
   const run = async (model: string) => {
     const stream = client.messages.stream({
-      model, system, max_tokens: maxTokens,
+      model, system: blocks, max_tokens: maxTokens,
       messages: messages as Anthropic.MessageParam[],
       tools: MYLO_TOOL_DEFS as unknown as Anthropic.Tool[],
       tool_choice: tools ? { type: "auto" } : { type: "none" },
     }, { signal });
     stream.on("text", (d) => onText(d));
     const msg = await stream.finalMessage();
-    const blocks: Block[] = msg.content.flatMap((b): Block[] => (b.type === "text" ? [{ type: "text", text: b.text }] : b.type === "tool_use" ? [{ type: "tool_use", id: b.id, name: b.name, input: (b.input ?? {}) as Record<string, unknown> }] : []));
-    return { blocks, stop: msg.stop_reason ?? "end_turn" };
+    const said: Block[] = msg.content.flatMap((b): Block[] => (b.type === "text" ? [{ type: "text", text: b.text }] : b.type === "tool_use" ? [{ type: "tool_use", id: b.id, name: b.name, input: (b.input ?? {}) as Record<string, unknown> }] : []));
+    const u = msg.usage;
+    return { blocks: said, stop: msg.stop_reason ?? "end_turn", model, usage: { input: u.input_tokens, output: u.output_tokens, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0 } };
   };
   try {
-    return await run(models.chat);
+    return await run(chosen);
   } catch (err) {
-    // the chat model unavailable to this account: answer with the fallback rather than not at all
-    if (!unavailable(err) || models.fallback === models.chat) throw err;
-    logger.warn("mylo.model_fallback", "Mylo's chat model is unavailable, using the fallback", { model: models.chat, fallback: models.fallback });
+    // the chosen model unavailable to this account: answer with the fallback rather than not at all
+    if (!unavailable(err) || models.fallback === chosen) throw err;
+    logger.warn("mylo.model_fallback", "Mylo's model is unavailable, using the fallback", { model: chosen, fallback: models.fallback });
     return run(models.fallback);
   }
 };

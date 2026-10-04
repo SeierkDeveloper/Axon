@@ -7,7 +7,7 @@ import { runTurn, type MyloEvent } from "@/lib/myloChat";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// POST /api/mylo/chat { text, conversationId? }: one message to Mylo. The answer streams back as it is written, one
+// POST /api/mylo/chat { text, conversationId? }: one message to Mylo, from a signed-in wallet. The answer streams back as it is written, one
 // JSON event per line (see MyloEvent): which conversation, how the face looks, the text, then done or an error.
 // One message at a time per person: a second, while the first is still being answered, is turned away.
 const inFlight = new Set<string>();
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
       async start(controller) {
         const emit = (e: MyloEvent) => { try { controller.enqueue(enc.encode(`${JSON.stringify(e)}\n`)); } catch { /* the page went away */ } };
         try {
-          await runTurn({ owner: caller.owner, limitKey: caller.limitKey, wallet: caller.wallet, speaker: caller.speaker, text: body.text as string, conversationId }, emit);
+          await runTurn({ owner: caller.owner, limitKey: caller.limitKey, addressKey: caller.addressKey, wallet: caller.wallet, speaker: caller.speaker, text: body.text as string, conversationId }, emit);
         } finally {
           inFlight.delete(caller.limitKey);
           try { controller.close(); } catch { /* already closed */ }

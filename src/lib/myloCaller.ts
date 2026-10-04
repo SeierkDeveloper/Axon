@@ -5,14 +5,15 @@ import type { NextRequest } from "next/server";
 import { requireApiKey } from "./apiAuth";
 import { getTier } from "./holderTier";
 import { getClientIp } from "./rateLimit";
-import { limitKeyOf, ownerOf } from "./myloStore";
+import { addressKeyOf, limitKeyOf, ownerOf } from "./myloStore";
 import type { Speaker } from "./myloPolicy";
 
-export type Caller = { ok: true; owner: string; limitKey: string; wallet: string | null; speaker: Speaker } | { ok: false; response: Response };
+export type Caller = { ok: true; owner: string; limitKey: string; addressKey: string; wallet: string | null; speaker: Speaker } | { ok: false; response: Response };
 
 export async function callerOf(req: NextRequest): Promise<Caller> {
   const ip = getClientIp(req), visitor = req.headers.get("x-mylo-visitor");
-  const guest = (): Caller => ({ ok: true, owner: ownerOf(null, ip, visitor), limitKey: limitKeyOf(null, ip), wallet: null, speaker: "guest" });
+  const addressKey = addressKeyOf(ip);
+  const guest = (): Caller => ({ ok: true, owner: ownerOf(null, ip, visitor), limitKey: limitKeyOf(null, ip), addressKey, wallet: null, speaker: "guest" });
   const presented = Boolean(req.headers.get("authorization") || req.headers.get("x-api-key"));
   if (!presented) return guest();
   const auth = requireApiKey(req);
@@ -20,5 +21,5 @@ export async function callerOf(req: NextRequest): Promise<Caller> {
   const wallet = auth.user.walletAddress ?? null;
   if (!wallet) return guest();
   const { tier } = await getTier(wallet);
-  return { ok: true, owner: ownerOf(wallet, null), limitKey: limitKeyOf(wallet, null), wallet: wallet.toLowerCase(), speaker: tier.name };
+  return { ok: true, owner: ownerOf(wallet, null), limitKey: limitKeyOf(wallet, null), addressKey, wallet: wallet.toLowerCase(), speaker: tier.name };
 }

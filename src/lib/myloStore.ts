@@ -23,6 +23,11 @@ export function limitKeyOf(wallet: string | null | undefined, ip: string | null 
   return wallet ? wallet.toLowerCase() : `guest-ip:${hash(ip ?? "unknown")}`;
 }
 
+/** The address a message came from, hashed: what the per-address ceiling counts, whatever wallet is used. */
+export function addressKeyOf(ip: string | null | undefined): string {
+  return `ip:${hash(ip ?? "unknown")}`;
+}
+
 // ── Conversations ─────────────────────────────────────────────────────────────
 
 export interface Conversation { id: string; owner: string; title: string | null; createdAt: string; updatedAt: string }
@@ -48,10 +53,10 @@ export function setTitle(id: string, title: string): void {
   getDb().prepare("UPDATE mylo_conversations SET title = ? WHERE id = ?").run(title.slice(0, 80), id);
 }
 
-export function addMessage(conversationId: string, owner: string, role: Role, content: string, meta: unknown = null, limitKey: string = owner): Message {
+export function addMessage(conversationId: string, owner: string, role: Role, content: string, meta: unknown = null, limitKey: string = owner, addressKey: string | null = null): Message {
   const id = randomUUID(), at = now(), db = getDb();
-  db.prepare("INSERT INTO mylo_messages (id, conversation_id, owner, role, content, meta, limit_key, created_at) VALUES (?,?,?,?,?,?,?,?)")
-    .run(id, conversationId, owner, role, content, meta === null ? null : JSON.stringify(meta), limitKey, at);
+  db.prepare("INSERT INTO mylo_messages (id, conversation_id, owner, role, content, meta, limit_key, ip_key, created_at) VALUES (?,?,?,?,?,?,?,?,?)")
+    .run(id, conversationId, owner, role, content, meta === null ? null : JSON.stringify(meta), limitKey, addressKey, at);
   db.prepare("UPDATE mylo_conversations SET updated_at = ? WHERE id = ?").run(at, conversationId);
   return { id, conversationId, role, content, meta, createdAt: at };
 }
@@ -66,6 +71,11 @@ export function historyOf(conversationId: string, limit: number): Message[] {
 /** What was sent against a limit key in the last day: the number the daily limit is checked against. */
 export function sentToday(limitKey: string): number {
   return (getDb().prepare("SELECT COUNT(*) n FROM mylo_messages WHERE limit_key = ? AND role = 'user' AND created_at >= ?").get(limitKey, dayAgo()) as { n: number }).n;
+}
+
+/** What was sent from one address in the last day, across every wallet. */
+export function sentFromAddress(addressKey: string): number {
+  return (getDb().prepare("SELECT COUNT(*) n FROM mylo_messages WHERE ip_key = ? AND role = 'user' AND created_at >= ?").get(addressKey, dayAgo()) as { n: number }).n;
 }
 
 // ── Memory ────────────────────────────────────────────────────────────────────

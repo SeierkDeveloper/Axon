@@ -6,9 +6,10 @@ import MarkdownOutput from "@/components/MarkdownOutput";
 import { useWallet } from "@/components/WalletProvider";
 import { ActionCard, Card, type ActionView, type CardData } from "./MyloCards";
 
-// Mylo's page: Mylo centred and large, its name under it, then the conversation and the box to type in. Mylo's answer
-// streams in as it is written and the face shows what it is doing: thinking while it reads, talking while it writes,
-// happy when it is done. A visitor without a wallet can talk too; their conversations belong to their own browser.
+// Mylo's page: Mylo centred and large, its name under it, then the conversation, the box to type in and, before the
+// first message, things to ask. Talking to Mylo needs a signed-in wallet; without one the box is a sign-in button.
+// Mylo's answer streams in as it is written and the face shows what it is doing: thinking while it reads, talking
+// while it writes, happy when it is done.
 // When Mylo looks something up, what it found shows under its words, and a hire it proposes shows as a card the
 // person confirms and pays for themselves.
 
@@ -161,6 +162,7 @@ export default function MyloClient() {
   };
 
   const empty = msgs.length === 0;
+  const signedIn = Boolean(apiKey);
   const out = left !== null && left.left <= 0;
 
   return (
@@ -199,51 +201,61 @@ export default function MyloClient() {
           </div>
         )}
 
-        {/* suggestions, and earlier conversations, while it is empty */}
+        {/* the box to type in, or for someone not signed in the way to sign in: pinned to the bottom on a solid strip
+            once there is a conversation, so it scrolls away behind it */}
+        <div className={`mylo-input-bar sticky bottom-0 z-10 bg-background pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] ${empty ? "mt-10" : "mt-8"}`}>
+          {signedIn ? (
+            <div className="rounded-2xl border border-gray-200 bg-white p-2 shadow-[0_20px_40px_-24px_rgba(10,10,10,.35)] dark:border-gray-800 dark:bg-gray-950">
+              <div className="flex items-end gap-2">
+                <textarea ref={boxRef} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} rows={1} maxLength={2000} disabled={out}
+                  placeholder={out ? "That's today's messages. Come back tomorrow." : "Ask Mylo anything"} aria-label="Message Mylo"
+                  className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2.5 text-[15px] text-gray-900 placeholder:text-gray-400 focus:outline-none dark:text-white" />
+                <button type="button" onClick={() => void send()} disabled={sending || !text.trim() || out} aria-label="Send"
+                  className="mb-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gray-900 text-white transition hover:bg-gray-700 disabled:opacity-30 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-5 text-center shadow-[0_20px_40px_-24px_rgba(10,10,10,.35)] sm:flex-row sm:justify-between sm:py-3 sm:pl-5 sm:pr-2 sm:text-left dark:border-gray-800 dark:bg-gray-950">
+              <p className="text-[15px] text-gray-600 dark:text-gray-300">Sign in with your wallet to talk to Mylo. It&apos;s free.</p>
+              <button type="button" onClick={() => void signIn()} disabled={walletBusy}
+                className="h-10 shrink-0 rounded-xl bg-gray-900 px-5 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">
+                {walletBusy ? "Signing in…" : "Sign in"}
+              </button>
+            </div>
+          )}
+          {signedIn && (
+            <div className="mt-2 flex items-center justify-between gap-3 px-1 text-xs text-gray-400">
+              <span className="min-w-0 truncate">
+                {left ? <>{left.left} of {left.perDay}<span className="hidden sm:inline"> messages</span> left today</> : " "}
+              </span>
+              <span className="flex shrink-0 items-center gap-3">
+                {!empty && <button type="button" onClick={fresh} className="whitespace-nowrap underline underline-offset-2 hover:text-gray-900 dark:hover:text-white"><span className="sm:hidden">New</span><span className="hidden sm:inline">New conversation</span></button>}
+                {convs.length > 0 && (
+                  <select value={current ?? ""} onChange={(e) => (e.target.value ? void open(e.target.value) : fresh())} aria-label="Earlier conversations"
+                    className="w-[120px] truncate rounded-md border border-gray-200 bg-transparent px-2 py-1 text-xs text-gray-500 sm:w-auto sm:max-w-[220px] dark:border-gray-800">
+                    <option value="">Earlier conversations</option>
+                    {convs.map((c) => <option key={c.id} value={c.id}>{c.title ?? "Untitled"}</option>)}
+                  </select>
+                )}
+              </span>
+            </div>
+          )}
+          {notice && <p className="mt-2 px-1 text-xs text-red-600 dark:text-red-400">{notice}</p>}
+        </div>
+
+        {/* things to ask, under the box, while it is empty; for someone not signed in, a tap signs them in first */}
         {empty && (
-          <div className="mt-10 grid gap-2 sm:grid-cols-2">
-            {SUGGESTIONS.map((s) => (
-              <button key={s} type="button" onClick={() => void send(s)} disabled={sending || out}
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {SUGGESTIONS.map((q) => (
+              <button key={q} type="button" onClick={() => void (signedIn ? send(q) : signIn())} disabled={sending || out || walletBusy}
                 className="rounded-xl border border-gray-200 px-4 py-3 text-left text-sm text-gray-700 transition hover:border-gray-900 hover:text-gray-900 disabled:opacity-50 dark:border-gray-800 dark:text-gray-300 dark:hover:border-white dark:hover:text-white">
-                {s}
+                {q}
               </button>
             ))}
           </div>
         )}
-
-        {/* the box to type in: pinned to the bottom on a solid strip, so the conversation scrolls away behind it */}
-        <div className="mylo-input-bar sticky bottom-0 z-10 mt-8 bg-background pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <div className="rounded-2xl border border-gray-200 bg-white p-2 shadow-[0_20px_40px_-24px_rgba(10,10,10,.35)] dark:border-gray-800 dark:bg-gray-950">
-            <div className="flex items-end gap-2">
-              <textarea ref={boxRef} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} rows={1} maxLength={2000} disabled={out}
-                placeholder={out ? "That's today's messages. Come back tomorrow." : "Ask Mylo anything"} aria-label="Message Mylo"
-                className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2.5 text-[15px] text-gray-900 placeholder:text-gray-400 focus:outline-none dark:text-white" />
-              <button type="button" onClick={() => void send()} disabled={sending || !text.trim() || out} aria-label="Send"
-                className="mb-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gray-900 text-white transition hover:bg-gray-700 disabled:opacity-30 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-              </button>
-            </div>
-          </div>
-          <div className="mt-2 flex items-center justify-between gap-3 px-1 text-xs text-gray-400">
-            <span className="min-w-0 truncate">
-              {left ? <>{left.left} of {left.perDay}<span className="hidden sm:inline"> messages</span> left today</> : " "}
-              {left && !left.signedIn && (
-                <> · <button type="button" onClick={() => void signIn()} disabled={walletBusy} className="underline underline-offset-2 hover:text-gray-900 dark:hover:text-white">sign in for more</button></>
-              )}
-            </span>
-            <span className="flex shrink-0 items-center gap-3">
-              {!empty && <button type="button" onClick={fresh} className="whitespace-nowrap underline underline-offset-2 hover:text-gray-900 dark:hover:text-white"><span className="sm:hidden">New</span><span className="hidden sm:inline">New conversation</span></button>}
-              {convs.length > 0 && (
-                <select value={current ?? ""} onChange={(e) => (e.target.value ? void open(e.target.value) : fresh())} aria-label="Earlier conversations"
-                  className="w-[120px] truncate rounded-md sm:w-auto sm:max-w-[220px] border border-gray-200 bg-transparent px-2 py-1 text-xs text-gray-500 dark:border-gray-800">
-                  <option value="">Earlier conversations</option>
-                  {convs.map((c) => <option key={c.id} value={c.id}>{c.title ?? "Untitled"}</option>)}
-                </select>
-              )}
-            </span>
-          </div>
-          {notice && <p className="mt-2 px-1 text-xs text-red-600 dark:text-red-400">{notice}</p>}
-        </div>
       </div>
     </div>
   );
