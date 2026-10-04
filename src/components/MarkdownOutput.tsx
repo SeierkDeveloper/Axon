@@ -9,10 +9,10 @@ import Link from "next/link";
 // Links, only where asked for (Mylo's answers) and only to Axon's own pages: a markdown link to a path, or a bare
 // path to one of the site's sections. Anything pointing elsewhere stays plain text, so an answer can never send
 // someone off the site.
-const LINK = /(\[[^\]\n]+\]\(\/[^\s)]*\)|(?<![\w/.])\/(?:agents|studio|dashboard|burn|autonomy|docs|mylo|feed|analytics|r)(?:\/[\w\-.%]+)*(?:\?[\w\-=&%.]+)?)/g;
+const LINK = /(\[[^\]\n]+\]\(\/[^\s)]*\)|(?<![\w/.])\/(?:agents|studio|dashboard|burn|autonomy|docs|mylo|feed|analytics|launch|r)(?:\/[\w\-.%]+)*(?:\?[\w\-=&%.]+)?)/g;
 const linkClass = "underline underline-offset-2 decoration-gray-300 hover:decoration-current dark:decoration-gray-600";
 
-const SECTION = /^\/(?:agents|studio|dashboard|burn|autonomy|docs|mylo|feed|analytics|r)(?:[/?]|$)/;
+const SECTION = /^\/(?:agents|studio|dashboard|burn|autonomy|docs|mylo|feed|analytics|launch|r)(?:[/?]|$)/;
 
 function renderLinks(text: string, key: string): React.ReactNode[] {
   return text.split(LINK).flatMap((part, i): React.ReactNode[] => {

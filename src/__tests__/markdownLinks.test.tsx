@@ -5,12 +5,13 @@ import MarkdownOutput from "@/components/MarkdownOutput";
 
 describe("links in answers", () => {
   it("links markdown links and bare section paths to Axon's own pages, keeping a sentence's full stop outside", () => {
-    const html = renderToStaticMarkup(<MarkdownOutput links text={"Ask me, or [open it in Studio](/studio?build=1f0). Live at /agents/notes-3. See /burn, or /etc/passwd."} />);
+    const html = renderToStaticMarkup(<MarkdownOutput links text={"Ask me, or [open it in Studio](/studio?build=1f0). Live at /agents/notes-3. See /burn, launch at /launch/notes-3, or /etc/passwd."} />);
     expect(html).toContain('<a class="underline');
     expect(html).toContain('href="/studio?build=1f0"');
     expect(html).toContain(">open it in Studio</a>");
     expect(html).toContain('href="/agents/notes-3">/agents/notes-3</a>.');
     expect(html).toContain('href="/burn">/burn</a>,');
+    expect(html).toContain('href="/launch/notes-3"');
     expect(html).not.toContain('href="/etc');
   });
 
