@@ -179,9 +179,11 @@ export const TOOLS: Record<string, ToolRule> = {
   // work
   hire_agent: { kind: "act", wallet: true, confirm: true, spends: true },
   second_opinion: { kind: "act", wallet: true, confirm: true, spends: true },
-  // building
-  start_studio_build: { kind: "act", wallet: true, confirm: true, spends: false },
-  improve_agent: { kind: "act", wallet: true, confirm: true, spends: false },
+  // building: a new build and publishing wait for the person's OK; changing their own unlisted draft does not
+  build_agent: { kind: "act", wallet: true, confirm: true, spends: false },
+  change_build: { kind: "act", wallet: true, confirm: false, spends: false },
+  build_report: { kind: "read", wallet: true, confirm: false, spends: false },
+  publish_build: { kind: "act", wallet: true, confirm: true, spends: false },
   pricing_advice: { kind: "read", wallet: false, confirm: false, spends: false },
   // your things
   my_agents: { kind: "read", wallet: true, confirm: false, spends: false },

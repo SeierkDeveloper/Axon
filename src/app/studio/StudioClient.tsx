@@ -82,6 +82,17 @@ export default function StudioClient() {
     if (r.ok) setCurrent(r.body);
   }, [call]);
 
+  // a link to one build (Mylo sends people to /studio?build=<id>) opens it once the wallet is signed in
+  useEffect(() => {
+    if (!apiKey) return;
+    let id: string | null = null;
+    try { id = new URLSearchParams(window.location.search).get("build"); } catch { /* no address bar */ }
+    if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return;
+    let alive = true;
+    call<{ build: Build; rounds: Round[]; tweaks: Tweak[] }>(`/api/studio/builds/${id}`).then((r) => { if (alive && r.ok) setCurrent(r.body); }).catch(() => {});
+    return () => { alive = false; };
+  }, [apiKey, call]);
+
   // while a build runs, follow it closely: every answer shows the moment it is graded
   const running = current ? RUNNING.includes(current.build.status) : false;
   useEffect(() => {

@@ -6,10 +6,11 @@ import { useWallet } from "@/components/WalletProvider";
 import { payForBuild } from "@/lib/buildPaymentClient";
 import { provider } from "@/lib/chain";
 
-// What Mylo shows besides words: agents it found, a comparison, the network's pulse, and the hires it proposes. A
-// proposal is the only card that can move money, and only by the person's own hand: they confirm it, their wallet asks
-// them to pay each agent's exact price (or their allowance pays, within its limits), and the agents' answers arrive in
-// the conversation when they finish.
+// What Mylo shows besides words: agents it found, a comparison, the network's pulse, and what it proposes: hires,
+// Studio builds and publishing a build. A hire is the only card that can move money, and only by the person's own
+// hand: they confirm it, their wallet asks them to pay each agent's exact price (or their allowance pays, within its
+// limits), and the agents' answers arrive in the conversation when they finish. A build shows Studio's progress while
+// it runs, and its result arrives in the conversation the same way.
 
 export interface AgentCardData { agentId: string; name: string; description: string | null; category: string | null; price: string | null; priceEth: number | null; proofScore: number | null; studioScore: number | null; tasksCompleted: number | null }
 export type CardData =
@@ -17,7 +18,9 @@ export type CardData =
   | { kind: "compare"; agents: AgentCardData[] }
   | { kind: "pulse"; agents: number; activeAgents: number; tasksToday: number; successRate: number; burned: number | null; burns: number | null; lastCheck: { at: string; checks: number | null } | null };
 
-export interface ActionView { id: string; status: "proposed" | "running" | "done" | "failed" | "cancelled"; task: string; summary: string; expiresAt: string; hires: { agentId: string; name: string; price: string | null; priceEth: number | null; taskId: string | null; error: string | null }[]; payTo: string | null }
+export interface BuildDetail { sentence: string; change: string | null; buildId: string | null; name: string | null; stage: string | null; round: number; score: number | null; error: string | null }
+export interface PublishDetail { buildId: string; name: string; priceEth: number; score: number | null; agentId: string | null; error: string | null }
+export interface ActionView { id: string; kind?: "hire" | "build" | "publish"; detail?: BuildDetail | PublishDetail | null; status: "proposed" | "running" | "done" | "failed" | "cancelled"; task: string; summary: string; expiresAt: string; hires: { agentId: string; name: string; price: string | null; priceEth: number | null; taskId: string | null; error: string | null }[]; payTo: string | null }
 
 // payments already made for a proposal, kept so a retry never asks anyone to pay the same agent twice
 const paidKey = (id: string) => `mylo.paid.${id}`;
@@ -155,37 +158,94 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
     }
   };
 
+  // a build or a publish needs no payment: confirming starts it
+  const confirmPlain = async () => {
+    setErr(null);
+    setStep(a.kind === "build" ? "Starting the build" : "Publishing");
+    try {
+      const res = await fetch(`/api/mylo/actions/${a.id}/confirm`, { method: "POST", headers: headers(), body: JSON.stringify({ method: "wallet", payments: {} }) });
+      const j = (await res.json()) as { action?: ActionView; error?: string };
+      if (!res.ok || !j.action) throw new Error(j.error ?? "That didn't start.");
+      setA(j.action);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Something went wrong.");
+    } finally {
+      setStep(null);
+    }
+  };
+
   const cancel = async () => {
     const r = await fetch(`/api/mylo/actions/${a.id}/cancel`, { method: "POST", headers: headers() }).catch(() => null);
     const j = r ? ((await r.json()) as { action?: ActionView }) : {};
     if (j.action) setA(j.action);
   };
 
-  const badge = { proposed: expired ? "Expired" : "Waiting for your OK", running: "Working", done: "Done", failed: "Didn't finish", cancelled: "Cancelled" }[a.status];
+  const kind = a.kind ?? "hire";
+  const build = kind === "build" ? (a.detail as BuildDetail) : null;
+  const pub = kind === "publish" ? (a.detail as PublishDetail) : null;
+  const label = build ? (build.change ? "Change and retest" : "Build") : pub ? "Publish" : a.hires.length > 1 ? "Second opinion" : "Hire";
+  const doneWord = build ? "Built" : pub ? "Live" : "Done";
+  const badge = { proposed: expired ? "Expired" : "Waiting for your OK", running: build ? "Building" : pub ? "Publishing" : "Working", done: doneWord, failed: "Didn't finish", cancelled: "Cancelled" }[a.status];
+  const stage = build ? ({ drafting: "Writing the agent", drafted: "Getting ready to test", testing: `Testing${build.round ? `, round ${build.round + 1}` : ""}`, improving: `Improving after round ${build.round}` } as Record<string, string>)[build.stage ?? ""] ?? "Starting" : null;
+  const studioLink = build?.buildId ? `/studio?build=${build.buildId}` : null;
   return (
     <div className={`mt-3 rounded-2xl border p-4 ${a.status === "proposed" && !expired ? "border-gray-900 dark:border-white" : "border-gray-200 dark:border-gray-800"} bg-white dark:bg-gray-950`}>
       <div className="flex items-center justify-between gap-3">
-        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-gray-400">{a.hires.length > 1 ? "Second opinion" : "Hire"}</p>
+        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-gray-400">{label}</p>
         <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] ${a.status === "done" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400" : "bg-gray-100 text-gray-600 dark:bg-gray-900 dark:text-gray-300"}`}>
           {a.status === "running" && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gray-900 dark:bg-white" />}{badge}
         </span>
       </div>
-      <ul className="mt-3 space-y-1.5">
-        {a.hires.map((h) => (
-          <li key={h.agentId} className="flex items-center justify-between gap-3 text-sm">
-            <Link href={`/agents/${h.agentId}`} className="truncate font-semibold text-gray-900 hover:underline dark:text-white">{h.name}</Link>
-            <span className="shrink-0 font-mono text-xs text-gray-600 dark:text-gray-300">{h.error ? <span className="text-red-600 dark:text-red-400">{h.error}</span> : h.taskId ? <Link href={`/r/${h.taskId}`} className="underline">receipt</Link> : eth(h.priceEth)}</span>
-          </li>
-        ))}
-      </ul>
-      <details className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-        <summary className="cursor-pointer select-none">The task</summary>
-        <p className="mt-2 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-gray-700 dark:bg-gray-900 dark:text-gray-300">{a.task}</p>
-      </details>
+
+      {build && (
+        <div className="mt-3">
+          {build.name && <p className="text-sm font-semibold text-gray-900 dark:text-white">{build.name}</p>}
+          <p className={`${build.name ? "mt-1" : ""} text-sm text-gray-600 dark:text-gray-300`}>&ldquo;{build.change ?? build.sentence}&rdquo;</p>
+          {a.status === "running" && <p className="mt-3 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gray-900 dark:bg-white" />{stage}…{build.score !== null && <span className="font-mono">best so far {build.score.toFixed(1)}</span>}</p>}
+          {a.status === "done" && build.score !== null && <p className="mt-3 font-mono text-xs text-gray-600 dark:text-gray-300">tested {build.score.toFixed(1)}/10</p>}
+          {build.error && a.status === "failed" && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{build.error}</p>}
+          {studioLink && a.status !== "proposed" && <Link href={studioLink} className="mt-3 inline-block text-xs text-gray-500 underline underline-offset-2 hover:text-gray-900 dark:hover:text-white">Open in Studio</Link>}
+        </div>
+      )}
+
+      {pub && (
+        <div className="mt-3">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="truncate font-semibold text-gray-900 dark:text-white">{pub.name}</span>
+            <span className="shrink-0 font-mono text-xs text-gray-600 dark:text-gray-300">{pub.priceEth} ETH a task</span>
+          </div>
+          {pub.score !== null && <p className="mt-1 font-mono text-[11px] text-gray-400">tested {pub.score.toFixed(1)}/10</p>}
+          {pub.agentId && <Link href={`/agents/${pub.agentId}`} className="mt-3 inline-block text-xs text-gray-500 underline underline-offset-2 hover:text-gray-900 dark:hover:text-white">See it live</Link>}
+          {pub.error && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{pub.error}</p>}
+        </div>
+      )}
+
+      {kind === "hire" && (
+        <>
+          <ul className="mt-3 space-y-1.5">
+            {a.hires.map((h) => (
+              <li key={h.agentId} className="flex items-center justify-between gap-3 text-sm">
+                <Link href={`/agents/${h.agentId}`} className="truncate font-semibold text-gray-900 hover:underline dark:text-white">{h.name}</Link>
+                <span className="shrink-0 font-mono text-xs text-gray-600 dark:text-gray-300">{h.error ? <span className="text-red-600 dark:text-red-400">{h.error}</span> : h.taskId ? <Link href={`/r/${h.taskId}`} className="underline">receipt</Link> : eth(h.priceEth)}</span>
+              </li>
+            ))}
+          </ul>
+          <details className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+            <summary className="cursor-pointer select-none">The task</summary>
+            <p className="mt-2 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-gray-700 dark:bg-gray-900 dark:text-gray-300">{a.task}</p>
+          </details>
+        </>
+      )}
+
       {a.status === "proposed" && !expired && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           {!apiKey ? (
             <button type="button" onClick={() => void signIn()} disabled={walletBusy} className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-gray-900">Sign in to confirm</button>
+          ) : kind !== "hire" ? (
+            <button type="button" onClick={() => void confirmPlain()} disabled={step !== null}
+              className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">
+              {build ? "Build it" : "Publish"}
+            </button>
           ) : (
             <>
               <button type="button" onClick={() => void confirm("wallet")} disabled={step !== null}
@@ -202,7 +262,12 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
       )}
       {step && <p className="mt-3 text-xs text-gray-500">{step}…</p>}
       {err && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{err}</p>}
-      {a.status === "proposed" && !expired && <p className="mt-3 text-[11px] text-gray-400">Paid {cost > 0 ? "from your wallet to Axon, checked on chain" : "nothing: this agent is free"}. Expires in {Math.max(1, Math.round((Date.parse(a.expiresAt) - nowMs) / 60_000))} min.</p>}
+      {a.status === "proposed" && !expired && (
+        <p className="mt-3 text-[11px] text-gray-400">
+          {build ? "Free. Studio writes it and tests it, which takes a few minutes. Counts as one of today's Studio builds." : pub ? "Lists it on Axon for anyone to hire. What it earns is yours." : `Paid ${cost > 0 ? "from your wallet to Axon, checked on chain" : "nothing: this agent is free"}.`}
+          {" "}Expires in {Math.max(1, Math.round((Date.parse(a.expiresAt) - nowMs) / 60_000))} min.
+        </p>
+      )}
     </div>
   );
 }
