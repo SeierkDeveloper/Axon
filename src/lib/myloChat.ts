@@ -2,26 +2,37 @@
 // day's limit for their tier), keeps the conversation, reads its recent history back, and streams Mylo's answer as it
 // is written, saving it when it is done. The model call is passed in, so all of this is tested without spending.
 //
-// In this phase Mylo talks and guides: it explains Axon and points to where things are done. It has no tools yet, so
-// it never claims to have looked anything up, hired anyone or moved anything.
+// Mylo works with tools (myloTools): it looks things up on the live network and shows them as cards, and it proposes
+// hires that the person confirms and pays for in the page. A turn may call tools a bounded number of times; the last
+// call is made with tools off, so every turn ends in words.
 
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "./logger";
 import { messagesAllowed, myloEnabled, myloModels, MAX_REPLYING_TOTAL, TURN_BUDGET, type Speaker } from "./myloPolicy";
 import { addMessage, getConversation, historyOf, memoryOf, sentToday, startConversation } from "./myloStore";
+import { MYLO_TOOL_DEFS, runTool, forModel, type Card } from "./myloTools";
+import { getAction, viewOf } from "./myloActions";
 
 /** What the page is told while a turn runs, in order. */
 export type MyloEvent =
   | { type: "conversation"; id: string; title: string | null }
-  | { type: "face"; state: "thinking" | "talking" | "happy" | "failed" }
+  | { type: "face"; state: "thinking" | "working" | "talking" | "happy" | "failed" }
+  | { type: "tool"; name: string; label: string }
+  | { type: "card"; card: Card }
+  | { type: "action"; action: ReturnType<typeof viewOf> }
   | { type: "text"; delta: string }
   | { type: "done"; messageId: string }
   | { type: "error"; code: "off" | "input" | "limit" | "busy" | "not_found" | "model"; message: string };
 
 export interface Turn { role: "user" | "assistant"; content: string }
 
-/** Writes Mylo's answer, calling onText with each piece as it arrives, and returns the whole of it. */
-export type Streamer = (args: { system: string; turns: Turn[]; maxTokens: number; signal: AbortSignal }, onText: (delta: string) => void) => Promise<string>;
+/** One block of what the model said: words, or a tool it wants to use. */
+export type Block = { type: "text"; text: string } | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> };
+/** What goes to the model: the conversation so far, including this turn's tool calls and their results. */
+export type ModelMessage = { role: "user" | "assistant"; content: string | ({ type: "text"; text: string } | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> } | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean })[] };
+
+/** One call to the model: streams its words through onText and returns all it said, and whether it wants tools. */
+export type Streamer = (args: { system: string; messages: ModelMessage[]; tools: boolean; maxTokens: number; signal: AbortSignal }, onText: (delta: string) => void) => Promise<{ blocks: Block[]; stop: string }>;
 
 export const MYLO_SYSTEM = `You are Mylo, Axon's own AI. On axon-agents.com you are the small black robot head with two
 glowing eyes that follows the visitor's cursor. People come to you to understand Axon and to get things done on it.
@@ -42,9 +53,20 @@ What Axon is, and only this:
   Holding more $AXON raises a wallet's limits, including how much it can talk to you each day.
 - Docs are at /docs, your agents and earnings at /dashboard and /studio.
 
-What you can do right now: explain, recommend and guide, and point people to the exact page. You cannot yet look up
-the live network, hire an agent, start a build or move any money; that is coming to you soon. When someone asks you to
-do one of those, say plainly that you can't do it yet and tell them where to do it themselves in one or two steps.
+What you can do with your tools:
+- search_agents, agent_details, compare_agents: look at the live network and help people pick an agent by its tested
+  score, track record and price. Always search before recommending; never recommend an agent you have not looked up.
+- network_pulse and public_feed: say how the network is doing, from the real numbers.
+- hire_agent and second_opinion: PROPOSE a hire. Proposing spends nothing: the page shows the person the exact agent,
+  task and price, and they confirm and pay from their own wallet or allowance. After proposing, say what you proposed
+  and that it waits for their OK. Never say a hire is done, paid or running, and never pretend to have an agent's
+  answer: it arrives in the conversation when the agent finishes. Write the task for the agent fully and clearly.
+- Before proposing, make sure you know what the person wants done. If it is unclear, ask one short question first.
+- Hiring needs the person signed in with their wallet; if a tool says so, tell them to sign in.
+
+What you cannot do yet: build agents in Studio, look at someone's own agents or earnings, or withdraw. Point them to
+/studio or /dashboard for those. Never promise a refund or say money will come back; if a hire fails, say so and that
+its receipt shows what happened.
 
 How you talk: short, warm and clear, in plain English. Answer the question first. Use a short list only when it really
 helps. Never use em dashes or emojis. Never invent numbers, prices, agents, results or features; if you don't know,
@@ -98,21 +120,48 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
   replying++;
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), TURN_BUDGET.seconds * 1000);
-  let started = false, written = "";
+  const system = withMemory(MYLO_SYSTEM, input.wallet);
+  const messages: ModelMessage[] = turns.map((t) => ({ role: t.role, content: t.content }));
+  const cards: Card[] = [], actionIds: string[] = [];
+  let talking = false, written = "", toolsUsed = 0;
   try {
-    const answer = await streamer({ system: withMemory(MYLO_SYSTEM, input.wallet), turns, maxTokens: TURN_BUDGET.answerTokens, signal: ac.signal }, (delta) => {
-      if (!started) { started = true; emit({ type: "face", state: "talking" }); }
-      written += delta;
-      emit({ type: "text", delta });
-    });
-    const saved = addMessage(conv.id, input.owner, "assistant", answer.trim() || written.trim());
+    for (;;) {
+      // the last call has tools off, so a turn always ends in words
+      const tools = toolsUsed < TURN_BUDGET.toolCalls;
+      const res = await streamer({ system, messages, tools, maxTokens: TURN_BUDGET.answerTokens, signal: ac.signal }, (delta) => {
+        if (!talking) { talking = true; emit({ type: "face", state: "talking" }); }
+        written += delta;
+        emit({ type: "text", delta });
+      });
+      const uses = res.blocks.filter((b): b is Extract<Block, { type: "tool_use" }> => b.type === "tool_use");
+      if (!tools || res.stop !== "tool_use" || uses.length === 0) break;
+      messages.push({ role: "assistant", content: res.blocks.map((b) => (b.type === "text" ? { type: "text" as const, text: b.text } : { type: "tool_use" as const, id: b.id, name: b.name, input: b.input })) });
+      const results: { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }[] = [];
+      for (const u of uses) {
+        toolsUsed++;
+        talking = false;
+        if (written && !written.endsWith("\n")) { written += "\n\n"; emit({ type: "text", delta: "\n\n" }); }
+        emit({ type: "face", state: "working" });
+        const out = await runTool(u.name, u.input ?? {}, { wallet: input.wallet, owner: input.owner, conversationId: conv.id });
+        emit({ type: "tool", name: u.name, label: out.label });
+        if (out.card) { cards.push(out.card); emit({ type: "card", card: out.card }); }
+        if (out.actionId) {
+          const act = getAction(out.actionId, input.owner);
+          if (act) { actionIds.push(act.id); emit({ type: "action", action: viewOf(act) }); }
+        }
+        const isError = typeof out.result === "object" && out.result !== null && "error" in out.result;
+        results.push({ type: "tool_result", tool_use_id: u.id, content: forModel(out.result), ...(isError ? { is_error: true } : {}) });
+      }
+      messages.push({ role: "user", content: results });
+    }
+    const saved = addMessage(conv.id, input.owner, "assistant", written.trim(), cards.length || actionIds.length ? { cards, actionIds } : null);
     emit({ type: "face", state: "happy" });
     emit({ type: "done", messageId: saved.id });
   } catch (err) {
     const timedOut = ac.signal.aborted;
     logger.warn("mylo.turn_failed", "A Mylo turn failed", { conversationId: conv.id, timedOut, reason: err instanceof Error ? err.message : String(err) });
-    // what was already said stays said, marked as cut short
-    if (written.trim()) addMessage(conv.id, input.owner, "assistant", `${written.trim()}\n\n(cut short)`);
+    // what was already said (and any cards or proposals made) stays, marked as cut short
+    if (written.trim() || cards.length || actionIds.length) addMessage(conv.id, input.owner, "assistant", `${written.trim()}\n\n(cut short)`.trim(), cards.length || actionIds.length ? { cards, actionIds } : null);
     emit({ type: "face", state: "failed" });
     emit({ type: "error", code: "model", message: timedOut ? "That took too long, so Mylo stopped. Try asking a shorter way." : "Mylo couldn't answer just now. Try again in a moment." });
   } finally {
@@ -135,16 +184,22 @@ const unavailable = (err: unknown) => {
   try { return err instanceof Anthropic.NotFoundError || err instanceof Anthropic.PermissionDeniedError; } catch { return false; }
 };
 
-const realStreamer: Streamer = async ({ system, turns, maxTokens, signal }, onText) => {
+const realStreamer: Streamer = async ({ system, messages, tools, maxTokens, signal }, onText) => {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
   const client = new Anthropic({ apiKey });
   const models = myloModels();
   const run = async (model: string) => {
-    const stream = client.messages.stream({ model, system, max_tokens: maxTokens, messages: turns }, { signal });
+    const stream = client.messages.stream({
+      model, system, max_tokens: maxTokens,
+      messages: messages as Anthropic.MessageParam[],
+      tools: MYLO_TOOL_DEFS as unknown as Anthropic.Tool[],
+      tool_choice: tools ? { type: "auto" } : { type: "none" },
+    }, { signal });
     stream.on("text", (d) => onText(d));
     const msg = await stream.finalMessage();
-    return msg.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+    const blocks: Block[] = msg.content.flatMap((b): Block[] => (b.type === "text" ? [{ type: "text", text: b.text }] : b.type === "tool_use" ? [{ type: "tool_use", id: b.id, name: b.name, input: (b.input ?? {}) as Record<string, unknown> }] : []));
+    return { blocks, stop: msg.stop_reason ?? "end_turn" };
   };
   try {
     return await run(models.chat);

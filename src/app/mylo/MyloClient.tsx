@@ -4,12 +4,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import AgentCore, { type CoreState } from "@/components/AgentCore";
 import MarkdownOutput from "@/components/MarkdownOutput";
 import { useWallet } from "@/components/WalletProvider";
+import { ActionCard, Card, type ActionView, type CardData } from "./MyloCards";
 
 // Mylo's page: Mylo centred and large, its name under it, then the conversation and the box to type in. Mylo's answer
 // streams in as it is written and the face shows what it is doing: thinking while it reads, talking while it writes,
 // happy when it is done. A visitor without a wallet can talk too; their conversations belong to their own browser.
+// When Mylo looks something up, what it found shows under its words, and a hire it proposes shows as a card the
+// person confirms and pays for themselves.
 
-interface Msg { id: string; role: "user" | "assistant"; content: string; failed?: boolean }
+interface Msg { id: string; role: "user" | "assistant"; content: string; failed?: boolean; cards?: CardData[]; actions?: ActionView[]; working?: string | null }
 interface Conv { id: string; title: string | null; updatedAt: string }
 
 const SUGGESTIONS = [
@@ -122,10 +125,14 @@ export default function MyloClient() {
           const line = buf.slice(0, nl).trim();
           buf = buf.slice(nl + 1);
           if (!line) continue;
-          const e = JSON.parse(line) as { type: string; id?: string; state?: string; delta?: string; message?: string };
+          const e = JSON.parse(line) as { type: string; id?: string; state?: string; delta?: string; message?: string; label?: string; card?: CardData; action?: ActionView };
+          const patch = (f: (x: Msg) => Msg) => setMsgs((m) => m.map((x) => (x.id === reply.id ? f(x) : x)));
           if (e.type === "conversation" && e.id) setCurrent(e.id);
-          else if (e.type === "face") showFace(e.state === "thinking" ? "drafting" : e.state === "happy" ? "ready" : e.state === "failed" ? "failed" : "idle", e.state === "happy" ? 2200 : e.state === "failed" ? 3500 : undefined);
-          else if (e.type === "text" && e.delta) setMsgs((m) => m.map((x) => (x.id === reply.id ? { ...x, content: x.content + e.delta } : x)));
+          else if (e.type === "face") showFace(e.state === "thinking" ? "drafting" : e.state === "working" ? "testing" : e.state === "happy" ? "ready" : e.state === "failed" ? "failed" : "idle", e.state === "happy" ? 2200 : e.state === "failed" ? 3500 : undefined);
+          else if (e.type === "tool" && e.label) patch((x) => ({ ...x, working: e.label }));
+          else if (e.type === "card" && e.card) patch((x) => ({ ...x, cards: [...(x.cards ?? []), e.card!] }));
+          else if (e.type === "action" && e.action) patch((x) => ({ ...x, actions: [...(x.actions ?? []), e.action!] }));
+          else if (e.type === "text" && e.delta) patch((x) => ({ ...x, working: null, content: x.content + e.delta }));
           else if (e.type === "error") {
             setMsgs((m) => m.map((x) => (x.id === reply.id ? { ...x, content: x.content || (e.message ?? "Mylo couldn't answer just now."), failed: !x.content } : x)));
             showFace("failed", 3500);
@@ -136,11 +143,18 @@ export default function MyloClient() {
       setMsgs((m) => m.map((x) => (x.id === reply.id ? { ...x, content: err instanceof Error ? err.message : "Mylo couldn't answer just now.", failed: true } : x)));
       showFace("failed", 3500);
     } finally {
+      setMsgs((m) => m.map((x) => (x.id === reply.id ? { ...x, working: null } : x)));
       setSending(false);
       void loadList();
       boxRef.current?.focus();
     }
   };
+
+  // a confirmed hire finished: its answers arrive as Mylo's next message
+  const arrived = useCallback((m: { id: string; content: string }) => {
+    setMsgs((all) => (all.some((x) => x.id === m.id) ? all : [...all, { id: m.id, role: "assistant", content: m.content }]));
+    showFace("ready", 2200);
+  }, []);
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); }
@@ -169,8 +183,13 @@ export default function MyloClient() {
               ) : (
                 <div key={m.id} className="flex max-w-[92%] gap-3">
                   <span className="mt-1 font-mono text-[11px] uppercase tracking-[0.2em] text-gray-400">Mylo</span>
-                  <div className={`min-w-0 flex-1 rounded-2xl rounded-tl-md px-4 py-3 text-[15px] leading-relaxed ${m.failed ? "border border-red-200 text-red-600 dark:border-red-900 dark:text-red-400" : "bg-gray-50 text-gray-800 dark:bg-gray-900/70 dark:text-gray-200"}`}>
-                    {m.content ? <MarkdownOutput text={m.content} /> : <span className="inline-flex gap-1 py-1" aria-label="Mylo is thinking"><i className="mylo-dot" /><i className="mylo-dot" /><i className="mylo-dot" /></span>}
+                  <div className="min-w-0 flex-1">
+                    <div className={`rounded-2xl rounded-tl-md px-4 py-3 text-[15px] leading-relaxed ${m.failed ? "border border-red-200 text-red-600 dark:border-red-900 dark:text-red-400" : "bg-gray-50 text-gray-800 dark:bg-gray-900/70 dark:text-gray-200"}`}>
+                      {m.content ? <MarkdownOutput text={m.content} /> : !m.working && <span className="inline-flex gap-1 py-1" aria-label="Mylo is thinking"><i className="mylo-dot" /><i className="mylo-dot" /><i className="mylo-dot" /></span>}
+                      {m.working && <p className={`flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 ${m.content ? "mt-2" : ""}`}><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gray-900 dark:bg-white" />{m.working}…</p>}
+                    </div>
+                    {m.cards?.map((c, i) => <Card key={i} card={c} />)}
+                    {m.actions?.map((a) => <ActionCard key={a.id} initial={a} headers={headers} onMessage={arrived} />)}
                   </div>
                 </div>
               )

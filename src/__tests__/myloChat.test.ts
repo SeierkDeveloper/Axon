@@ -11,7 +11,7 @@ import { GET as oneGET } from "@/app/api/mylo/conversations/[id]/route";
 let n = 0;
 const owner = () => `0x${(++n).toString(16).padStart(40, "c")}`;
 const run = async (input: Parameters<typeof runTurn>[0], streamer: Streamer) => { const ev: MyloEvent[] = []; await runTurn(input, (e) => ev.push(e), streamer); return ev; };
-const say = (text: string): Streamer => async (_args, onText) => { for (const w of text.split(" ")) onText(`${w} `); return text; };
+const say = (text: string): Streamer => async (_args, onText) => { const parts = text.split(" "); parts.forEach((w, i) => onText(i < parts.length - 1 ? `${w} ` : w)); return { blocks: [{ type: "text", text }], stop: "end_turn" }; };
 
 describe("a turn with Mylo", () => {
   beforeEach(() => { delete process.env.MYLO; });
@@ -32,8 +32,8 @@ describe("a turn with Mylo", () => {
     const first = await run({ owner: me, wallet: me, speaker: "base", text: "hi" }, say("Hello."));
     const id = (first[0] as { id: string }).id;
     let seen: Parameters<Streamer>[0] | null = null;
-    await run({ owner: me, wallet: me, speaker: "base", text: "and again", conversationId: id }, async (args) => { seen = args; return "ok"; });
-    expect(seen!.turns.map((t) => t.content)).toEqual(["hi", "Hello.", "and again"]);
+    await run({ owner: me, wallet: me, speaker: "base", text: "and again", conversationId: id }, async (args) => { seen = args; return { blocks: [{ type: "text", text: "ok" }], stop: "end_turn" }; });
+    expect(seen!.messages.map((t) => t.content)).toEqual(["hi", "Hello.", "and again"]);
     expect(seen!.system).toContain("budget: 0.05 ETH a week");
     expect(seen!.maxTokens).toBe(TURN_BUDGET.answerTokens);
   });
@@ -76,8 +76,9 @@ describe("a turn with Mylo", () => {
     expect(long.endsWith("…")).toBe(true);
   });
 
-  it("knows it cannot act yet, and never asks for keys", () => {
-    expect(MYLO_SYSTEM).toMatch(/cannot yet look up\s+the live network, hire an agent/);
+  it("knows a hire is only a proposal, and never asks for keys", () => {
+    expect(MYLO_SYSTEM).toMatch(/PROPOSE a hire/);
+    expect(MYLO_SYSTEM).toMatch(/Never promise a refund/);
     expect(MYLO_SYSTEM).toMatch(/Never ask for a private key/);
     expect(MYLO_SYSTEM).not.toMatch(/—/);
   });
