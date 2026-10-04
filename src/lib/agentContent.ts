@@ -13,19 +13,26 @@ const PROFANITY_TERMS = [
   "pussy", "rape", "nazi",
 ];
 
+/** An acronym in capitals (FAQ, SQL, HTTPS, PDFs, QA, 3D): a real word to readers, but it breaks the letter rules. */
+const isAcronym = (w: string) => /^[A-Z0-9]{2,6}s?$/.test(w.replace(/[^A-Za-z0-9]/g, ""));
+
 function isGibberish(str: string): boolean {
-  const letters = str.toLowerCase().replace(/[^a-z]/g, "");
+  // judged word by word, leaving out acronyms: "FAQ Builder" is a name, "xkqzv bcdfg" is not
+  const words = str.split(/\s+/).filter((w) => w && !isAcronym(w));
+  const letters = words.join("").toLowerCase().replace(/[^a-z]/g, "");
   if (letters.length === 0) return false;
   const vowels = (letters.match(/[aeiou]/g) ?? []).length;
   // Must have at least 1 vowel and 15% vowel ratio
   if (vowels === 0) return true;
   if (vowels / letters.length < 0.15) return true;
-  // No run of more than 4 consecutive consonants — treat y as vowel (crypto, myth, gym)
-  if (/[^aeiouy\s]{5,}/i.test(str.replace(/[^a-zA-Z\s]/g, ""))) return true;
-  // q must be followed by u in real words
-  if (/q[^u]/i.test(letters) || letters.endsWith("q")) return true;
-  // Unusual consonant pairs that don't appear in real words
-  if (/wq|qw|xq|bv|vb|jq|qj|zx|xz/i.test(letters)) return true;
+  for (const word of words.map((w) => w.toLowerCase().replace(/[^a-z]/g, ""))) {
+    // No run of more than 4 consecutive consonants, treating y as a vowel (crypto, myth, gym)
+    if (/[^aeiouy]{5,}/.test(word)) return true;
+    // q must be followed by u in real words
+    if (/q[^u]/.test(word) || word.endsWith("q")) return true;
+    // Unusual consonant pairs that don't appear in real words
+    if (/wq|qw|xq|bv|vb|jq|qj|zx|xz/.test(word)) return true;
+  }
   return false;
 }
 

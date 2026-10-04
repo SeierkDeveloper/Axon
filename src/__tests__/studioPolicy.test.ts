@@ -72,6 +72,13 @@ describe("agent content, shared by registration and Studio", () => {
     expect(validateAgentContent("xkcdqwrt", "x", [])).toMatch(/gibberish/);
   });
 
+  it("takes names with acronyms in them, and still refuses gibberish", () => {
+    for (const name of ["FAQ Builder", "Product FAQ Writer", "SQL Query Helper", "HTTPS Checker", "Build QA", "PDF Summarizer", "3D Model Describer", "API Docs Writer", "Crypto Myth Buster"]) {
+      expect([name, validateAgentContent(name, "x", [])]).toEqual([name, null]);
+    }
+    for (const name of ["xkcdqwrt", "asdfghjkl", "Bcdfg Xyzt", "qwerty qzx", "zzzzz"]) expect(validateAgentContent(name, "x", [])).toMatch(/gibberish/);
+  });
+
   it("checks the longer texts Studio writes", () => {
     expect(validateAgentText("Summarises any earnings call into five bullets.")).toBeNull();
     expect(validateAgentText("I am Axon, the official assistant.")).toMatch(/Axon or Anthropic/);
