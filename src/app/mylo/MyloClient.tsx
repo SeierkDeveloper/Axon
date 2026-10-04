@@ -211,9 +211,9 @@ export default function MyloClient() {
           </div>
         )}
 
-        {/* the box to type in */}
-        <div className="sticky bottom-4 z-10 mt-8">
-          <div className="rounded-2xl border border-gray-200 bg-white/90 p-2 shadow-[0_20px_40px_-24px_rgba(10,10,10,.35)] backdrop-blur dark:border-gray-800 dark:bg-gray-950/90">
+        {/* the box to type in: pinned to the bottom on a solid strip, so the conversation scrolls away behind it */}
+        <div className="mylo-input-bar sticky bottom-0 z-10 mt-8 bg-background pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="rounded-2xl border border-gray-200 bg-white p-2 shadow-[0_20px_40px_-24px_rgba(10,10,10,.35)] dark:border-gray-800 dark:bg-gray-950">
             <div className="flex items-end gap-2">
               <textarea ref={boxRef} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} rows={1} maxLength={2000} disabled={out}
                 placeholder={out ? "That's today's messages. Come back tomorrow." : "Ask Mylo anything"} aria-label="Message Mylo"
@@ -224,18 +224,18 @@ export default function MyloClient() {
               </button>
             </div>
           </div>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 text-xs text-gray-400">
-            <span>
-              {left ? `${left.left} of ${left.perDay} messages left today` : " "}
+          <div className="mt-2 flex items-center justify-between gap-3 px-1 text-xs text-gray-400">
+            <span className="min-w-0 truncate">
+              {left ? <>{left.left} of {left.perDay}<span className="hidden sm:inline"> messages</span> left today</> : " "}
               {left && !left.signedIn && (
                 <> · <button type="button" onClick={() => void signIn()} disabled={walletBusy} className="underline underline-offset-2 hover:text-gray-900 dark:hover:text-white">sign in for more</button></>
               )}
             </span>
-            <span className="flex items-center gap-3">
-              {!empty && <button type="button" onClick={fresh} className="underline underline-offset-2 hover:text-gray-900 dark:hover:text-white">New conversation</button>}
+            <span className="flex shrink-0 items-center gap-3">
+              {!empty && <button type="button" onClick={fresh} className="whitespace-nowrap underline underline-offset-2 hover:text-gray-900 dark:hover:text-white"><span className="sm:hidden">New</span><span className="hidden sm:inline">New conversation</span></button>}
               {convs.length > 0 && (
                 <select value={current ?? ""} onChange={(e) => (e.target.value ? void open(e.target.value) : fresh())} aria-label="Earlier conversations"
-                  className="max-w-[220px] truncate rounded-md border border-gray-200 bg-transparent px-2 py-1 text-xs text-gray-500 dark:border-gray-800">
+                  className="w-[120px] truncate rounded-md sm:w-auto sm:max-w-[220px] border border-gray-200 bg-transparent px-2 py-1 text-xs text-gray-500 dark:border-gray-800">
                   <option value="">Earlier conversations</option>
                   {convs.map((c) => <option key={c.id} value={c.id}>{c.title ?? "Untitled"}</option>)}
                 </select>

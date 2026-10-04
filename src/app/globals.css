@@ -153,6 +153,8 @@ body {
   .mylo-dock .agent-face { width: 56px !important; height: 40px !important; }
   .mylo-dock .agent-face svg { width: 100%; height: 100%; }
 }
+/* the strip under Mylo's input: the conversation fades out above it instead of showing through */
+.mylo-input-bar::before { content: ""; position: absolute; left: 0; right: 0; top: -32px; height: 32px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--background)); }
 @media (prefers-reduced-motion: reduce) { .mylo-dot { animation: none; opacity: .5; } }
 
 /* the cursor's light on the Studio page */
