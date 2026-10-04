@@ -16,6 +16,7 @@ export interface AgentCardData { agentId: string; name: string; description: str
 export type CardData =
   | { kind: "agents"; title: string; agents: AgentCardData[] }
   | { kind: "compare"; agents: AgentCardData[] }
+  | { kind: "launch"; agentId: string; agentName: string; name: string | null; ticker: string | null; description: string | null; page: string }
   | { kind: "earnings"; agents: { agentId: string; name: string; earnedEth: number; availableEth: number }[]; availableEth: number }
   | { kind: "pulse"; agents: number; activeAgents: number; tasksToday: number; successRate: number; burned: number | null; burns: number | null; lastCheck: { at: string; checks: number | null } | null };
 
@@ -43,6 +44,21 @@ const EXPLORER = "https://robinhoodchain.blockscout.com";
 const shortAddr = (w: string) => (/^0x[0-9a-fA-F]{40}$/.test(w) ? `${w.slice(0, 6)}…${w.slice(-4)}` : w);
 
 export function Card({ card }: { card: CardData }) {
+  if (card.kind === "launch") {
+    return (
+      <div className="mt-3 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-950">
+        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-gray-400">Token launch, ready</p>
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">For <Link href={`/agents/${card.agentId}`} className="font-semibold text-gray-900 hover:underline dark:text-white">{card.agentName}</Link></p>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="rounded-xl bg-gray-50 px-3 py-2 dark:bg-gray-900"><p className="text-[11px] text-gray-400">Name</p><p className="truncate text-sm font-semibold text-gray-900 dark:text-white">{card.name ?? "Your choice"}</p></div>
+          <div className="rounded-xl bg-gray-50 px-3 py-2 dark:bg-gray-900"><p className="text-[11px] text-gray-400">Ticker</p><p className="truncate font-mono text-sm font-semibold text-gray-900 dark:text-white">{card.ticker ? `$${card.ticker}` : "Your choice"}</p></div>
+        </div>
+        {card.description && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{card.description}</p>}
+        <Link href={card.page} className="mt-4 inline-flex rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">Open the launch page</Link>
+        <p className="mt-3 text-[11px] text-gray-400">Filled in for you to check. Add an image there and launch from your own wallet.</p>
+      </div>
+    );
+  }
   if (card.kind === "earnings") {
     return (
       <div className="mt-3 overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">

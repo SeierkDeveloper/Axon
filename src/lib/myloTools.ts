@@ -183,6 +183,7 @@ export interface AgentCard { agentId: string; name: string; description: string 
 export type Card =
   | { kind: "agents"; title: string; agents: AgentCard[] }
   | { kind: "compare"; agents: AgentCard[] }
+  | { kind: "launch"; agentId: string; agentName: string; name: string | null; ticker: string | null; description: string | null; page: string }
   | { kind: "earnings"; agents: { agentId: string; name: string; earnedEth: number; availableEth: number }[]; availableEth: number }
   | { kind: "pulse"; agents: number; activeAgents: number; tasksToday: number; successRate: number; burned: number | null; burns: number | null; lastCheck: { at: string; checks: number | null } | null };
 
@@ -513,7 +514,11 @@ function launchTool(ctx: ToolContext, input: Record<string, unknown>): Omit<Tool
   if (name) q.set("name", name);
   if (ticker) q.set("symbol", ticker);
   if (about) q.set("description", about);
-  return { result: { can_launch: true, page: `/launch/${agentId}${q.size ? `?${q}` : ""}`, filled_in: { name: name || null, ticker: ticker || null, description: about || null }, still_needed: "an image, then they launch from their own wallet on that page", record: e.record } };
+  const page = `/launch/${agentId}${q.size ? `?${q}` : ""}`;
+  return {
+    result: { can_launch: true, filled_in: { name: name || null, ticker: ticker || null, description: about || null }, still_needed: "an image, then they launch from their own wallet on that page", record: e.record, note: "The page shows a card with these filled in and a button to the launch page. Point to the card; don't write out the link." },
+    card: { kind: "launch", agentId, agentName: e.agent?.name ?? agentId, name: name || null, ticker: ticker || null, description: about || null, page },
+  };
 }
 
 /** What each tier gives, from the rules the rest of Axon actually enforces. */
