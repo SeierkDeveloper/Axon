@@ -164,5 +164,7 @@ async function pulseTool(): Promise<Omit<ToolOutcome, "label">> {
     kind: "pulse", agents: s.agents.total, activeAgents: s.agents.active, tasksToday: s.tasks.completedToday, successRate: s.tasks.successRate,
     burned: burn?.totalTokensBurned ?? null, burns: burn?.burnCount ?? null, lastCheck: sum ? { at: sum.finishedAt, checks: sum.checksRun } : null,
   };
-  return { result: { ...card, lastCheckUpkeep: sum?.upkeep ?? null }, card };
+  // named for what they are, so the model doesn't read an all-time total as today's
+  const { burned, burns, ...rest } = card;
+  return { result: { ...rest, axonBurnedAllTime: burned, burnEventsAllTime: burns, lastCheckUpkeep: sum?.upkeep ?? null }, card };
 }

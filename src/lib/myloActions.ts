@@ -156,8 +156,8 @@ export function refreshAction(id: string, owner: string): { action: Action; task
     const parts = a.hires.map((h, i) => {
       const t = tasks[i];
       if (!h.taskId) return `**${h.name}** wasn't hired: ${h.error ?? "not paid"}.`;
-      if (t.status === "completed") return `**${h.name}** finished:\n\n${(t.output ?? "").trim() || "(it returned nothing)"}\n\nReceipt: /r/${h.taskId}`;
-      return `**${h.name}** couldn't finish: ${t.error ?? "it failed"}. Receipt: /r/${h.taskId}`;
+      if (t.status === "completed") return `**${h.name}** finished:\n\n${(t.output ?? "").trim() || "(it returned nothing)"}\n\n[Receipt](/r/${h.taskId})`;
+      return `**${h.name}** couldn't finish: ${t.error ?? "it failed"}. [Receipt](/r/${h.taskId})`;
     });
     const content = a.hires.length > 1 ? `Here are their answers, side by side.\n\n${parts.join("\n\n---\n\n")}` : parts[0];
     const m = addMessage(a.conversationId, a.owner, "assistant", content, { actionId: a.id });
