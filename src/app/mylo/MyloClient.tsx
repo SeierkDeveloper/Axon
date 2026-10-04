@@ -16,6 +16,7 @@ import MyloFeed from "./MyloFeed";
 
 interface Msg { id: string; role: "user" | "assistant"; content: string; failed?: boolean; cards?: CardData[]; actions?: ActionView[]; working?: string | null }
 interface Conv { id: string; title: string | null; updatedAt: string }
+interface Fact { key: string; value: string; updatedAt: string }
 interface Notice { id: string; kind: string; title: string; body: string | null; link: string | null; readAt: string | null; createdAt: string }
 
 const SUGGESTIONS = [
@@ -50,6 +51,7 @@ export default function MyloClient() {
   const [left, setLeft] = useState<{ left: number; perDay: number; signedIn: boolean } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [inbox, setInbox] = useState<{ notices: Notice[]; unread: number }>({ notices: [], unread: 0 });
+  const [memory, setMemory] = useState<Fact[] | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const faceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -79,6 +81,17 @@ export default function MyloClient() {
     void fetchInbox().then((j) => { if (alive && j) setInbox(j); });
     return () => { alive = false; };
   }, [apiKey, fetchInbox]);
+  // what Mylo remembers about this wallet: shown on request, every item can be forgotten
+  const openMemory = async () => {
+    const r = await fetch("/api/mylo/memory", { headers: headers(), cache: "no-store" }).catch(() => null);
+    const j = r?.ok ? ((await r.json()) as { facts: Fact[] }) : { facts: [] };
+    setMemory(j.facts);
+  };
+  const forgetFact = async (key?: string) => {
+    const r = await fetch("/api/mylo/memory", { method: "DELETE", headers: headers(), body: JSON.stringify(key ? { key } : {}) }).catch(() => null);
+    if (r?.ok) setMemory(((await r.json()) as { facts: Fact[] }).facts);
+  };
+
   const markAllRead = async () => {
     await fetch("/api/mylo/inbox", { method: "POST", headers: headers(), body: "{}" }).catch(() => null);
     void loadInbox();
@@ -223,29 +236,6 @@ export default function MyloClient() {
           </div>
         )}
 
-        {/* what Mylo noticed for this wallet while they were away */}
-        {empty && unread.length > 0 && (
-          <div className="mt-10 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-950">
-            <div className="flex items-center justify-between gap-3">
-              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-gray-400">While you were away</p>
-              <span className="rounded-full bg-gray-900 px-2.5 py-0.5 text-[11px] font-semibold text-white dark:bg-white dark:text-gray-900">{inbox.unread} new</span>
-            </div>
-            <ul className="mt-3 space-y-2.5">
-              {unread.slice(0, 3).map((n) => (
-                <li key={n.id} className="text-sm">
-                  <p className="font-semibold text-gray-900 dark:text-white">{n.title}</p>
-                  {n.body && <p className="mt-0.5 text-gray-500 dark:text-gray-400">{n.body}</p>}
-                </li>
-              ))}
-            </ul>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => void send("What did I miss?")} disabled={sending || out}
-                className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">Ask Mylo about it</button>
-              <button type="button" onClick={() => void markAllRead()} className="px-2 py-2 text-sm text-gray-500 underline-offset-2 hover:underline">Mark all read</button>
-            </div>
-          </div>
-        )}
-
         {/* the box to type in, or for someone not signed in the way to sign in: pinned to the bottom on a solid strip
             once there is a conversation, so it scrolls away behind it */}
         <div className={`mylo-input-bar sticky bottom-0 z-10 bg-background pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] ${empty ? "mt-10" : "mt-8"}`}>
@@ -279,6 +269,7 @@ export default function MyloClient() {
                 )}
               </span>
               <span className="flex shrink-0 items-center gap-3">
+                <button type="button" onClick={() => void openMemory()} className="whitespace-nowrap underline underline-offset-2 hover:text-gray-900 dark:hover:text-white">Memory</button>
                 {!empty && <button type="button" onClick={fresh} className="whitespace-nowrap underline underline-offset-2 hover:text-gray-900 dark:hover:text-white"><span className="sm:hidden">New</span><span className="hidden sm:inline">New conversation</span></button>}
                 {convs.length > 0 && (
                   <select value={current ?? ""} onChange={(e) => (e.target.value ? void open(e.target.value) : fresh())} aria-label="Earlier conversations"
@@ -305,9 +296,65 @@ export default function MyloClient() {
           </div>
         )}
 
+        {/* what Mylo noticed for this wallet while they were away: below everything you type into, never above it */}
+        {empty && unread.length > 0 && (
+          <div className="mt-10 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-950">
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-gray-400">While you were away</p>
+              <span className="rounded-full bg-gray-900 px-2.5 py-0.5 text-[11px] font-semibold text-white dark:bg-white dark:text-gray-900">{inbox.unread} new</span>
+            </div>
+            <ul className="mt-3 space-y-2.5">
+              {unread.slice(0, 3).map((n) => (
+                <li key={n.id} className="text-sm">
+                  <p className="font-semibold text-gray-900 dark:text-white">{n.title}</p>
+                  {n.body && <p className="mt-0.5 text-gray-500 dark:text-gray-400">{n.body}</p>}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => void send("What did I miss?")} disabled={sending || out}
+                className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">Ask Mylo about it</button>
+              <button type="button" onClick={() => void markAllRead()} className="px-2 py-2 text-sm text-gray-500 underline-offset-2 hover:underline">Mark all read</button>
+            </div>
+          </div>
+        )}
+
         {/* Mylo thinking in public, for everyone, while no conversation is open */}
         {empty && <MyloFeed />}
       </div>
+
+      {/* what Mylo remembers, and the way to make it forget */}
+      {memory !== null && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true" aria-label="What Mylo remembers" onClick={() => setMemory(null)}>
+          <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-gray-200 bg-white p-5 shadow-xl dark:border-gray-800 dark:bg-gray-950" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white">What Mylo remembers</h2>
+              <button type="button" onClick={() => setMemory(null)} aria-label="Close" className="grid h-8 w-8 place-items-center rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-900">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+              </button>
+            </div>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Only what you told Mylo to keep. It never keeps keys, seed phrases or passwords.</p>
+            {memory.length === 0 ? (
+              <p className="mt-5 rounded-xl bg-gray-50 px-4 py-6 text-center text-sm text-gray-500 dark:bg-gray-900 dark:text-gray-400">Nothing yet. Tell Mylo something to remember, like your budget or how you like answers.</p>
+            ) : (
+              <>
+                <ul className="mt-4 divide-y divide-gray-100 rounded-xl border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
+                  {memory.map((f) => (
+                    <li key={f.key} className="flex items-start gap-3 px-4 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-gray-400">{f.key.replace(/_/g, " ")}</p>
+                        <p className="mt-0.5 break-words text-sm text-gray-800 dark:text-gray-200">{f.value}</p>
+                      </div>
+                      <button type="button" onClick={() => void forgetFact(f.key)} className="shrink-0 text-xs text-gray-500 underline underline-offset-2 hover:text-gray-900 dark:hover:text-white">Forget</button>
+                    </li>
+                  ))}
+                </ul>
+                <button type="button" onClick={() => void forgetFact()} className="mt-4 text-sm text-red-600 underline underline-offset-2 dark:text-red-400">Forget everything</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

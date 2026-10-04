@@ -135,7 +135,24 @@ export const MEMORY = {
   factsPerWallet: 60,
   /** characters in one fact */
   factChars: 300,
+  /** the most recent facts Mylo reads into a conversation */
+  inPrompt: 20,
 } as const;
+
+/**
+ * Something Mylo must never keep, whoever asks: a private key, a seed phrase, an API key or token, a password. Checked
+ * before anything is remembered; a fact that looks like one is refused, not trimmed.
+ */
+export function secretLike(text: string): boolean {
+  const t = text.trim();
+  if (/(?:^|[^0-9a-fA-F])(?:0x)?[0-9a-fA-F]{64}(?:$|[^0-9a-fA-F])/.test(t)) return true; // a private key
+  if (/\b(?:sk|pk|rk|ghp|xox[abp])[-_][A-Za-z0-9_-]{12,}/.test(t)) return true; // a service key
+  for (const word of t.split(/\s+/)) if (word.length >= 32 && /[A-Za-z]/.test(word) && /\d/.test(word) && !/^0x[0-9a-fA-F]{40}$/.test(word)) return true; // a long token (a wallet address is fine)
+  const words = t.toLowerCase().split(/\s+/);
+  if ([12, 15, 18, 21, 24].includes(words.length) && words.every((w) => /^[a-z]{3,8}$/.test(w))) return true; // a seed phrase
+  if (/\b(?:password|passphrase|passcode|pin code|seed phrase|recovery phrase|mnemonic|private key|secret key)\b/i.test(t)) return true;
+  return false;
+}
 
 export const INBOX = {
   /** notices kept per wallet; the oldest go first */

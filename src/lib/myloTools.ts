@@ -12,8 +12,8 @@ import { parsePriceToEth } from "./payments";
 import { getNetworkStats } from "./analytics";
 import { getLatestNetworkRun, publicSummary } from "./autonomyNetwork";
 import { getBurnLive } from "./burnLive";
-import { toolGate, TURN_BUDGET } from "./myloPolicy";
-import { feed, inboxOf, markRead } from "./myloStore";
+import { MEMORY, secretLike, toolGate, TURN_BUDGET } from "./myloPolicy";
+import { feed, forget, inboxOf, markRead, memoryOf, remember } from "./myloStore";
 import { getDb } from "./db";
 import { changeBuild, proposeBuild, proposeHire, proposeImprovement, proposePublish, proposeWithdraw } from "./myloActions";
 import { earningsOf, withdrawalsOf } from "./studioWithdraw";
@@ -93,6 +93,16 @@ export const MYLO_TOOL_DEFS = [
     input_schema: { type: "object", properties: { build_id: { type: "string" }, price_eth: { type: "number" } }, required: ["build_id"] },
   },
   {
+    name: "remember",
+    description: "Remember one thing the person told you about themselves for next time: a short key (like budget, building, answer_style) and the value in their words. The same key replaces the old value. Never secrets.",
+    input_schema: { type: "object", properties: { key: { type: "string" }, value: { type: "string" } }, required: ["key", "value"] },
+  },
+  {
+    name: "forget",
+    description: "Forget one remembered thing by its key, or everything when everything is true.",
+    input_schema: { type: "object", properties: { key: { type: "string" }, everything: { type: "boolean" } } },
+  },
+  {
     name: "my_inbox",
     description: "What Mylo noticed for the person since they last looked: their agents earning, paid jobs that failed, better versions ready, agents taken out of rotation or back, remixes, withdrawals sent. Use it when they ask what they missed or what's new. Reading marks them read.",
     input_schema: { type: "object", properties: {} },
@@ -147,7 +157,7 @@ export function agentCard(a: Agent): AgentCard {
 export const TOOL_LABELS: Record<string, string> = {
   search_agents: "Searching the network", agent_details: "Reading the agent's record", compare_agents: "Comparing agents",
   network_pulse: "Checking the network", public_feed: "Reading the latest on Axon", hire_agent: "Preparing the hire", second_opinion: "Preparing a second opinion",
-  my_inbox: "Reading what's new for you", my_agents: "Looking at your agents", my_earnings: "Checking your earnings", withdraw_earnings: "Preparing the withdrawal", apply_improvement: "Preparing the update",
+  remember: "Remembering that", forget: "Forgetting that", my_inbox: "Reading what's new for you", my_agents: "Looking at your agents", my_earnings: "Checking your earnings", withdraw_earnings: "Preparing the withdrawal", apply_improvement: "Preparing the update",
   build_agent: "Preparing the build", change_build: "Making the change", build_report: "Reading your build", pricing_advice: "Looking at what similar agents charge", publish_build: "Preparing to publish",
 };
 
@@ -189,6 +199,24 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
         const price = input.price_eth === undefined || input.price_eth === null ? undefined : Number(input.price_eth);
         const p = proposePublish(ctx, String(input.build_id ?? ""), price);
         return typeof p === "string" ? { result: { error: p }, label } : { result: { proposed: true, actionId: p.id, summary: p.summary, note: "Proposed only. Nothing is listed until the person taps Publish in the page." }, actionId: p.id, label };
+      }
+      case "remember": {
+        if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." }, label };
+        const key = String(input.key ?? "").trim().toLowerCase().replace(/[^a-z0-9_ -]/g, "").replace(/\s+/g, "_").slice(0, 40);
+        const value = String(input.value ?? "").replace(/\s+/g, " ").trim();
+        if (!key || value.length < 2) return { result: { error: "Give a short key and what to remember." }, label };
+        if (value.length > MEMORY.factChars) return { result: { error: `Keep it under ${MEMORY.factChars} characters.` }, label };
+        if (secretLike(value) || secretLike(`${key} ${value}`)) return { result: { error: "That looks like a secret (a key, seed phrase or password). Mylo never keeps those. Tell them to keep it to themselves." }, label };
+        const f = remember(ctx.wallet, key, value);
+        return { result: { remembered: { key: f.key, value: f.value }, note: "Say in a few words that you'll remember it, and that they can see or clear it under Memory." }, label };
+      }
+      case "forget": {
+        if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." }, label };
+        if (input.everything === true) return { result: { forgot: forget(ctx.wallet), everything: true }, label };
+        const key = String(input.key ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+        if (!key) return { result: { error: "Say which one, or forget everything.", remembered_keys: memoryOf(ctx.wallet).map((f) => f.key) }, label };
+        const n = forget(ctx.wallet, key);
+        return { result: n ? { forgot: key } : { error: "Nothing was remembered under that.", remembered_keys: memoryOf(ctx.wallet).map((f) => f.key) }, label };
       }
       case "my_inbox": {
         if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." }, label };

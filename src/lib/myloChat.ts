@@ -12,7 +12,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "./logger";
-import { messagesAllowed, modelFor, myloEnabled, myloModels, MAX_REPLYING_TOTAL, TURN_BUDGET, type Speaker, type Usage } from "./myloPolicy";
+import { messagesAllowed, modelFor, myloEnabled, myloModels, MAX_REPLYING_TOTAL, MEMORY, TURN_BUDGET, type Speaker, type Usage } from "./myloPolicy";
 import { addMessage, getConversation, historyOf, memoryOf, sentFromAddress, sentToday, startConversation } from "./myloStore";
 import { budgetShare, reserveCall, settleCall, type Hold } from "./myloBudget";
 import { MYLO_TOOL_DEFS, runTool, forModel, type Card } from "./myloTools";
@@ -104,6 +104,14 @@ Building agents with Agent Studio:
 - publish_build: PROPOSE listing a tested build (it needs a score of 6 or more) at a price. Nothing is listed until
   they tap Publish. Once live, what it earns is theirs.
 
+Remembering:
+- remember: when they tell you something about themselves worth keeping for next time (their budget, what they build,
+  how they like answers, agents they trust), save it as a short key and value and say in a few words that you will
+  remember it. Only what they told you, never guesses. Never anything secret (keys, seed phrases, passwords) or
+  sensitive about their health, finances beyond their Axon budget, or other people; the tool refuses secrets anyway.
+- forget: when they ask you to forget something, or everything. They can also see and clear it under Memory.
+- What you remember about them is at the end of these instructions. Use it quietly; don't recite it back.
+
 What's new for them:
 - my_inbox: what you noticed for them since they last looked (earnings, failed paid jobs, better versions ready,
   agents taken out of rotation or back, remixes, withdrawals). Use it for "what did I miss?" or "anything new?".
@@ -129,7 +137,7 @@ phrase or a password, and tell anyone who offers one to keep it to themselves.`;
 /** What Mylo knows about this wallet, if anything: added to the instructions so it never has to ask twice. */
 function withMemory(system: string, wallet: string | null): string {
   if (!wallet) return system;
-  const facts = memoryOf(wallet).slice(0, 20);
+  const facts = memoryOf(wallet).slice(0, MEMORY.inPrompt);
   if (!facts.length) return system;
   return `${system}\n\nWhat you remember about this person (their own notes; use them, don't recite them):\n${facts.map((f) => `- ${f.key}: ${f.value}`).join("\n")}`;
 }
