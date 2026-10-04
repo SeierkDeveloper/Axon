@@ -1,11 +1,13 @@
-// Mylo's daily budget. Every model call reserves its upper bound before it is made (myloPolicy.callBoundMicroUsd) and is
-// refused if that would take the day past the budget; after the call its real cost, from the model's own usage report,
-// is recorded and the reservation released. A call that fails before reporting is counted at its bound, never at
-// nothing. The check and the reservation happen in one synchronous step, so calls running at once can't both squeeze
-// into the last of the budget. (One server process holds the reservations; Axon runs one.)
+// Mylo's daily budget. Every model call holds its upper bound before it is made (myloPolicy.callBoundMicroUsd) and,
+// after it, its real cost from the model's own usage report is recorded and the hold released; a call that fails before
+// reporting is counted at its bound, never at nothing. Mylo never stops at the budget (the owner's decision): past
+// three quarters of it everyone talks to the cheaper model, past all of it Mylo keeps answering on that model, and the
+// overspend is logged once a day so the owner can see it and make the next day cheaper. What bounds the spend is the
+// per-wallet and per-address daily message limits. (One server process holds the holds; Axon runs one.)
 
 import { getDb } from "./db";
 import { callBoundMicroUsd, costMicroUsd, dailyBudgetUsd, type Usage } from "./myloPolicy";
+import { logger } from "./logger";
 
 let reserved = 0;
 
@@ -25,12 +27,25 @@ export function budgetShare(): number {
 
 export interface Hold { model: string; micro: number; settled: boolean }
 
-/** Hold room for one call, or null if it might not fit in what is left of today's budget. */
-export function reserveCall(model: string, requestBytes: number, maxTokens: number): Hold | null {
+let overLoggedFor: string | null = null;
+
+/** Hold room for one call. Never refused: past the budget the call still runs (on the cheaper model, see modelFor), and
+ *  the first call over it each day is logged with what has been spent. */
+export function reserveCall(model: string, requestBytes: number, maxTokens: number): Hold {
   const micro = callBoundMicroUsd(model, requestBytes, maxTokens);
-  if (spentTodayMicroUsd() + reserved + micro > budgetMicroUsd()) return null;
+  const spent = spentTodayMicroUsd(), day = startOfUtcDay();
+  if (spent + reserved + micro > budgetMicroUsd() && overLoggedFor !== day) {
+    overLoggedFor = day;
+    logger.warn("mylo.over_budget", "Mylo passed today's budget and keeps answering on the cheaper model", { spentUsd: spent / 1e6, budgetUsd: budgetMicroUsd() / 1e6 });
+  }
   reserved += micro;
   return { model, micro, settled: false };
+}
+
+/** What Mylo spent on each of the last few UTC days, for the owner to check. */
+export function spendByDay(days = 7): { day: string; usd: number; calls: number }[] {
+  return (getDb().prepare("SELECT substr(created_at, 1, 10) day, SUM(cost_micro_usd) micro, COUNT(*) calls FROM mylo_usage WHERE created_at >= ? GROUP BY day ORDER BY day DESC").all(new Date(Date.now() - days * 86_400_000).toISOString()) as { day: string; micro: number; calls: number }[])
+    .map((r) => ({ day: r.day, usd: Math.round(r.micro) / 1e6, calls: r.calls }));
 }
 
 /** Record what a call really cost (or, with no usage report, its bound) and release its hold. Once per hold. */

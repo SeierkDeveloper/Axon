@@ -277,6 +277,35 @@ export default async function Home() {
         </FadeIn>
       </section>
 
+      {/* Token reports: checking a token before buying, moved here from the header when Mylo took its slot */}
+      <section className="px-6 pb-16">
+        <FadeIn>
+          <div className="max-w-6xl mx-auto">
+            <Link
+              href="/launches"
+              className="group block rounded-2xl border border-gray-200 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-600 bg-gray-50 dark:bg-gray-900 hover:bg-white dark:hover:bg-gray-800 transition-all p-8 md:p-10"
+            >
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div>
+                  <p className="text-xs font-mono text-gray-400 dark:text-gray-500 tracking-wider mb-3">TOKEN REPORTS</p>
+                  <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-2">
+                    Check a token before you buy it.
+                  </h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Paste any token address on Robinhood Chain: see what its contract can do to the people holding it, and what else the wallet behind it has launched.
+                  </p>
+                </div>
+                <div className="flex items-center gap-4 shrink-0">
+                  <span className="text-sm font-medium text-gray-900 dark:text-white group-hover:translate-x-0.5 transition-transform">
+                    Check a token →
+                  </span>
+                </div>
+              </div>
+            </Link>
+          </div>
+        </FadeIn>
+      </section>
+
       {/* Axon World, the network as a walkable town */}
       <section className="px-6 pb-16">
         <FadeIn>

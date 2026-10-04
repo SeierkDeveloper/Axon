@@ -3,8 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { getDb } from "@/lib/db";
 import { runTurn, requestBytes, fitHistory, MYLO_SYSTEM, type MyloEvent, type Streamer } from "@/lib/myloChat";
 import { callBoundMicroUsd, costMicroUsd, dailyBudgetUsd, modelFor, myloModels, priceOf, CHEAP_FROM_SHARE, TURN_BUDGET } from "@/lib/myloPolicy";
-import { budgetShare, reserveCall, settleCall, spentTodayMicroUsd, _resetHolds } from "@/lib/myloBudget";
-import { historyOf } from "@/lib/myloStore";
+import { budgetShare, reserveCall, settleCall, spendByDay, spentTodayMicroUsd, _resetHolds } from "@/lib/myloBudget";
 
 let n = 0;
 const wallet = () => `0x${(++n).toString(16).padStart(40, "b")}`;
@@ -49,14 +48,14 @@ describe("the day's budget", () => {
     expect(getDb().prepare("SELECT COUNT(*) n FROM mylo_usage WHERE estimated = 1").get()).toEqual({ n: 1 });
   });
 
-  it("refuses a call that might not fit, counting what calls in flight are holding", () => {
+  it("never refuses a call, even past the budget: it is held, made and recorded", () => {
     const oneCall = callBoundMicroUsd("claude-sonnet-5", 20_000, 1_500);
-    process.env.MYLO_DAILY_BUDGET_USD = String((oneCall * 2.5) / 1e6);
-    const a = reserveCall("claude-sonnet-5", 20_000, 1_500), b = reserveCall("claude-sonnet-5", 20_000, 1_500);
-    expect(a && b).toBeTruthy();
-    expect(reserveCall("claude-sonnet-5", 20_000, 1_500)).toBeNull(); // two in flight leave no room for a third
-    settleCall(a!, { usage: used(100, 10) });
-    expect(reserveCall("claude-sonnet-5", 20_000, 1_500)).not.toBeNull(); // a's real cost was small, so room opened
+    process.env.MYLO_DAILY_BUDGET_USD = String((oneCall * 1.5) / 1e6);
+    const holds = [reserveCall("claude-sonnet-5", 20_000, 1_500), reserveCall("claude-sonnet-5", 20_000, 1_500), reserveCall("claude-sonnet-5", 20_000, 1_500)];
+    expect(holds.every((h) => h && h.micro === oneCall)).toBe(true);
+    expect(budgetShare()).toBe(1);
+    for (const h of holds) settleCall(h, { usage: used(1_000, 100) });
+    expect(spendByDay(1)[0]).toMatchObject({ calls: 3 });
   });
 
   it("gives $AXON holders the better model until most of the budget is gone, everyone else the cheaper one", () => {
@@ -81,30 +80,15 @@ describe("a turn under the budget", () => {
     ]);
   });
 
-  it("rests when the day's budget is spent, before saving or starting anything", async () => {
-    process.env.MYLO_DAILY_BUDGET_USD = "0.001";
-    const me = wallet();
-    const ev = await run({ owner: me, wallet: me, speaker: "base", text: "hello" }, async () => { throw new Error("must not be called"); });
-    expect(ev).toEqual([{ type: "error", code: "budget", message: expect.stringMatching(/resting until midnight UTC/) }]);
-    expect(getDb().prepare("SELECT COUNT(*) n FROM mylo_messages WHERE owner = ?").get(me)).toEqual({ n: 0 });
-  });
-
-  it("stops mid-answer when the next call won't fit, keeps what it had and says why", async () => {
-    const me = wallet(), base = myloModels().base;
-    const first = callBoundMicroUsd(base, requestBytes(MYLO_SYSTEM, [{ role: "user", content: "find agents" }]), TURN_BUDGET.answerTokens);
-    // room for the first call, but its real cost leaves too little for a second
-    process.env.MYLO_DAILY_BUDGET_USD = String((first * 1.5) / 1e6);
-    let calls = 0;
-    const ev = await run({ owner: me, wallet: me, speaker: "base", text: "find agents" }, async (a, onText) => {
-      calls++;
-      onText("Let me look.");
-      return { blocks: [{ type: "text", text: "Let me look." }, { type: "tool_use", id: "t1", name: "network_pulse", input: {} }], stop: "tool_use", model: a.model, usage: { input: 0, output: 0, cacheWrite: Math.ceil(first / priceOf(base).in / 1.25) - 100 } };
-    });
-    expect(calls).toBe(1);
-    const saved = historyOf((ev[0] as { id: string }).id, 5).at(-1)!;
-    expect(saved.content).toMatch(/^Let me look\.[\s\S]*reached today's limit/);
+  it("keeps answering past the day's budget, on the cheaper model, even for an $AXON holder", async () => {
+    process.env.MYLO_DAILY_BUDGET_USD = "0.01";
+    settleCall(reserveCall("claude-sonnet-5", 1_000, 100), { usage: used(10_000, 1_000) }); // 4.5 cents: past the budget
+    expect(budgetShare()).toBe(1);
+    const me = wallet(), models: string[] = [];
+    const ev = await run({ owner: me, wallet: me, speaker: "operator", text: "hello" }, async (a, onText) => { models.push(a.model); onText("Hi."); return { blocks: [{ type: "text", text: "Hi." }], stop: "end_turn", model: a.model, usage: used(2_600, 10) }; });
     expect(ev.at(-1)).toMatchObject({ type: "done" });
-    expect(spentTodayMicroUsd()).toBeLessThanOrEqual(dailyBudgetUsd() * 1e6);
+    expect(models).toEqual([myloModels().base]);
+    expect(spentTodayMicroUsd()).toBeGreaterThan(dailyBudgetUsd() * 1e6);
   });
 
   it("rereads only as much history as the cap allows, each message cut, starting with a question", () => {

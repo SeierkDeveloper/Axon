@@ -9,8 +9,8 @@
 //   - Mylo talks to signed-in wallets only; a wallet can send so many messages a day, more as it holds more $AXON,
 //     and one address can't get round that by making wallets
 //   - every message has a hard ceiling: tokens, tool calls, how much history and how much tool output it reads
-//   - all of Mylo together has a hard daily budget in dollars, reserved before each message and counted from the
-//     model's own usage after it; near it everyone gets the cheaper model, at it Mylo rests until the next UTC day
+//   - all of Mylo together has a daily budget in dollars, counted from the model's own usage: past three quarters of it
+//     everyone gets the cheaper model; past all of it Mylo keeps going on that model and the overspend is logged
 //   - the whole of Mylo can be switched off without a deploy (MYLO=off)
 // and so do the rules for what Mylo may do on someone's behalf:
 //   - Mylo never holds a key and never signs: money moves only from the person's own wallet, or their own on-chain
@@ -67,7 +67,8 @@ export function messagesAllowed(who: Speaker, sentToday: number, sentFromAddress
 
 // ── What Mylo may cost ────────────────────────────────────────────────────────
 
-/** All of Mylo's model spend in one UTC day, in US dollars. A hard stop, set with MYLO_DAILY_BUDGET_USD. */
+/** All of Mylo's model spend in one UTC day, in US dollars, set with MYLO_DAILY_BUDGET_USD. Not a stop: past it Mylo
+ *  answers on the cheaper model and the overspend is logged. */
 export function dailyBudgetUsd(env: Record<string, string | undefined> = process.env): number {
   const v = Number(env.MYLO_DAILY_BUDGET_USD);
   return Number.isFinite(v) && v >= 0 ? v : 50;

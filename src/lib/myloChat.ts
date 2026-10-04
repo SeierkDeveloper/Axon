@@ -6,9 +6,10 @@
 // hires that the person confirms and pays for in the page. A turn may call tools a bounded number of times; the last
 // call is made with tools off, so every turn ends in words.
 //
-// Cost: Mylo talks to signed-in wallets only. The model is chosen per message ($AXON holders get the better one while
-// the day's budget allows), and every call reserves its upper bound from the day's budget before it is made and
-// records its real cost after (myloBudget), so Mylo can't spend past the budget however many people talk at once.
+// Cost: Mylo talks to signed-in wallets only, within daily message limits per wallet and per address. The model is
+// chosen per message ($AXON holders get the better one while most of the day's budget is left, everyone the cheaper one
+// after), and every call holds its upper bound and records its real cost (myloBudget). Mylo never stops at the budget;
+// going over is logged for the owner.
 
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "./logger";
@@ -27,7 +28,7 @@ export type MyloEvent =
   | { type: "action"; action: ReturnType<typeof viewOf> }
   | { type: "text"; delta: string }
   | { type: "done"; messageId: string }
-  | { type: "error"; code: "off" | "signin" | "input" | "limit" | "budget" | "busy" | "not_found" | "model"; message: string };
+  | { type: "error"; code: "off" | "signin" | "input" | "limit" | "busy" | "not_found" | "model"; message: string };
 
 export interface Turn { role: "user" | "assistant"; content: string }
 
@@ -250,7 +251,6 @@ let replying = 0;
 
 export interface TurnInput { owner: string; limitKey?: string; addressKey?: string | null; wallet: string | null; speaker: Speaker; text: string; conversationId?: string | null }
 
-const RESTING = "Mylo has done all the talking it can for today and is resting until midnight UTC. Everything else on Axon works as usual.";
 
 export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, streamer: Streamer = realStreamer): Promise<void> {
   if (!myloEnabled()) return emit({ type: "error", code: "off", message: "Mylo is resting just now. Everything else on Axon works as usual." });
@@ -273,7 +273,6 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
   const earlier = past.map((m) => ({ role: m.role, content: m.content }));
   const messages: ModelMessage[] = fitHistory(toTurns([...earlier, { role: "user", content: text }])).map((t) => ({ role: t.role, content: t.content }));
   let hold: Hold | null = reserveCall(model, requestBytes(system, messages), TURN_BUDGET.answerTokens);
-  if (!hold) return emit({ type: "error", code: "budget", message: RESTING });
 
   conv ??= startConversation(input.owner, titleOf(text));
   emit({ type: "conversation", id: conv.id, title: conv.title });
@@ -284,7 +283,7 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), TURN_BUDGET.seconds * 1000);
   const cards: Card[] = [], actionIds: string[] = [];
-  let talking = false, written = "", toolsUsed = 0, outOfBudget = false, nudged = false, nudgedAt = -1;
+  let talking = false, written = "", toolsUsed = 0, nudged = false, nudgedAt = -1;
   const clean = dashCleaner(), notes = noteFilter();
   // what people read: em dashes taken out, then bookkeeping lines
   const tidy = (d: string) => notes.push(clean.push(d));
@@ -294,9 +293,8 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
     for (;;) {
       // the last call has tools off, so a turn always ends in words
       const tools = toolsUsed < TURN_BUDGET.toolCalls;
-      // every call after the first holds its own bound; if the budget can't take it, the turn ends with what it has
+      // every call after the first holds its own bound and records its real cost
       hold ??= reserveCall(model, requestBytes(system, messages), TURN_BUDGET.answerTokens);
-      if (!hold) { outOfBudget = true; break; }
       // the step after a claim with no tool runs quietly: if it now sets the thing up, the card shows instead of its
       // preamble; if it doesn't, what it said is shown after all
       const quiet = nudged && toolsUsed === nudgedAt;
@@ -352,12 +350,6 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
     }
     const rest = tidyFlush();
     if (rest) { written += rest; emit({ type: "text", delta: rest }); }
-    if (outOfBudget) {
-      const note = "I've reached today's limit, so I stopped here. Ask me again after midnight UTC.";
-      const sep = written.trim() ? "\n\n" : "";
-      written += sep + note;
-      emit({ type: "text", delta: sep + note });
-    }
     const saved = addMessage(conv.id, input.owner, "assistant", written.trim(), cards.length || actionIds.length ? { cards, actionIds } : null);
     emit({ type: "face", state: "happy" });
     emit({ type: "done", messageId: saved.id });
