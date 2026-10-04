@@ -84,7 +84,7 @@ export default function MarkdownOutput({ text, links = false }: { text: string; 
         i++;
       }
       elements.push(
-        <ul key={i} className="list-disc list-inside space-y-0.5 my-2 text-gray-700 dark:text-gray-300">
+        <ul key={i} className="list-disc space-y-0.5 my-2 pl-5 text-gray-700 marker:text-gray-400 dark:text-gray-300">
           {items.map((item, idx) => <li key={idx} className="text-sm">{renderInline(item, links)}</li>)}
         </ul>
       );
