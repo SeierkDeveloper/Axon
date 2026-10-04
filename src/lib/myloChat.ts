@@ -16,7 +16,7 @@ import { messagesAllowed, modelFor, myloEnabled, myloModels, MAX_REPLYING_TOTAL,
 import { addMessage, getConversation, historyOf, memoryOf, sentFromAddress, sentToday, startConversation } from "./myloStore";
 import { budgetShare, reserveCall, settleCall, type Hold } from "./myloBudget";
 import { MYLO_TOOL_DEFS, runTool, forModel, type Card } from "./myloTools";
-import { getAction, viewOf } from "./myloActions";
+import { actionsOf, getAction, viewOf, type Action, type BuildDetail, type PublishDetail } from "./myloActions";
 
 /** What the page is told while a turn runs, in order. */
 export type MyloEvent =
@@ -81,6 +81,9 @@ What you can do with your tools:
   task and price, and they confirm and pay from their own wallet or allowance. After proposing, say what you proposed
   and that it waits for their OK. Never say a hire is done, paid or running, and never pretend to have an agent's
   answer: it arrives in the conversation when the agent finishes. Write the task for the agent fully and clearly.
+- Only say you proposed, set up or started something after a tool did it in this turn. The page shows a card only
+  for what a tool created; never describe a button or card that wasn't made. Your earlier messages end with notes in
+  square brackets of what you set up and its ids and status; use them.
 - Before proposing, make sure you know what the person wants done. If it is unclear, ask one short question first.
 - Hiring needs the person signed in with their wallet; if a tool says so, tell them to sign in.
 
@@ -131,12 +134,26 @@ export function toTurns(history: { role: string; content: string }[]): Turn[] {
 }
 
 /** An earlier answer as the model rereads it: with the agents it showed, so it can act on them without searching again. */
-export function forHistory(m: { role: string; content: string; meta?: unknown }): { role: string; content: string } {
-  const cards = ((m.meta ?? {}) as { cards?: { kind: string; agents?: { agentId: string; name: string; priceEth: number | null }[] }[] }).cards ?? [];
-  const shown = [...new Map(cards.flatMap((c) => c.agents ?? []).map((a) => [a.agentId, a])).values()];
-  if (m.role !== "assistant" || !shown.length) return { role: m.role, content: m.content };
-  return { role: m.role, content: `${m.content}\n\n[Agents shown: ${shown.map((a) => `${a.name} (id ${a.agentId}, ${a.priceEth === null ? "free" : `${a.priceEth} ETH`})`).join("; ")}]` };
+export function forHistory(m: { role: string; content: string; meta?: unknown }, actions: Map<string, string> = new Map()): { role: string; content: string } {
+  if (m.role !== "assistant") return { role: m.role, content: m.content };
+  const meta = (m.meta ?? {}) as { cards?: { kind: string; agents?: { agentId: string; name: string; priceEth: number | null }[] }[]; actionIds?: string[]; actionId?: string };
+  const shown = [...new Map((meta.cards ?? []).flatMap((c) => c.agents ?? []).map((a) => [a.agentId, a])).values()];
+  const notes: string[] = [];
+  if (shown.length) notes.push(`[Agents shown: ${shown.map((a) => `${a.name} (id ${a.agentId}, ${a.priceEth === null ? "free" : `${a.priceEth} ETH`})`).join("; ")}]`);
+  // what this message set up (or reported on), as it stands now, so Mylo can act on it without guessing ids
+  for (const id of [...(meta.actionIds ?? []), ...(meta.actionId ? [meta.actionId] : [])]) { const n = actions.get(id); if (n) notes.push(n); }
+  return { role: m.role, content: notes.length ? `${m.content}\n\n${notes.join("\n")}` : m.content };
 }
+
+/** One proposal as the model rereads it: what it is, its ids and where it has got to. */
+export function noteOf(a: Action): string {
+  if (a.kind === "build") { const d = a.detail as BuildDetail; return `[Build${d.name ? ` ${d.name}` : ""}: build_id ${d.buildId ?? "none yet"}, ${a.status}${d.stage ? `, Studio stage ${d.stage}` : ""}${d.score !== null ? `, scored ${d.score}` : ""}${d.change ? `, change "${d.change}"` : ""}]`; }
+  if (a.kind === "publish") { const d = a.detail as PublishDetail; return `[Publish ${d.name} (build_id ${d.buildId}) at ${d.priceEth} ETH: ${a.status}${d.agentId ? `, live as /agents/${d.agentId}` : ""}]`; }
+  return `[Hire: ${a.hires.map((h) => `${h.name} (id ${h.agentId})`).join(", ")}, ${a.status}]`;
+}
+
+/** Words that say Mylo set something up. Said with no tool called, they would promise a card that isn't there. */
+const CLAIMS = /\bI(?:'ve| have)? (?:just )?(?:proposed|set (?:it|this|that) up|set up|prepared|queued)\b|\bpage now shows\b/i;
 
 /**
  * Takes em dashes out of Mylo's words as they stream. A dash can arrive with its spaces split across pieces, so the
@@ -179,7 +196,8 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
   // what the first call will read, so its cost can be held before anything is saved or started
   const model = modelFor(input.speaker, budgetShare());
   const system = withMemory(MYLO_SYSTEM, input.wallet);
-  const earlier = conv ? historyOf(conv.id, TURN_BUDGET.historyMessages - 1).map(forHistory) : [];
+  const notes = new Map(conv ? actionsOf(conv.id, input.owner).map((a) => [a.id, noteOf(a)] as const) : []);
+  const earlier = conv ? historyOf(conv.id, TURN_BUDGET.historyMessages - 1).map((m) => forHistory(m, notes)) : [];
   const messages: ModelMessage[] = fitHistory(toTurns([...earlier, { role: "user", content: text }])).map((t) => ({ role: t.role, content: t.content }));
   let hold: Hold | null = reserveCall(model, requestBytes(system, messages), TURN_BUDGET.answerTokens);
   if (!hold) return emit({ type: "error", code: "budget", message: RESTING });
@@ -193,7 +211,7 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), TURN_BUDGET.seconds * 1000);
   const cards: Card[] = [], actionIds: string[] = [];
-  let talking = false, written = "", toolsUsed = 0, outOfBudget = false;
+  let talking = false, written = "", toolsUsed = 0, outOfBudget = false, nudged = false;
   const clean = dashCleaner();
   const spend = { speaker: input.speaker, conversationId: conv.id };
   try {
@@ -213,7 +231,20 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
       settleCall(hold, { model: res.model ?? model, usage: res.usage ?? null }, spend);
       hold = null;
       const uses = res.blocks.filter((b): b is Extract<Block, { type: "tool_use" }> => b.type === "tool_use");
-      if (!tools || res.stop !== "tool_use" || uses.length === 0) break;
+      if (!tools || res.stop !== "tool_use" || uses.length === 0) {
+        // it said it set something up, but called nothing this turn: give it one more step to do it or say it didn't
+        const said = res.blocks.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
+        if (!tools || nudged || actionIds.length || !CLAIMS.test(said)) break;
+        nudged = true;
+        logger.warn("mylo.unbacked_claim", "Mylo said it set something up without a tool; asking it to act", { conversationId: conv.id, model });
+        messages.push({ role: "assistant", content: said || "(nothing)" });
+        messages.push({ role: "user", content: "[A note from Axon, not from the person: you said you set something up, but no tool was called, so nothing is in the page. Call the right tool now. If you can't, tell the person in one sentence that nothing was set up yet.]" });
+        talking = false;
+        const rest = clean.flush();
+        if (rest) { written += rest; emit({ type: "text", delta: rest }); }
+        if (written && !written.endsWith("\n")) { written += "\n\n"; emit({ type: "text", delta: "\n\n" }); }
+        continue;
+      }
       messages.push({ role: "assistant", content: res.blocks.map((b) => (b.type === "text" ? { type: "text" as const, text: b.text } : { type: "tool_use" as const, id: b.id, name: b.name, input: b.input })) });
       const results: { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }[] = [];
       for (const u of uses) {
