@@ -76,7 +76,8 @@ export function agentCard(a: Agent): AgentCard {
   const proof = computeProofScore(a.agentId);
   return {
     agentId: a.agentId, name: a.name, description: short(a.description, 160), category: a.category ?? null,
-    price: a.price ?? null, priceEth: parsePriceToEth(a.price ?? undefined), proofScore: proof?.score ?? a.proofScore ?? null,
+    // an agent with no price is free to hire, and the model is told so in words
+    price: a.price ?? "Free", priceEth: parsePriceToEth(a.price ?? undefined), proofScore: proof?.score ?? a.proofScore ?? null,
     studioScore: studioInfo(a.agentId)?.score ?? null, tasksCompleted: proof?.inputs.tasksCompleted ?? null, tools: a.tools?.length ? a.tools : null,
   };
 }

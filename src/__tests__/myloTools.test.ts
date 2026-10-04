@@ -43,7 +43,7 @@ describe("Mylo's tools", () => {
     expect(JSON.stringify(d.result)).not.toContain("publicKey");
     const c = await runTool("compare_agents", { agent_ids: [a.agentId, b.agentId] }, ctx(null));
     expect(c.card).toMatchObject({ kind: "compare" });
-    expect(agentCard(b).priceEth).toBeNull();
+    expect(agentCard(b)).toMatchObject({ priceEth: null, price: "Free" });
     expect((await runTool("compare_agents", { agent_ids: [a.agentId] }, ctx(null))).result).toMatchObject({ error: expect.any(String) });
   });
 
