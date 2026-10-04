@@ -163,8 +163,22 @@ describe("Mylo never promises a card it didn't make", () => {
       onText("Done, it's in the page now."); return { blocks: [{ type: "text", text: "Done, it's in the page now." }], stop: "end_turn" };
     });
     expect(call).toBe(3);
-    expect(JSON.stringify(seen[1].messages.at(-1))).toMatch(/no tool was called, so nothing is in the page/);
+    expect(JSON.stringify(seen[1].messages.at(-1))).toMatch(/no tool was called, so nothing was done/);
     expect(ev.some((e) => e.type === "tool")).toBe(true);
+  });
+
+  it("also when it says it cleared or saved something without a tool, but not after a tool did it", async () => {
+    const me = owner();
+    let calls = 0;
+    await run({ owner: me, wallet: me, speaker: "base", text: "Forget my budget" }, async (_a, onText) => { calls++; const t = calls === 1 ? "Done. I've cleared that from memory." : "Nothing was forgotten yet."; onText(t); return { blocks: [{ type: "text", text: t }], stop: "end_turn" }; });
+    expect(calls).toBe(2);
+    let c2 = 0;
+    await run({ owner: me, wallet: me, speaker: "base", text: "Forget my budget" }, async (_a, onText) => {
+      c2++;
+      if (c2 === 1) return { blocks: [{ type: "tool_use", id: "f1", name: "forget", input: { key: "budget" } }], stop: "tool_use" };
+      onText("I've cleared that from memory."); return { blocks: [{ type: "text", text: "I've cleared that from memory." }], stop: "end_turn" };
+    });
+    expect(c2).toBe(2);
   });
 
   it("only once, and not for an explanation of how things work", async () => {

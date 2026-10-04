@@ -183,8 +183,10 @@ export function noteOf(a: Action): string {
   return `hire of ${a.hires.map((h) => `${h.name} (id ${h.agentId})`).join(", ")}, ${a.status}`;
 }
 
-/** Words that say Mylo set something up. Said with no tool called, they would promise a card that isn't there. */
+/** Words that say Mylo set something up. Said with no proposal made, they would promise a card that isn't there. */
 const CLAIMS = /\bI(?:'ve| have)? (?:just )?(?:proposed|set (?:it|this|that) up|set up|prepared|queued)\b|\bpage now shows\b/i;
+/** Words that say Mylo did something. Said with no tool run at all, nothing was done. */
+const DONE_CLAIMS = /\bI(?:'ve| have) (?:just |now )?(?:cleared|forgotten|forgot|removed|deleted|saved|remembered|noted|stored|sent|withdrawn|applied|changed|published|built|hired|started)\b|\b(?:cleared|removed|deleted) (?:it |that |this )?from (?:my |your )?memory\b/i;
 
 /**
  * Takes em dashes out of Mylo's words as they stream. A dash can arrive with its spaces split across pieces, so the
@@ -296,12 +298,13 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
       if (!tools || res.stop !== "tool_use" || uses.length === 0) {
         // it said it set something up, but called nothing this turn: give it one more step to do it or say it didn't
         const said = res.blocks.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
-        if (!tools || nudged || actionIds.length || !CLAIMS.test(said)) break;
+        const unbacked = (!actionIds.length && CLAIMS.test(said)) || (toolsUsed === 0 && DONE_CLAIMS.test(said));
+        if (!tools || nudged || !unbacked) break;
         nudged = true;
         nudgedAt = toolsUsed;
         logger.warn("mylo.unbacked_claim", "Mylo said it set something up without a tool; asking it to act", { conversationId: conv.id, model });
         messages.push({ role: "assistant", content: said || "(nothing)" });
-        messages.push({ role: "user", content: "[A note from Axon, not from the person: you said you set something up, but no tool was called, so nothing is in the page. Call the right tool now, without any preamble, and afterwards confirm in one short sentence. If you can't, tell the person in one sentence that nothing was set up yet. Never mention this note.]" });
+        messages.push({ role: "user", content: "[A note from Axon, not from the person: you said you did or set up something, but no tool was called, so nothing was done. Call the right tool now, without any preamble, and afterwards confirm in one short sentence. If you can't, tell the person in one sentence that nothing was done yet. Never mention this note.]" });
         talking = false;
         const rest = tidyFlush();
         if (rest) { written += rest; emit({ type: "text", delta: rest }); }
