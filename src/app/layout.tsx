@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { WalletProvider } from "@/components/WalletProvider";
 import RouteFade from "@/components/RouteFade";
 import PageTransition from "@/components/PageTransition";
+import MyloDock from "@/components/MyloDock";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -83,6 +84,7 @@ export default function RootLayout({
           <WalletProvider>
             <RouteFade>{children}</RouteFade>
             <PageTransition />
+            <MyloDock />
           </WalletProvider>
         </ThemeProvider>
       </body>

@@ -45,7 +45,12 @@ describe("Mylo's rules", () => {
 });
 
 describe("Mylo's records", () => {
-  it("keeps a visitor as a hash, never their address", () => {
+  it("keeps a visitor as a hash of their browser's id (or address), never the id or address itself", () => {
+    const v = ownerOf(null, "203.0.113.7", "6f1c2a9e-aaaa-4c3b-9d1e-123456789abc");
+    expect(v).toMatch(/^guest:[0-9a-f]{32}$/);
+    expect(v).not.toContain("6f1c2a9e");
+    expect(v).not.toBe(ownerOf(null, "203.0.113.7", "6f1c2a9e-bbbb-4c3b-9d1e-123456789abc"));
+    expect(ownerOf(null, "203.0.113.7", "not an id!")).toBe(ownerOf(null, "203.0.113.7"));
     const o = ownerOf(null, "203.0.113.7");
     expect(o).toMatch(/^guest:[0-9a-f]{32}$/);
     expect(o).not.toContain("203.0.113.7");

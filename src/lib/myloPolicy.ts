@@ -28,6 +28,8 @@ export function myloModels(env: Record<string, string | undefined> = process.env
   return {
     chat: env.MYLO_MODEL?.trim() || "claude-sonnet-5",
     fast: env.MYLO_FAST_MODEL?.trim() || "claude-haiku-4-5",
+    /** answers instead if the chat model is unavailable to this account, so a conversation never just dies */
+    fallback: env.MYLO_FALLBACK_MODEL?.trim() || "claude-haiku-4-5",
   };
 }
 

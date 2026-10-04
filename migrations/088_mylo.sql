@@ -1,9 +1,10 @@
--- Mylo, phase 0: what Mylo keeps. Conversations and their messages (the owner is a wallet, or a visitor as a hash of
--- their address); what it remembers about a wallet; the notices it leaves a wallet; and the thoughts it says in public.
+-- Mylo, phase 0: what Mylo keeps. Conversations and their messages (the owner is a wallet, or a visitor as a hash of a
+-- random id their browser keeps); what it remembers about a wallet; the notices it leaves a wallet; and the thoughts it
+-- says in public.
 
 CREATE TABLE IF NOT EXISTS mylo_conversations (
   id TEXT PRIMARY KEY,
-  -- a lowercase wallet, or "guest:<sha256 of the visitor's address>"
+  -- a lowercase wallet, or "guest:<hash of the random id the visitor's browser keeps>"
   owner TEXT NOT NULL,
   title TEXT,
   created_at TEXT NOT NULL,
@@ -20,11 +21,14 @@ CREATE TABLE IF NOT EXISTS mylo_messages (
   content TEXT NOT NULL,
   -- the tool call or the action waiting for a confirmation, as JSON
   meta TEXT,
+  -- who the day's limit counts against: the wallet, or for a visitor a hash of their address (their conversations
+  -- belong to a hash of a random id their own browser keeps, so two people on one network never see each other's)
+  limit_key TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mylo_messages_conversation ON mylo_messages(conversation_id, created_at);
 -- the day's count of what a speaker sent
-CREATE INDEX IF NOT EXISTS mylo_messages_owner ON mylo_messages(owner, role, created_at);
+CREATE INDEX IF NOT EXISTS mylo_messages_limit ON mylo_messages(limit_key, role, created_at);
 
 CREATE TABLE IF NOT EXISTS mylo_memory (
   wallet TEXT NOT NULL,

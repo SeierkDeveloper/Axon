@@ -8,10 +8,19 @@ import { FEED, FEED_KINDS, INBOX, MEMORY, type FeedKind } from "./myloPolicy";
 const now = () => new Date().toISOString();
 const dayAgo = () => new Date(Date.now() - 86_400_000).toISOString();
 
-/** Who owns a conversation: a wallet (lowercase), or a visitor as a hash of their address, never the address itself. */
-export function ownerOf(wallet: string | null | undefined, ip: string | null | undefined): string {
+const hash = (v: string) => createHash("sha256").update(`mylo:${v}`).digest("hex").slice(0, 32);
+
+/** Who owns a conversation: a wallet (lowercase), or a visitor as a hash of the random id their own browser keeps (so
+ *  two people on one network never share history), or failing that of their address. Never the id or address itself. */
+export function ownerOf(wallet: string | null | undefined, ip: string | null | undefined, visitor?: string | null): string {
   if (wallet) return wallet.toLowerCase();
-  return `guest:${createHash("sha256").update(`mylo:${ip ?? "unknown"}`).digest("hex").slice(0, 32)}`;
+  if (visitor && /^[0-9a-f-]{16,64}$/i.test(visitor)) return `guest:${hash(`v:${visitor.toLowerCase()}`)}`;
+  return `guest:${hash(ip ?? "unknown")}`;
+}
+
+/** Who the day's limit counts against: the wallet, or a visitor's address (hashed), so clearing a browser resets nothing. */
+export function limitKeyOf(wallet: string | null | undefined, ip: string | null | undefined): string {
+  return wallet ? wallet.toLowerCase() : `guest-ip:${hash(ip ?? "unknown")}`;
 }
 
 // ── Conversations ─────────────────────────────────────────────────────────────
@@ -39,10 +48,10 @@ export function setTitle(id: string, title: string): void {
   getDb().prepare("UPDATE mylo_conversations SET title = ? WHERE id = ?").run(title.slice(0, 80), id);
 }
 
-export function addMessage(conversationId: string, owner: string, role: Role, content: string, meta: unknown = null): Message {
+export function addMessage(conversationId: string, owner: string, role: Role, content: string, meta: unknown = null, limitKey: string = owner): Message {
   const id = randomUUID(), at = now(), db = getDb();
-  db.prepare("INSERT INTO mylo_messages (id, conversation_id, owner, role, content, meta, created_at) VALUES (?,?,?,?,?,?,?)")
-    .run(id, conversationId, owner, role, content, meta === null ? null : JSON.stringify(meta), at);
+  db.prepare("INSERT INTO mylo_messages (id, conversation_id, owner, role, content, meta, limit_key, created_at) VALUES (?,?,?,?,?,?,?,?)")
+    .run(id, conversationId, owner, role, content, meta === null ? null : JSON.stringify(meta), limitKey, at);
   db.prepare("UPDATE mylo_conversations SET updated_at = ? WHERE id = ?").run(at, conversationId);
   return { id, conversationId, role, content, meta, createdAt: at };
 }
@@ -54,9 +63,9 @@ export function historyOf(conversationId: string, limit: number): Message[] {
   return rows.reverse().map((r) => ({ ...r, meta: r.meta ? JSON.parse(r.meta) : null }));
 }
 
-/** What a speaker sent in the last day: the number the daily limit is checked against. */
-export function sentToday(owner: string): number {
-  return (getDb().prepare("SELECT COUNT(*) n FROM mylo_messages WHERE owner = ? AND role = 'user' AND created_at >= ?").get(owner, dayAgo()) as { n: number }).n;
+/** What was sent against a limit key in the last day: the number the daily limit is checked against. */
+export function sentToday(limitKey: string): number {
+  return (getDb().prepare("SELECT COUNT(*) n FROM mylo_messages WHERE limit_key = ? AND role = 'user' AND created_at >= ?").get(limitKey, dayAgo()) as { n: number }).n;
 }
 
 // ── Memory ────────────────────────────────────────────────────────────────────
