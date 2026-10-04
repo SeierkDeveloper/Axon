@@ -16,11 +16,14 @@ export interface AgentCardData { agentId: string; name: string; description: str
 export type CardData =
   | { kind: "agents"; title: string; agents: AgentCardData[] }
   | { kind: "compare"; agents: AgentCardData[] }
+  | { kind: "earnings"; agents: { agentId: string; name: string; earnedEth: number; availableEth: number }[]; availableEth: number }
   | { kind: "pulse"; agents: number; activeAgents: number; tasksToday: number; successRate: number; burned: number | null; burns: number | null; lastCheck: { at: string; checks: number | null } | null };
 
 export interface BuildDetail { sentence: string; change: string | null; buildId: string | null; name: string | null; stage: string | null; round: number; score: number | null; error: string | null; changing?: boolean }
 export interface PublishDetail { buildId: string; name: string; priceEth: number; score: number | null; agentId: string | null; error: string | null }
-export interface ActionView { id: string; kind?: "hire" | "build" | "publish"; detail?: BuildDetail | PublishDetail | null; status: "proposed" | "running" | "done" | "failed" | "cancelled"; task: string; summary: string; expiresAt: string; hires: { agentId: string; name: string; price: string | null; priceEth: number | null; taskId: string | null; error: string | null }[]; payTo: string | null }
+export interface WithdrawDetail { agentId: string; name: string; amountEth: number; to: string; txHash: string | null; sent: string | null; error: string | null }
+export interface ImproveDetail { improvementId: string; agentId: string; name: string; fromScore: number | null; toScore: number | null; error: string | null }
+export interface ActionView { id: string; kind?: "hire" | "build" | "publish" | "withdraw" | "improve"; detail?: BuildDetail | PublishDetail | WithdrawDetail | ImproveDetail | null; status: "proposed" | "running" | "done" | "failed" | "cancelled"; task: string; summary: string; expiresAt: string; hires: { agentId: string; name: string; price: string | null; priceEth: number | null; taskId: string | null; error: string | null }[]; payTo: string | null }
 
 // payments already made for a proposal, kept so a retry never asks anyone to pay the same agent twice
 const paidKey = (id: string) => `mylo.paid.${id}`;
@@ -34,7 +37,32 @@ function keepPaid(id: string, p: Record<string, string>) {
 const eth = (v: number | null) => (v === null ? "Free" : `${+v.toFixed(8)} ETH`);
 const compact = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${Math.round(n)}`);
 
+const EXPLORER = "https://robinhoodchain.blockscout.com";
+const shortAddr = (w: string) => (/^0x[0-9a-fA-F]{40}$/.test(w) ? `${w.slice(0, 6)}…${w.slice(-4)}` : w);
+
 export function Card({ card }: { card: CardData }) {
+  if (card.kind === "earnings") {
+    return (
+      <div className="mt-3 overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+        {card.agents.map((a, i) => (
+          <Link key={a.agentId} href={`/agents/${a.agentId}`} className={`flex items-center gap-3 px-4 py-3 transition hover:bg-gray-50 dark:hover:bg-gray-900 ${i ? "border-t border-gray-100 dark:border-gray-800" : ""}`}>
+            <div className="min-w-0 flex-1">
+              <p className="line-clamp-2 break-words text-sm font-semibold text-gray-900 dark:text-white">{a.name}</p>
+              <p className="font-mono text-[11px] text-gray-400">earned {+a.earnedEth.toFixed(8)} ETH</p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="font-mono text-xs text-gray-900 dark:text-white">{+a.availableEth.toFixed(8)} ETH</p>
+              <p className="font-mono text-[11px] text-gray-400">to take out</p>
+            </div>
+          </Link>
+        ))}
+        <div className="flex items-center justify-between border-t border-gray-200 bg-gray-50 px-4 py-2.5 text-xs dark:border-gray-800 dark:bg-gray-900/60">
+          <span className="text-gray-500 dark:text-gray-400">You can take out</span>
+          <span className="font-mono font-semibold text-gray-900 dark:text-white">{+card.availableEth.toFixed(8)} ETH</span>
+        </div>
+      </div>
+    );
+  }
   if (card.kind === "pulse") {
     const tiles: [string, string][] = [
       ["Agents", `${card.agents}`], ["Tasks done today", `${card.tasksToday}`],
@@ -161,7 +189,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
   // a build or a publish needs no payment: confirming starts it
   const confirmPlain = async () => {
     setErr(null);
-    setStep(a.kind === "build" ? "Starting the build" : "Publishing");
+    setStep(a.kind === "build" ? "Starting the build" : a.kind === "withdraw" ? "Sending" : a.kind === "improve" ? "Applying" : "Publishing");
     try {
       const res = await fetch(`/api/mylo/actions/${a.id}/confirm`, { method: "POST", headers: headers(), body: JSON.stringify({ method: "wallet", payments: {} }) });
       const j = (await res.json()) as { action?: ActionView; error?: string };
@@ -183,9 +211,11 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
   const kind = a.kind ?? "hire";
   const build = kind === "build" ? (a.detail as BuildDetail) : null;
   const pub = kind === "publish" ? (a.detail as PublishDetail) : null;
-  const label = build ? (build.change ? "Change and retest" : "Build") : pub ? "Publish" : a.hires.length > 1 ? "Second opinion" : "Hire";
-  const doneWord = build ? "Built" : pub ? "Live" : "Done";
-  const badge = { proposed: expired ? "Expired" : "Waiting for your OK", running: build ? "Building" : pub ? "Publishing" : "Working", done: doneWord, failed: "Didn't finish", cancelled: "Cancelled" }[a.status];
+  const wd = kind === "withdraw" ? (a.detail as WithdrawDetail) : null;
+  const imp = kind === "improve" ? (a.detail as ImproveDetail) : null;
+  const label = build ? (build.change ? "Change and retest" : "Build") : pub ? "Publish" : wd ? "Withdraw" : imp ? "Better version" : a.hires.length > 1 ? "Second opinion" : "Hire";
+  const doneWord = build ? "Built" : pub ? "Live" : wd ? "Sent" : imp ? "Applied" : "Done";
+  const badge = { proposed: expired ? "Expired" : "Waiting for your OK", running: build ? "Building" : pub ? "Publishing" : wd ? "Sending" : imp ? "Applying" : "Working", done: doneWord, failed: "Didn't finish", cancelled: "Cancelled" }[a.status];
   const stage = build ? ({ changing: "Making the change", drafting: "Writing the agent", drafted: "Getting ready to test", testing: `Testing${build.round ? `, round ${build.round + 1}` : ""}`, improving: `Improving after round ${build.round}` } as Record<string, string>)[build.stage ?? ""] ?? "Starting" : null;
   const studioLink = build?.buildId ? `/studio?build=${build.buildId}` : null;
   return (
@@ -220,6 +250,27 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
         </div>
       )}
 
+      {wd && (
+        <div className="mt-3">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="truncate font-semibold text-gray-900 dark:text-white">{wd.name}</span>
+            <span className="shrink-0 font-mono text-xs text-gray-900 dark:text-white">{wd.amountEth} ETH</span>
+          </div>
+          <p className="mt-1 font-mono text-[11px] text-gray-400">to your wallet {shortAddr(wd.to)}</p>
+          {wd.txHash && <a href={`${EXPLORER}/tx/${wd.txHash}`} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block text-xs text-gray-500 underline underline-offset-2 hover:text-gray-900 dark:hover:text-white">See the transaction</a>}
+          {wd.error && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{wd.error}</p>}
+        </div>
+      )}
+
+      {imp && (
+        <div className="mt-3">
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">{imp.name}</p>
+          {imp.fromScore !== null && imp.toScore !== null && <p className="mt-1 font-mono text-[11px] text-gray-400">tested {imp.fromScore} before, {imp.toScore} now</p>}
+          <Link href={`/agents/${imp.agentId}`} className="mt-3 inline-block text-xs text-gray-500 underline underline-offset-2 hover:text-gray-900 dark:hover:text-white">See the agent</Link>
+          {imp.error && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{imp.error}</p>}
+        </div>
+      )}
+
       {kind === "hire" && (
         <>
           <ul className="mt-3 space-y-1.5">
@@ -244,7 +295,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
           ) : kind !== "hire" ? (
             <button type="button" onClick={() => void confirmPlain()} disabled={step !== null}
               className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">
-              {build ? "Build it" : "Publish"}
+              {build ? "Build it" : pub ? "Publish" : wd ? `Withdraw ${wd.amountEth} ETH` : "Apply"}
             </button>
           ) : (
             <>
@@ -264,7 +315,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
       {err && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{err}</p>}
       {a.status === "proposed" && !expired && (
         <p className="mt-3 text-[11px] text-gray-400">
-          {build ? "Free. Studio writes it and tests it, which takes a few minutes. Counts as one of today's Studio builds." : pub ? "Lists it on Axon for anyone to hire. What it earns is yours." : `Paid ${cost > 0 ? "from your wallet to Axon, checked on chain" : "nothing: this agent is free"}.`}
+          {build ? "Free. Studio writes it and tests it, which takes a few minutes. Counts as one of today's Studio builds." : pub ? "Lists it on Axon for anyone to hire. What it earns is yours." : wd ? "Goes only to the wallet that owns the agent." : imp ? "Your agent's next jobs use the better version." : `Paid ${cost > 0 ? "from your wallet to Axon, checked on chain" : "nothing: this agent is free"}.`}
           {" "}Expires in {Math.max(1, Math.round((Date.parse(a.expiresAt) - nowMs) / 60_000))} min.
         </p>
       )}

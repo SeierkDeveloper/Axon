@@ -16,7 +16,7 @@ import { messagesAllowed, modelFor, myloEnabled, myloModels, MAX_REPLYING_TOTAL,
 import { addMessage, getConversation, historyOf, memoryOf, sentFromAddress, sentToday, startConversation } from "./myloStore";
 import { budgetShare, reserveCall, settleCall, type Hold } from "./myloBudget";
 import { MYLO_TOOL_DEFS, runTool, forModel, type Card } from "./myloTools";
-import { actionsOf, getAction, viewOf, type Action, type BuildDetail, type PublishDetail } from "./myloActions";
+import { actionsOf, getAction, viewOf, type Action, type BuildDetail, type ImproveDetail, type PublishDetail, type WithdrawDetail } from "./myloActions";
 
 /** What the page is told while a turn runs, in order. */
 export type MyloEvent =
@@ -103,9 +103,16 @@ Building agents with Agent Studio:
 - publish_build: PROPOSE listing a tested build (it needs a score of 6 or more) at a price. Nothing is listed until
   they tap Publish. Once live, what it earns is theirs.
 
-What you cannot do yet: look at someone's live agents' earnings, or withdraw. Point them to /dashboard and /studio for
-those. Never promise a refund or say money will come back; if a hire fails, say so and that its receipt shows what
-happened.
+Their own agents and earnings:
+- my_agents: their agents with scores, jobs, remixes others made of them, better versions waiting, and whether each can
+  launch a token. A token is launched from their own wallet on the agent's launch page (/launch/<agent id>): link it,
+  don't pretend to launch it.
+- my_earnings: what their Studio agents earned and can take out now.
+- withdraw_earnings: PROPOSE taking earnings out. It only ever goes to the wallet that owns the agent, and nothing is
+  sent until they tap Withdraw. Never say it is sent before the card shows it.
+- apply_improvement: when Axon tested a better version of their live agent, PROPOSE applying it; they tap Apply.
+
+Never promise a refund or say money will come back; if a hire fails, say so and that its receipt shows what happened.
 
 How you talk: short, warm and clear, in plain English. Answer the question first. Use a short list only when it really
 helps. Never use em dashes or emojis. Never name your tools to the person (say "I can compare them", not the tool's
@@ -157,6 +164,8 @@ export function contextOf(history: { role: string; meta?: unknown }[], actions: 
 export function noteOf(a: Action): string {
   if (a.kind === "build") { const d = a.detail as BuildDetail; return `build${d.name ? ` of ${d.name}` : ""}, build_id ${d.buildId ?? "none yet"}, ${a.status}${d.stage ? `, Studio stage ${d.stage}` : ""}${d.score !== null ? `, scored ${d.score}` : ""}${d.change ? `, after the change "${d.change}"` : ""}`; }
   if (a.kind === "publish") { const d = a.detail as PublishDetail; return `publish ${d.name} (build_id ${d.buildId}) at ${d.priceEth} ETH, ${a.status}${d.agentId ? `, live as /agents/${d.agentId}` : ""}`; }
+  if (a.kind === "withdraw") { const d = a.detail as WithdrawDetail; return `withdraw ${d.amountEth} ETH from ${d.name} (agent_id ${d.agentId}), ${a.status}${d.error ? `: ${d.error}` : ""}`; }
+  if (a.kind === "improve") { const d = a.detail as ImproveDetail; return `apply the better version of ${d.name} (improvement_id ${d.improvementId}), ${a.status}${d.error ? `: ${d.error}` : ""}`; }
   return `hire of ${a.hires.map((h) => `${h.name} (id ${h.agentId})`).join(", ")}, ${a.status}`;
 }
 

@@ -1,4 +1,4 @@
-// Mylo, phases 2 and 3: the tools it works the network and Agent Studio with. Lookups run at once and return what the model reads plus a
+// Mylo, phases 2 to 4: the tools it works the network, Agent Studio and the person's own agents with. Lookups run at once and return what the model reads plus a
 // card for the page. Anything that spends (a hire, a second opinion) never runs here: it becomes a proposal the person
 // confirms in the page, with the exact agent, task and price, and only their confirmation sets it going
 // (myloActions). Every lookup of the network reads public information only; a build report reads the person's own
@@ -15,7 +15,12 @@ import { getBurnLive } from "./burnLive";
 import { toolGate, TURN_BUDGET } from "./myloPolicy";
 import { feed } from "./myloStore";
 import { getDb } from "./db";
-import { changeBuild, proposeBuild, proposeHire, proposePublish } from "./myloActions";
+import { changeBuild, proposeBuild, proposeHire, proposeImprovement, proposePublish, proposeWithdraw } from "./myloActions";
+import { earningsOf, withdrawalsOf } from "./studioWithdraw";
+import { proposalsOf } from "./studioImprove";
+import { checkEligibility } from "./agentLaunch";
+import { WITHDRAW, withdrawalsEnabled } from "./studioPolicy";
+import { explorerTxUrl } from "./chain";
 import { buildsOf, getBuild } from "./studioDraft";
 import { roundsOf, settleStale } from "./studioTest";
 import { MAX_TWEAKS_PER_BUILD, MIN_PUBLISH_SCORE, PRICE_ETH } from "./studioPolicy";
@@ -87,6 +92,26 @@ export const MYLO_TOOL_DEFS = [
     description: "Propose putting one of the person's tested builds live on Axon at a price per task (Studio's suggested price if none is given). It must have scored at least 6. The page shows a Publish button; nothing is listed until they tap it.",
     input_schema: { type: "object", properties: { build_id: { type: "string" }, price_eth: { type: "number" } }, required: ["build_id"] },
   },
+  {
+    name: "my_agents",
+    description: "The person's own agents on Axon: price, scores, jobs done, remixes others made of them, better versions Axon has tested and is waiting to apply, and whether each can launch a token (with the page to do it).",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "my_earnings",
+    description: "What each of the person's Studio agents has earned in ETH, what they can take out now, their recent withdrawals, and the withdrawal limits.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "withdraw_earnings",
+    description: "Propose taking out what one of the person's Studio agents earned. It can only go to the wallet that owns the agent. Everything it can take out unless they name an amount. Nothing is sent until they tap Withdraw in the page.",
+    input_schema: { type: "object", properties: { agent_id: { type: "string" }, amount_eth: { type: "number" } }, required: ["agent_id"] },
+  },
+  {
+    name: "apply_improvement",
+    description: "Propose applying a better version Axon tested for one of the person's live agents (an improvement id from my_agents). Nothing changes until they tap Apply in the page.",
+    input_schema: { type: "object", properties: { improvement_id: { type: "string" } }, required: ["improvement_id"] },
+  },
 ] as const;
 
 /** One agent as Mylo shows it: public facts only. */
@@ -95,6 +120,7 @@ export interface AgentCard { agentId: string; name: string; description: string 
 export type Card =
   | { kind: "agents"; title: string; agents: AgentCard[] }
   | { kind: "compare"; agents: AgentCard[] }
+  | { kind: "earnings"; agents: { agentId: string; name: string; earnedEth: number; availableEth: number }[]; availableEth: number }
   | { kind: "pulse"; agents: number; activeAgents: number; tasksToday: number; successRate: number; burned: number | null; burns: number | null; lastCheck: { at: string; checks: number | null } | null };
 
 export interface ToolContext { wallet: string | null; owner: string; conversationId: string }
@@ -116,6 +142,7 @@ export function agentCard(a: Agent): AgentCard {
 export const TOOL_LABELS: Record<string, string> = {
   search_agents: "Searching the network", agent_details: "Reading the agent's record", compare_agents: "Comparing agents",
   network_pulse: "Checking the network", public_feed: "Reading the latest on Axon", hire_agent: "Preparing the hire", second_opinion: "Preparing a second opinion",
+  my_agents: "Looking at your agents", my_earnings: "Checking your earnings", withdraw_earnings: "Preparing the withdrawal", apply_improvement: "Preparing the update",
   build_agent: "Preparing the build", change_build: "Making the change", build_report: "Reading your build", pricing_advice: "Looking at what similar agents charge", publish_build: "Preparing to publish",
 };
 
@@ -157,6 +184,17 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
         const price = input.price_eth === undefined || input.price_eth === null ? undefined : Number(input.price_eth);
         const p = proposePublish(ctx, String(input.build_id ?? ""), price);
         return typeof p === "string" ? { result: { error: p }, label } : { result: { proposed: true, actionId: p.id, summary: p.summary, note: "Proposed only. Nothing is listed until the person taps Publish in the page." }, actionId: p.id, label };
+      }
+      case "my_agents": return { ...myAgents(ctx), label };
+      case "my_earnings": return { ...myEarnings(ctx), label };
+      case "withdraw_earnings": {
+        const amount = input.amount_eth === undefined || input.amount_eth === null ? undefined : Number(input.amount_eth);
+        const p = proposeWithdraw(ctx, String(input.agent_id ?? ""), amount);
+        return typeof p === "string" ? { result: { error: p }, label } : { result: { proposed: true, actionId: p.id, summary: p.summary, note: "Proposed only. Nothing is sent until the person taps Withdraw in the page; it goes to their own wallet." }, actionId: p.id, label };
+      }
+      case "apply_improvement": {
+        const p = proposeImprovement(ctx, String(input.improvement_id ?? ""));
+        return typeof p === "string" ? { result: { error: p }, label } : { result: { proposed: true, actionId: p.id, summary: p.summary, note: "Proposed only. Nothing changes until the person taps Apply in the page." }, actionId: p.id, label };
       }
       default: return { result: { error: `Mylo can't use ${name} yet.` }, label };
     }
@@ -273,5 +311,48 @@ async function pricingTool(ctx: ToolContext, input: Record<string, unknown>): Pr
       note: "A new agent with no jobs yet usually wins its first hires at or below the middle price; one with a higher tested score than its neighbours can ask more.",
     },
     card: shown.length ? { kind: "agents", title: "What similar agents charge", agents: shown } : undefined,
+  };
+}
+
+/** The person's own agents and what is going on with each. Theirs alone: found by the wallet that owns them. */
+function myAgents(ctx: ToolContext): Omit<ToolOutcome, "label"> {
+  if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." } };
+  const me = ctx.wallet.toLowerCase();
+  const ids = (getDb().prepare("SELECT agent_id FROM agents WHERE LOWER(wallet_address) = ? ORDER BY created_at DESC LIMIT 20").all(me) as { agent_id: string }[]).map((r) => r.agent_id);
+  const earned = new Map(earningsOf(me).map((e) => [e.agentId, e]));
+  const proposals = proposalsOf(me);
+  const agents = ids.map((id) => getAgentById(id)).filter((a): a is Agent => Boolean(a));
+  const rows = agents.map((a) => {
+    const c = agentCard(a), e = earned.get(a.agentId), launch = checkEligibility(a.agentId, me);
+    const remixes = getDb().prepare("SELECT agent_id, name FROM agents WHERE remix_of = ?").all(a.agentId) as { agent_id: string; name: string }[];
+    return {
+      agent_id: a.agentId, name: a.name, page: `/agents/${a.agentId}`, price_eth: c.priceEth, tested_score: c.studioScore, proof_score: c.proofScore, jobs_done: c.tasksCompleted,
+      built_in_studio: c.studioScore !== null, earned_eth: e?.earnedEth ?? null, can_withdraw_eth: e?.availableEth ?? null,
+      remixes: remixes.map((r) => ({ agent_id: r.agent_id, name: r.name })),
+      better_version_waiting: proposals.filter((p) => p.agentId === a.agentId).map((p) => ({ improvement_id: p.id, tested_before: p.fromScore, tested_now: p.toScore, from_weak_jobs: p.weakJobs })),
+      token_launch: launch.eligible ? { can_launch: true, page: `/launch/${a.agentId}` } : { can_launch: false, why_not: launch.reason },
+    };
+  });
+  return {
+    result: { agents: rows, note: rows.length ? undefined : "No agents on this wallet yet. Mylo can build one with them in Studio." },
+    card: agents.length ? { kind: "agents", title: "Your agents", agents: agents.slice(0, 8).map(agentCard) } : undefined,
+  };
+}
+
+/** What the person's Studio agents earned and can take out, and the rules for taking it out. */
+function myEarnings(ctx: ToolContext): Omit<ToolOutcome, "label"> {
+  if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." } };
+  const me = ctx.wallet.toLowerCase();
+  const list = earningsOf(me);
+  const available = +list.reduce((s, e) => s + e.availableEth, 0).toFixed(8);
+  return {
+    result: {
+      agents: list.map((e) => ({ agent_id: e.agentId, name: e.name, earned_eth: e.earnedEth, withdrawn_eth: e.withdrawnEth, can_withdraw_eth: e.availableEth })),
+      total_can_withdraw_eth: available,
+      recent_withdrawals: withdrawalsOf(me, 5).map((w) => ({ agent_id: w.agentId, amount_eth: w.amountEth, status: w.status, tx: w.txHash ? explorerTxUrl(w.txHash) : null, at: w.createdAt })),
+      rules: { least_eth: WITHDRAW.minEth, most_per_day_eth: WITHDRAW.maxPerDayEth, to: "only the wallet that owns the agent", open: withdrawalsEnabled() },
+      note: list.length ? undefined : "Only agents built in Agent Studio earn into a balance that can be withdrawn here.",
+    },
+    card: list.length ? { kind: "earnings", agents: list.map((e) => ({ agentId: e.agentId, name: e.name, earnedEth: e.earnedEth, availableEth: e.availableEth })), availableEth: available } : undefined,
   };
 }

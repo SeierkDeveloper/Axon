@@ -185,10 +185,11 @@ export const TOOLS: Record<string, ToolRule> = {
   build_report: { kind: "read", wallet: true, confirm: false, spends: false },
   publish_build: { kind: "act", wallet: true, confirm: true, spends: false },
   pricing_advice: { kind: "read", wallet: false, confirm: false, spends: false },
-  // your things
+  // your things: taking earnings out and applying a better version wait for the person's OK
   my_agents: { kind: "read", wallet: true, confirm: false, spends: false },
   my_earnings: { kind: "read", wallet: true, confirm: false, spends: false },
   withdraw_earnings: { kind: "act", wallet: true, confirm: true, spends: false },
+  apply_improvement: { kind: "act", wallet: true, confirm: true, spends: false },
   launch_agent_token: { kind: "act", wallet: true, confirm: true, spends: true },
   my_inbox: { kind: "read", wallet: true, confirm: false, spends: false },
   // memory: about yourself, so no confirmation, but only with a wallet

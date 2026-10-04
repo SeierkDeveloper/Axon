@@ -7,6 +7,9 @@
 // Phase 3 adds Studio: Mylo proposes a build from a sentence (the person taps Build it, and Studio writes the agent and
 // tests it), changes a build when asked (and retests it), and proposes publishing a tested build at a price. Builds run
 // within Studio's own daily limits; when one finishes, its score and weakest test are added to the conversation.
+//
+// Phase 4 adds the person's own things: withdrawing what their agents earned (Studio's payout sends it to the wallet
+// that owns the agent and nowhere else, within its limits) and applying a better version Axon tested for a live agent.
 
 import { randomUUID } from "crypto";
 import { NextRequest } from "next/server";
@@ -18,6 +21,10 @@ import { addMessage } from "./myloStore";
 import { getBuild, mayRun, mayStart, startDraft, tweakDraft, type Build } from "./studioDraft";
 import { roundsOf, runBuild, settleStale } from "./studioTest";
 import { publishBuild } from "./studioPublish";
+import { earningsOf, withdraw } from "./studioWithdraw";
+import { decideImprovement, proposalsOf } from "./studioImprove";
+import { WITHDRAW } from "./studioPolicy";
+import { shortWallet } from "./myloPolicy";
 import { LIMITS, MIN_PUBLISH_SCORE, PRICE_ETH } from "./studioPolicy";
 import { logger } from "./logger";
 
@@ -30,20 +37,25 @@ export const TASK_CHARS = 4_000;
 
 export interface Hire { agentId: string; name: string; price: string | null; priceEth: number | null; taskId: string | null; error: string | null }
 export type ActionStatus = "proposed" | "running" | "done" | "failed" | "cancelled";
-export type ActionKind = "hire" | "build" | "publish";
+export type ActionKind = "hire" | "build" | "publish" | "withdraw" | "improve";
 /** A build: the sentence (or the change asked for), then the Studio build and how far it has got. */
 export interface BuildDetail { sentence: string; change: string | null; buildId: string | null; name: string | null; stage: string | null; round: number; score: number | null; error: string | null; changing?: boolean }
 /** A publish: the tested build, at the price shown when it was proposed. */
 export interface PublishDetail { buildId: string; name: string; priceEth: number; score: number | null; agentId: string | null; error: string | null }
-export interface Action { id: string; conversationId: string; owner: string; wallet: string; kind: ActionKind; task: string; hires: Hire[]; detail: BuildDetail | PublishDetail | null; status: ActionStatus; resultMessageId: string | null; expiresAt: string; createdAt: string }
+/** A withdrawal: which agent's earnings, how much, to which (the owner's own) wallet, and the transaction once sent. */
+export interface WithdrawDetail { agentId: string; name: string; amountEth: number; to: string; txHash: string | null; sent: string | null; error: string | null }
+/** Applying a better version Axon tested for a live agent. */
+export interface ImproveDetail { improvementId: string; agentId: string; name: string; fromScore: number | null; toScore: number | null; error: string | null }
+export type Detail = BuildDetail | PublishDetail | WithdrawDetail | ImproveDetail;
+export interface Action { id: string; conversationId: string; owner: string; wallet: string; kind: ActionKind; task: string; hires: Hire[]; detail: Detail | null; status: ActionStatus; resultMessageId: string | null; expiresAt: string; createdAt: string }
 
 /** Studio, as Mylo uses it. Swappable in tests, so no test calls a model. */
-export const studio = { startDraft: (w: string, s: string) => startDraft(w, s), tweakDraft: (id: string, w: string, r: string) => tweakDraft(id, w, r), runBuild: (id: string) => runBuild(id), mayRun, mayStart, publishBuild };
+export const studio = { startDraft: (w: string, s: string) => startDraft(w, s), tweakDraft: (id: string, w: string, r: string) => tweakDraft(id, w, r), runBuild: (id: string) => runBuild(id), mayRun, mayStart, publishBuild, withdraw: (agentId: string, w: string, eth: number) => withdraw(agentId, w, eth), decideImprovement };
 
 const now = () => new Date().toISOString();
 
 interface Row { id: string; conversation_id: string; owner: string; wallet: string; kind: ActionKind; task: string; hires: string; detail: string | null; status: ActionStatus; result_message_id: string | null; expires_at: string; created_at: string }
-const fromRow = (r: Row): Action => ({ id: r.id, conversationId: r.conversation_id, owner: r.owner, wallet: r.wallet, kind: r.kind, task: r.task, hires: JSON.parse(r.hires) as Hire[], detail: r.detail ? (JSON.parse(r.detail) as BuildDetail | PublishDetail) : null, status: r.status, resultMessageId: r.result_message_id, expiresAt: r.expires_at, createdAt: r.created_at });
+const fromRow = (r: Row): Action => ({ id: r.id, conversationId: r.conversation_id, owner: r.owner, wallet: r.wallet, kind: r.kind, task: r.task, hires: JSON.parse(r.hires) as Hire[], detail: r.detail ? (JSON.parse(r.detail) as Detail) : null, status: r.status, resultMessageId: r.result_message_id, expiresAt: r.expires_at, createdAt: r.created_at });
 
 export function getAction(id: string, owner: string): Action | null {
   const r = getDb().prepare("SELECT * FROM mylo_actions WHERE id = ? AND owner = ?").get(id, owner) as Row | undefined;
@@ -58,7 +70,7 @@ function save(a: Action) {
   getDb().prepare("UPDATE mylo_actions SET hires = ?, detail = ?, status = ?, result_message_id = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(a.hires), a.detail ? JSON.stringify(a.detail) : null, a.status, a.resultMessageId, now(), a.id);
 }
 
-function insert(ctx: { owner: string; wallet: string; conversationId: string }, kind: ActionKind, task: string, hires: Hire[], detail: BuildDetail | PublishDetail | null, status: ActionStatus = "proposed"): string {
+function insert(ctx: { owner: string; wallet: string; conversationId: string }, kind: ActionKind, task: string, hires: Hire[], detail: Detail | null, status: ActionStatus = "proposed"): string {
   const id = randomUUID(), at = now(), expires = new Date(Date.now() + PROPOSAL_MINUTES * 60_000).toISOString();
   getDb().prepare("INSERT INTO mylo_actions (id, conversation_id, owner, wallet, kind, task, hires, detail, status, expires_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
     .run(id, ctx.conversationId, ctx.owner, ctx.wallet.toLowerCase(), kind, task, JSON.stringify(hires), detail ? JSON.stringify(detail) : null, status, expires, at, at);
@@ -69,6 +81,8 @@ function insert(ctx: { owner: string; wallet: string; conversationId: string }, 
 export function summaryOf(a: Pick<Action, "hires"> & Partial<Pick<Action, "kind" | "detail">>): string {
   if (a.kind === "build") { const d = a.detail as BuildDetail; return d.change ? `Change ${d.name ?? "the agent"}: "${d.change}", then test it again.` : `Build an agent: "${d.sentence}".`; }
   if (a.kind === "publish") { const d = a.detail as PublishDetail; return `Publish ${d.name} on Axon at ${d.priceEth} ETH a task.`; }
+  if (a.kind === "withdraw") { const d = a.detail as WithdrawDetail; return `Withdraw ${d.amountEth} ETH that ${d.name} earned, to your wallet ${shortWallet(d.to)}.`; }
+  if (a.kind === "improve") { const d = a.detail as ImproveDetail; return `Apply the better version of ${d.name}${d.fromScore !== null && d.toScore !== null ? ` (tested ${d.fromScore} before, ${d.toScore} now)` : ""}.`; }
   const cost = a.hires.reduce((s, h) => s + (h.priceEth ?? 0), 0);
   const who = a.hires.map((h) => `${h.name} (${h.priceEth === null ? "free" : `${h.priceEth} ETH`})`).join(" and ");
   return `Hire ${who} for this task${cost > 0 ? `, ${+cost.toFixed(8)} ETH in total` : ""}.`;
@@ -144,6 +158,37 @@ export async function changeBuild(ctx: { wallet: string | null; owner: string; c
   return { id, summary: summaryOf({ hires: [], kind: "build", detail }) };
 }
 
+/**
+ * Write down taking out what one of the person's agents earned, for them to confirm. The money can only go to the
+ * wallet that owns the agent; the amount is everything it can take out unless they name less.
+ */
+export function proposeWithdraw(ctx: { wallet: string | null; owner: string; conversationId: string }, agentId: string, amountEth?: number): { id: string; summary: string } | string {
+  if (!ctx.wallet) return "Sign in with your wallet first.";
+  const me = ctx.wallet.toLowerCase();
+  const e = earningsOf(me).find((x) => x.agentId === agentId);
+  if (!e) return "That isn't one of your Studio agents. Withdrawals are open for agents built in Agent Studio.";
+  if (e.availableEth < WITHDRAW.minEth) return `${e.name} has ${e.availableEth} ETH to take out; the least you can withdraw is ${WITHDRAW.minEth} ETH.`;
+  const amount = amountEth === undefined ? e.availableEth : amountEth;
+  if (!Number.isFinite(amount) || amount < WITHDRAW.minEth) return `The least you can withdraw is ${WITHDRAW.minEth} ETH.`;
+  if (amount > e.availableEth) return `${e.name} has ${e.availableEth} ETH to take out, less than that.`;
+  if (amount > WITHDRAW.maxPerDayEth) return `At most ${WITHDRAW.maxPerDayEth} ETH can go out per day.`;
+  const detail: WithdrawDetail = { agentId, name: e.name, amountEth: amount, to: me, txHash: null, sent: null, error: null };
+  const id = insert({ ...ctx, wallet: me }, "withdraw", `withdraw ${amount} ETH from ${agentId}`, [], detail);
+  return { id, summary: summaryOf({ hires: [], kind: "withdraw", detail }) };
+}
+
+/** Write down applying a better version Axon tested for one of the person's live agents, for them to confirm. */
+export function proposeImprovement(ctx: { wallet: string | null; owner: string; conversationId: string }, improvementId: string): { id: string; summary: string } | string {
+  if (!ctx.wallet) return "Sign in with your wallet first.";
+  const me = ctx.wallet.toLowerCase();
+  const p = proposalsOf(me).find((x) => x.id === improvementId);
+  if (!p) return "There's no open improvement with that id for your agents.";
+  const name = getAgentById(p.agentId)?.name ?? p.agentId;
+  const detail: ImproveDetail = { improvementId, agentId: p.agentId, name, fromScore: p.fromScore, toScore: p.toScore, error: null };
+  const id = insert({ ...ctx, wallet: me }, "improve", `apply improvement ${improvementId}`, [], detail);
+  return { id, summary: summaryOf({ hires: [], kind: "improve", detail }) };
+}
+
 /** Write down publishing one of the person's tested builds, at a price, for them to confirm. */
 export function proposePublish(ctx: { wallet: string | null; owner: string; conversationId: string }, buildId: string, priceEth?: number): { id: string; summary: string } | string {
   if (!ctx.wallet) return "Sign in with your wallet first.";
@@ -195,6 +240,8 @@ export async function confirmAction(id: string, owner: string, wallet: string, c
   a.status = "running";
   if (a.kind === "build") return confirmBuild(a, wallet);
   if (a.kind === "publish") return confirmPublish(a, wallet);
+  if (a.kind === "withdraw") return confirmWithdraw(a, wallet);
+  if (a.kind === "improve") return confirmImprove(a, wallet);
 
   for (const h of a.hires) {
     const agent = getAgentById(h.agentId);
@@ -255,6 +302,26 @@ async function confirmPublish(a: Action, wallet: string): Promise<Action> {
   return a;
 }
 
+/** Send the earnings, through Studio's payout: to the owner's wallet only, under its floor and daily ceiling. */
+async function confirmWithdraw(a: Action, wallet: string): Promise<Action> {
+  const d = a.detail as WithdrawDetail;
+  const w = await studio.withdraw(d.agentId, wallet, d.amountEth);
+  if (typeof w === "string") { a.detail = { ...d, error: w }; a.status = "failed"; }
+  else if (w.status === "failed") { a.detail = { ...d, error: w.error ?? "The payout didn't go through. Nothing left your earnings." }; a.status = "failed"; }
+  else a.detail = { ...d, txHash: w.txHash, sent: w.status };
+  save(a);
+  return a;
+}
+
+async function confirmImprove(a: Action, wallet: string): Promise<Action> {
+  const d = a.detail as ImproveDetail;
+  const r = studio.decideImprovement(d.improvementId, wallet, true);
+  a.detail = typeof r === "string" ? { ...d, error: r } : { ...d, error: null };
+  if (typeof r === "string") a.status = "failed";
+  save(a);
+  return a;
+}
+
 const short = (s: string | null | undefined, n: number) => (!s ? "" : s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const STUDIO_DONE = new Set(["ready", "stopped", "failed", "published"]);
 
@@ -286,6 +353,8 @@ export function refreshAction(id: string, owner: string): { action: Action; task
   if (!a) return "No such proposal.";
   if (a.kind === "build") return refreshBuild(a);
   if (a.kind === "publish") return refreshPublish(a);
+  if (a.kind === "withdraw") return refreshWithdraw(a);
+  if (a.kind === "improve") return refreshImprove(a);
   const tasks = a.hires.map((h) => {
     const t = h.taskId ? getTaskById(h.taskId) : null;
     return { agentId: h.agentId, status: t?.status ?? null, output: t?.status === "completed" ? (t.output ?? null) : null, error: h.error ?? (t?.status === "failed" ? (t.error ?? "It failed.") : null) };
@@ -345,6 +414,19 @@ function refreshPublish(a: Action): Refresh {
   const d = a.detail as PublishDetail;
   if (a.status !== "running" || !d.agentId) return { action: a, tasks: [], message: null };
   return finishWith(a, `**${d.name}** is live on Axon at ${d.priceEth} ETH a task: [/agents/${d.agentId}](/agents/${d.agentId}). Anyone can hire it now, and what it earns is yours.`, "done");
+}
+
+function refreshWithdraw(a: Action): Refresh {
+  const d = a.detail as WithdrawDetail;
+  if (a.status !== "running" || !d.sent) return { action: a, tasks: [], message: null };
+  const what = `${d.amountEth} ETH that **${d.name}** earned`;
+  return finishWith(a, d.sent === "sent" ? `Sent ${what} to your wallet ${shortWallet(d.to)}. The transaction is on the card above.` : `${what} is on its way to your wallet ${shortWallet(d.to)}. The transaction is on the card above.`, "done");
+}
+
+function refreshImprove(a: Action): Refresh {
+  const d = a.detail as ImproveDetail;
+  if (a.status !== "running") return { action: a, tasks: [], message: null };
+  return finishWith(a, `**${d.name}** now runs the better version${d.toScore !== null ? `, which tested ${d.toScore}/10` : ""}. Its next jobs use it.`, "done");
 }
 
 /** What the page shows for a proposal. Public facts about the agents and the person's own task only. */
