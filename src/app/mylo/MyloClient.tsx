@@ -163,7 +163,7 @@ export default function MyloClient() {
 
   const empty = msgs.length === 0;
   const signedIn = Boolean(apiKey);
-  const out = left !== null && left.left <= 0;
+  const out = signedIn && left !== null && left.left <= 0;
 
   return (
     <div className="relative min-h-[calc(100vh-3.5rem)]">
