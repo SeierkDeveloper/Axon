@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import AgentCore, { type CoreState } from "@/components/AgentCore";
 import MarkdownOutput from "@/components/MarkdownOutput";
 import { useWallet } from "@/components/WalletProvider";
@@ -323,8 +324,9 @@ export default function MyloClient() {
         {empty && <MyloFeed />}
       </div>
 
-      {/* what Mylo remembers, and the way to make it forget */}
-      {memory !== null && (
+      {/* what Mylo remembers, and the way to make it forget: drawn on the page body, so the page's own transitions can't
+          pin it partway down the page */}
+      {memory !== null && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true" aria-label="What Mylo remembers" onClick={() => setMemory(null)}>
           <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-gray-200 bg-white p-5 shadow-xl dark:border-gray-800 dark:bg-gray-950" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between gap-3">
@@ -353,7 +355,8 @@ export default function MyloClient() {
               </>
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
