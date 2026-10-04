@@ -172,6 +172,9 @@ describe("Mylo never promises a card it didn't make", () => {
     let calls = 0;
     await run({ owner: me, wallet: me, speaker: "base", text: "Forget my budget" }, async (_a, onText) => { calls++; const t = calls === 1 ? "Done. I've cleared that from memory." : "Nothing was forgotten yet."; onText(t); return { blocks: [{ type: "text", text: t }], stop: "end_turn" }; });
     expect(calls).toBe(2);
+    let c3 = 0;
+    await run({ owner: me, wallet: me, speaker: "base", text: "Stop that job" }, async (_a, onText) => { c3++; const t = c3 === 1 ? "Done. I've stopped the Release Notes Writer autopilot job." : "Nothing was stopped yet."; onText(t); return { blocks: [{ type: "text", text: t }], stop: "end_turn" }; });
+    expect(c3).toBe(2);
     let c2 = 0;
     await run({ owner: me, wallet: me, speaker: "base", text: "Forget my budget" }, async (_a, onText) => {
       c2++;

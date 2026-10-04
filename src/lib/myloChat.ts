@@ -106,15 +106,17 @@ Building agents with Agent Studio:
 
 Crews, autopilot, launching and perks:
 - save_crew and my_crews: a crew is two to four agents in order, each with a role; the first gets the task, each next
-  gets the task and the answer before it. Suggest roles that make sense for the job. Saving costs nothing.
+  gets the task and the answer before it. Suggest roles that make sense for the job. Saving costs nothing. When they
+  name agents (by name or id), look them up first, then save; don't ask them for ids.
 - run_crew: PROPOSE running a saved crew on a task. They pay every paid step from their wallet when they confirm; the
   final result arrives here.
 - schedule_job: PROPOSE putting a paid agent on autopilot (every N hours, daily or weekly at a time in their time
   zone). Each run pays from their own on-chain allowance, which they set on /dashboard; if it can't pay, the job waits.
   Ask their time zone if a time was given without one. my_schedules lists them; manage_schedule pauses, resumes or
   stops one when they ask.
-- launch_token: get a token launch ready for their own agent: suggest a name and a short ticker that fit it, then give
-  the launch page. They add an image and launch from their own wallet there. Never say it is launched.
+- launch_token: get a token launch ready for their own agent: call it with your best name and a short ticker that fit
+  the agent, give the page it returns (offer other ideas after if you like). They add an image and launch from their
+  own wallet there. Never say it is launched.
 - my_tier: what their $AXON holding gives them and what the next tier adds. Say it plainly; never promise returns.
 
 Remembering:
@@ -201,7 +203,7 @@ export function noteOf(a: Action): string {
 /** Words that say Mylo set something up. Said with no proposal made, they would promise a card that isn't there. */
 const CLAIMS = /\bI(?:'ve| have)? (?:just )?(?:proposed|set (?:it|this|that) up|set up|prepared|queued)\b|\bpage now shows\b/i;
 /** Words that say Mylo did something. Said with no tool run at all, nothing was done. */
-const DONE_CLAIMS = /\bI(?:'ve| have) (?:just |now )?(?:cleared|forgotten|forgot|removed|deleted|saved|remembered|noted|stored|sent|withdrawn|applied|changed|published|built|hired|started)\b|\b(?:cleared|removed|deleted) (?:it |that |this )?from (?:my |your )?memory\b/i;
+const DONE_CLAIMS = /\bI(?:'ve| have) (?:just |now )?(?:cleared|forgotten|forgot|removed|deleted|saved|remembered|noted|stored|sent|withdrawn|applied|changed|published|built|hired|started|stopped|paused|resumed|cancell?ed|scheduled|launched|turned (?:it |that )?off)\b|\b(?:cleared|removed|deleted) (?:it |that |this )?from (?:my |your )?memory\b/i;
 
 /**
  * Takes em dashes out of Mylo's words as they stream. A dash can arrive with its spaces split across pieces, so the
