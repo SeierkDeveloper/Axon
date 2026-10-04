@@ -26,9 +26,12 @@ export async function POST(req: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         const emit = (e: MyloEvent) => { try { controller.enqueue(enc.encode(`${JSON.stringify(e)}\n`)); } catch { /* the page went away */ } };
+        // an empty line every few seconds, so a slow step never looks idle to a proxy; the page skips empty lines
+        const alive = setInterval(() => { try { controller.enqueue(enc.encode("\n")); } catch { /* closed */ } }, 8_000);
         try {
           await runTurn({ owner: caller.owner, limitKey: caller.limitKey, addressKey: caller.addressKey, wallet: caller.wallet, speaker: caller.speaker, text: body.text as string, conversationId }, emit);
         } finally {
+          clearInterval(alive);
           inFlight.delete(caller.limitKey);
           try { controller.close(); } catch { /* already closed */ }
         }

@@ -104,8 +104,20 @@ describe("Mylo's Studio tools", () => {
     const w = wallet(), c = ctx(w), b = makeBuild(w, "ready", 7);
     studio.tweakDraft = async (id, who, change) => { expect(change).toBe("Put upgrade steps first"); getDb().prepare("UPDATE studio_builds SET status = 'drafted', score = NULL WHERE id = ?").run(id); return getBuild(id)!; };
     const out = await runTool("change_build", { build_id: b.id, change: "Put upgrade steps first" }, c);
+    // the writer runs in the background: the reply doesn't wait for it, and the card follows it
     expect(getAction(out.actionId!, w)).toMatchObject({ kind: "build", status: "running", detail: { buildId: b.id, change: "Put upgrade steps first" } });
+    await new Promise((r) => setTimeout(r, 10));
     expect(calls).toEqual([`run:${b.id}`]);
+    expect(getAction(out.actionId!, w)!.detail).toMatchObject({ changing: false, stage: "testing" });
+    // a change the writer can't make is said plainly in the conversation, and nothing is retested
+    const other = makeBuild(w, "ready", 7);
+    studio.tweakDraft = async () => "That change could not be made: try saying it another way.";
+    const bad = await runTool("change_build", { build_id: other.id, change: "Make it purple" }, c);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(getAction(bad.actionId!, w)).toMatchObject({ status: "failed" });
+    expect(historyOf(c.conversationId, 10).at(-1)!.content).toBe("That change could not be made: try saying it another way.");
+    expect(calls).toEqual([`run:${b.id}`]);
+    expect((await runTool("change_build", { build_id: makeBuild(w, "testing", null).id, change: "shorter" }, c)).result).toMatchObject({ error: expect.stringMatching(/Wait for it to finish/) });
     const theirs = makeBuild(wallet(), "ready", 7);
     expect((await runTool("change_build", { build_id: theirs.id, change: "x y z" }, c)).result).toMatchObject({ error: "That isn't one of your builds." });
   });

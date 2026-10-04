@@ -18,7 +18,7 @@ export type CardData =
   | { kind: "compare"; agents: AgentCardData[] }
   | { kind: "pulse"; agents: number; activeAgents: number; tasksToday: number; successRate: number; burned: number | null; burns: number | null; lastCheck: { at: string; checks: number | null } | null };
 
-export interface BuildDetail { sentence: string; change: string | null; buildId: string | null; name: string | null; stage: string | null; round: number; score: number | null; error: string | null }
+export interface BuildDetail { sentence: string; change: string | null; buildId: string | null; name: string | null; stage: string | null; round: number; score: number | null; error: string | null; changing?: boolean }
 export interface PublishDetail { buildId: string; name: string; priceEth: number; score: number | null; agentId: string | null; error: string | null }
 export interface ActionView { id: string; kind?: "hire" | "build" | "publish"; detail?: BuildDetail | PublishDetail | null; status: "proposed" | "running" | "done" | "failed" | "cancelled"; task: string; summary: string; expiresAt: string; hires: { agentId: string; name: string; price: string | null; priceEth: number | null; taskId: string | null; error: string | null }[]; payTo: string | null }
 
@@ -186,7 +186,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
   const label = build ? (build.change ? "Change and retest" : "Build") : pub ? "Publish" : a.hires.length > 1 ? "Second opinion" : "Hire";
   const doneWord = build ? "Built" : pub ? "Live" : "Done";
   const badge = { proposed: expired ? "Expired" : "Waiting for your OK", running: build ? "Building" : pub ? "Publishing" : "Working", done: doneWord, failed: "Didn't finish", cancelled: "Cancelled" }[a.status];
-  const stage = build ? ({ drafting: "Writing the agent", drafted: "Getting ready to test", testing: `Testing${build.round ? `, round ${build.round + 1}` : ""}`, improving: `Improving after round ${build.round}` } as Record<string, string>)[build.stage ?? ""] ?? "Starting" : null;
+  const stage = build ? ({ changing: "Making the change", drafting: "Writing the agent", drafted: "Getting ready to test", testing: `Testing${build.round ? `, round ${build.round + 1}` : ""}`, improving: `Improving after round ${build.round}` } as Record<string, string>)[build.stage ?? ""] ?? "Starting" : null;
   const studioLink = build?.buildId ? `/studio?build=${build.buildId}` : null;
   return (
     <div className={`mt-3 rounded-2xl border p-4 ${a.status === "proposed" && !expired ? "border-gray-900 dark:border-white" : "border-gray-200 dark:border-gray-800"} bg-white dark:bg-gray-950`}>

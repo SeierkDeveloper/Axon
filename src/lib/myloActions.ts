@@ -32,7 +32,7 @@ export interface Hire { agentId: string; name: string; price: string | null; pri
 export type ActionStatus = "proposed" | "running" | "done" | "failed" | "cancelled";
 export type ActionKind = "hire" | "build" | "publish";
 /** A build: the sentence (or the change asked for), then the Studio build and how far it has got. */
-export interface BuildDetail { sentence: string; change: string | null; buildId: string | null; name: string | null; stage: string | null; round: number; score: number | null; error: string | null }
+export interface BuildDetail { sentence: string; change: string | null; buildId: string | null; name: string | null; stage: string | null; round: number; score: number | null; error: string | null; changing?: boolean }
 /** A publish: the tested build, at the price shown when it was proposed. */
 export interface PublishDetail { buildId: string; name: string; priceEth: number; score: number | null; agentId: string | null; error: string | null }
 export interface Action { id: string; conversationId: string; owner: string; wallet: string; kind: ActionKind; task: string; hires: Hire[]; detail: BuildDetail | PublishDetail | null; status: ActionStatus; resultMessageId: string | null; expiresAt: string; createdAt: string }
@@ -110,23 +110,37 @@ export async function proposeBuild(ctx: { wallet: string | null; owner: string; 
 
 /**
  * Change one of the person's builds as they asked and test it again. Their own unlisted draft and nothing else, so it
- * needs no confirmation; it is followed like a build, and the new score arrives in the conversation.
+ * needs no confirmation. The writer can take a minute, so the change runs in the background and is followed like a
+ * build: the card shows it being made, then tested, and the new score arrives in the conversation.
  */
 export async function changeBuild(ctx: { wallet: string | null; owner: string; conversationId: string }, buildId: string, change: string): Promise<{ id: string; summary: string } | string> {
   if (!ctx.wallet) return "Sign in with your wallet first.";
+  const me = ctx.wallet.toLowerCase();
   const b = getBuild(buildId);
-  if (!b || b.wallet !== ctx.wallet.toLowerCase()) return "That isn't one of your builds.";
-  const done = await studio.tweakDraft(buildId, ctx.wallet, change);
-  if (typeof done === "string") return done;
-  const room = studio.mayRun(ctx.wallet);
-  const detail = buildDetail(b.sentence, change.trim(), done);
-  if (!room.ok) {
-    detail.error = room.reason;
-    const id = insert({ ...ctx, wallet: ctx.wallet }, "build", b.sentence, [], detail, "failed");
-    return { id, summary: `Changed ${done.draft?.name ?? "it"}, but it can't be retested right now: ${room.reason}` };
-  }
-  const id = insert({ ...ctx, wallet: ctx.wallet }, "build", b.sentence, [], { ...detail, stage: "testing" }, "running");
-  void studio.runBuild(buildId).catch((err) => logger.warn("mylo.retest_failed", "A retest Mylo started threw", { buildId, reason: err instanceof Error ? err.message : String(err) }));
+  if (!b || b.wallet !== me) return "That isn't one of your builds.";
+  if (!b.draft) return "This build has no draft to change yet.";
+  if (b.status === "published") return "This agent is live, so this build can't change any more. Start a new build for a different version.";
+  if (!["drafted", "ready", "stopped"].includes(b.status)) return `This build is ${b.status}. Wait for it to finish first.`;
+  const ask = change.replace(/\s+/g, " ").trim();
+  if (ask.length < 3) return "Say what to change.";
+  if (ask.length > LIMITS.sentenceChars) return `Keep a change to ${LIMITS.sentenceChars} characters.`;
+  const room = studio.mayRun(me);
+  if (!room.ok) return room.reason;
+  const detail: BuildDetail = { ...buildDetail(b.sentence, ask, b), stage: "changing", changing: true };
+  const id = insert({ ...ctx, wallet: me }, "build", b.sentence, [], detail, "running");
+  void (async () => {
+    const done = await studio.tweakDraft(buildId, me, ask).catch((err: unknown) => (err instanceof Error ? err.message : "The writer did not answer."));
+    const a = getAction(id, ctx.owner);
+    if (!a) return;
+    if (typeof done === "string") {
+      a.detail = { ...(a.detail as BuildDetail), changing: false, stage: null, error: done };
+      finishWith(a, /^that change/i.test(done) ? done : `That change couldn't be made: ${done}`, "failed");
+      return;
+    }
+    a.detail = { ...(a.detail as BuildDetail), changing: false, stage: "testing", name: done.draft?.name ?? null };
+    save(a);
+    await studio.runBuild(buildId);
+  })().catch((err) => logger.warn("mylo.change_failed", "A change Mylo started threw", { buildId, reason: err instanceof Error ? err.message : String(err) }));
   return { id, summary: summaryOf({ hires: [], kind: "build", detail }) };
 }
 
@@ -317,7 +331,8 @@ function finishWith(a: Action, content: string, status: "done" | "failed"): Refr
 /** Follow a running build: its stage, round and score as Studio has them; when it finishes, its result, once. */
 function refreshBuild(a: Action): Refresh {
   const d = a.detail as BuildDetail;
-  if (a.status !== "running" || !d.buildId) return { action: a, tasks: [], message: null };
+  // a change still being written leaves the build as it was: nothing to follow yet
+  if (a.status !== "running" || !d.buildId || d.changing) return { action: a, tasks: [], message: null };
   settleStale(d.buildId);
   const b = getBuild(d.buildId);
   if (!b) return finishWith(a, "That build is gone, so I stopped following it.", "failed");

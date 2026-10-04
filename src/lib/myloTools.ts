@@ -149,7 +149,7 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
       }
       case "change_build": {
         const p = await changeBuild(ctx, String(input.build_id ?? ""), String(input.change ?? ""));
-        return typeof p === "string" ? { result: { error: p }, label } : { result: { changed: true, actionId: p.id, summary: p.summary, note: "The change is made and the agent is being tested again; the new score arrives here when it finishes. Don't guess the score." }, actionId: p.id, label };
+        return typeof p === "string" ? { result: { error: p }, label } : { result: { changed: true, actionId: p.id, summary: p.summary, note: "The change is being made now and then the agent is tested again; the card shows its progress and the new score arrives here when it finishes. Say that in a sentence. Don't guess the score." }, actionId: p.id, label };
       }
       case "build_report": return { ...buildReport(ctx, input.build_id ? String(input.build_id) : null), label };
       case "pricing_advice": return { ...(await pricingTool(ctx, input)), label };
