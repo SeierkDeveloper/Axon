@@ -26,6 +26,7 @@ import { checkOperatorGas } from "../lib/allowanceGas";
 import { runDueRetainers, settleRetainerRuns, sweepStrandedRuns } from "../lib/retainerRunner";
 import { deliverRetainerWebhooks } from "../lib/retainerWebhooks";
 import { launch, drain, inFlightCount } from "./inflight";
+import { runMyloPass } from "../lib/myloPass";
 
 // Agents that append live market prices to their task message
 const PRICE_AGENTS = new Set(["crypto-agent", "trading-agent"]);
@@ -39,6 +40,8 @@ const THRESHOLD_INTERVAL_MS = 5 * 60 * 1000;
 const ALLOWANCE_INTERVAL_MS = 60 * 1000;
 /** Retainers are scheduled to the minute; a tick a minute keeps every run inside its on-time window. */
 const RETAINER_INTERVAL_MS = 60 * 1000;
+/** Mylo looks at what happened on Axon (for its public feed and people's inboxes) every few minutes. */
+const MYLO_PASS_INTERVAL_MS = 5 * 60 * 1000;
 const SHUTDOWN_TIMEOUT_MS = Number.parseInt(process.env.AXON_WORKER_SHUTDOWN_TIMEOUT_MS ?? "25000", 10);
 // 10 min. Sized for a single inference (up to 3 retries × 120 s provider
 // timeout); a tool-granted agent spends it across several model calls plus the
@@ -105,6 +108,7 @@ let thresholdTimer: NodeJS.Timeout | null = null;
 let allowanceTimer: NodeJS.Timeout | null = null;
 let allowanceRunning = false;
 let retainerTimer: NodeJS.Timeout | null = null;
+let myloTimer: NodeJS.Timeout | null = null;
 let retainerRunning = false;
 let activePoll: Promise<void> | null = null;
 let activeHealthCheck: Promise<void> | null = null;
@@ -457,6 +461,10 @@ function clearTimers(): void {
     clearInterval(allowanceTimer);
     allowanceTimer = null;
   }
+  if (myloTimer) {
+    clearInterval(myloTimer);
+    myloTimer = null;
+  }
   if (retainerTimer) {
     clearInterval(retainerTimer);
     retainerTimer = null;
@@ -651,6 +659,11 @@ export async function startWorkerLoops(): Promise<void> {
       .catch((err) => logger.error("retainer.tick_failed", "Retainer tick failed", { err }))
       .finally(() => { retainerRunning = false; });
   }, RETAINER_INTERVAL_MS);
+
+  // Mylo: what happened, for its public feed and people's inboxes. Reads the database only; never throws out of the loop.
+  const myloPass = () => { try { runMyloPass(); } catch (err) { logger.warn("mylo.pass_failed", "Mylo's pass failed", { err }); } };
+  myloPass();
+  myloTimer = setInterval(myloPass, MYLO_PASS_INTERVAL_MS);
 }
 
 // Run the full standalone worker (own signal + crash handling) only when launched

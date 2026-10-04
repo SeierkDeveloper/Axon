@@ -5,6 +5,7 @@ import AgentCore, { type CoreState } from "@/components/AgentCore";
 import MarkdownOutput from "@/components/MarkdownOutput";
 import { useWallet } from "@/components/WalletProvider";
 import { ActionCard, Card, type ActionView, type CardData } from "./MyloCards";
+import MyloFeed from "./MyloFeed";
 
 // Mylo's page: Mylo centred and large, its name under it, then the conversation, the box to type in and, before the
 // first message, things to ask. Talking to Mylo needs a signed-in wallet; without one the box is a sign-in button.
@@ -15,6 +16,7 @@ import { ActionCard, Card, type ActionView, type CardData } from "./MyloCards";
 
 interface Msg { id: string; role: "user" | "assistant"; content: string; failed?: boolean; cards?: CardData[]; actions?: ActionView[]; working?: string | null }
 interface Conv { id: string; title: string | null; updatedAt: string }
+interface Notice { id: string; kind: string; title: string; body: string | null; link: string | null; readAt: string | null; createdAt: string }
 
 const SUGGESTIONS = [
   "What can I do on Axon?",
@@ -47,6 +49,7 @@ export default function MyloClient() {
   const [face, setFace] = useState<CoreState>("idle");
   const [left, setLeft] = useState<{ left: number; perDay: number; signedIn: boolean } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [inbox, setInbox] = useState<{ notices: Notice[]; unread: number }>({ notices: [], unread: 0 });
   const endRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const faceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -66,6 +69,20 @@ export default function MyloClient() {
     setConvs(j.conversations);
     setLeft({ left: j.left, perDay: j.perDay, signedIn: j.signedIn });
   }, [headers]);
+
+  // what Mylo noticed for this wallet: fetched when signed in, and again after each answer (reading it marks it read)
+  const fetchInbox = useCallback(() => fetch("/api/mylo/inbox", { headers: headers(), cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null) as Promise<{ notices: Notice[]; unread: number } | null>, [headers]);
+  const loadInbox = useCallback(async () => { const j = await fetchInbox(); if (j) setInbox(j); }, [fetchInbox]);
+  useEffect(() => {
+    if (!apiKey) return;
+    let alive = true;
+    void fetchInbox().then((j) => { if (alive && j) setInbox(j); });
+    return () => { alive = false; };
+  }, [apiKey, fetchInbox]);
+  const markAllRead = async () => {
+    await fetch("/api/mylo/inbox", { method: "POST", headers: headers(), body: "{}" }).catch(() => null);
+    void loadInbox();
+  };
 
   // signing in or out changes whose conversations these are: start fresh and load theirs
   useEffect(() => {
@@ -150,6 +167,7 @@ export default function MyloClient() {
       setMsgs((m) => m.map((x) => (x.id === reply.id ? { ...x, working: null } : x)));
       setSending(false);
       void loadList();
+      void loadInbox();
       boxRef.current?.focus();
     }
   };
@@ -166,6 +184,7 @@ export default function MyloClient() {
 
   const empty = msgs.length === 0;
   const signedIn = Boolean(apiKey);
+  const unread = signedIn ? inbox.notices.filter((n) => !n.readAt) : [];
   const out = signedIn && left !== null && left.left <= 0;
 
   return (
@@ -204,6 +223,29 @@ export default function MyloClient() {
           </div>
         )}
 
+        {/* what Mylo noticed for this wallet while they were away */}
+        {empty && unread.length > 0 && (
+          <div className="mt-10 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-950">
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-gray-400">While you were away</p>
+              <span className="rounded-full bg-gray-900 px-2.5 py-0.5 text-[11px] font-semibold text-white dark:bg-white dark:text-gray-900">{inbox.unread} new</span>
+            </div>
+            <ul className="mt-3 space-y-2.5">
+              {unread.slice(0, 3).map((n) => (
+                <li key={n.id} className="text-sm">
+                  <p className="font-semibold text-gray-900 dark:text-white">{n.title}</p>
+                  {n.body && <p className="mt-0.5 text-gray-500 dark:text-gray-400">{n.body}</p>}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => void send("What did I miss?")} disabled={sending || out}
+                className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">Ask Mylo about it</button>
+              <button type="button" onClick={() => void markAllRead()} className="px-2 py-2 text-sm text-gray-500 underline-offset-2 hover:underline">Mark all read</button>
+            </div>
+          </div>
+        )}
+
         {/* the box to type in, or for someone not signed in the way to sign in: pinned to the bottom on a solid strip
             once there is a conversation, so it scrolls away behind it */}
         <div className={`mylo-input-bar sticky bottom-0 z-10 bg-background pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] ${empty ? "mt-10" : "mt-8"}`}>
@@ -232,6 +274,9 @@ export default function MyloClient() {
             <div className="mt-2 flex items-center justify-between gap-3 px-1 text-xs text-gray-400">
               <span className="min-w-0 truncate">
                 {left ? <>{left.left} of {left.perDay}<span className="hidden sm:inline"> messages</span> left today</> : " "}
+                {!empty && unread.length > 0 && (
+                  <> · <button type="button" onClick={() => void send("What did I miss?")} disabled={sending || out} className="font-semibold text-gray-900 underline underline-offset-2 dark:text-white">{inbox.unread} new</button></>
+                )}
               </span>
               <span className="flex shrink-0 items-center gap-3">
                 {!empty && <button type="button" onClick={fresh} className="whitespace-nowrap underline underline-offset-2 hover:text-gray-900 dark:hover:text-white"><span className="sm:hidden">New</span><span className="hidden sm:inline">New conversation</span></button>}
@@ -259,6 +304,9 @@ export default function MyloClient() {
             ))}
           </div>
         )}
+
+        {/* Mylo thinking in public, for everyone, while no conversation is open */}
+        {empty && <MyloFeed />}
       </div>
     </div>
   );

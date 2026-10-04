@@ -13,7 +13,7 @@ import { getNetworkStats } from "./analytics";
 import { getLatestNetworkRun, publicSummary } from "./autonomyNetwork";
 import { getBurnLive } from "./burnLive";
 import { toolGate, TURN_BUDGET } from "./myloPolicy";
-import { feed } from "./myloStore";
+import { feed, inboxOf, markRead } from "./myloStore";
 import { getDb } from "./db";
 import { changeBuild, proposeBuild, proposeHire, proposeImprovement, proposePublish, proposeWithdraw } from "./myloActions";
 import { earningsOf, withdrawalsOf } from "./studioWithdraw";
@@ -93,6 +93,11 @@ export const MYLO_TOOL_DEFS = [
     input_schema: { type: "object", properties: { build_id: { type: "string" }, price_eth: { type: "number" } }, required: ["build_id"] },
   },
   {
+    name: "my_inbox",
+    description: "What Mylo noticed for the person since they last looked: their agents earning, paid jobs that failed, better versions ready, agents taken out of rotation or back, remixes, withdrawals sent. Use it when they ask what they missed or what's new. Reading marks them read.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
     name: "my_agents",
     description: "The person's own agents on Axon: price, scores, jobs done, remixes others made of them, better versions Axon has tested and is waiting to apply, and whether each can launch a token (with the page to do it).",
     input_schema: { type: "object", properties: {} },
@@ -142,7 +147,7 @@ export function agentCard(a: Agent): AgentCard {
 export const TOOL_LABELS: Record<string, string> = {
   search_agents: "Searching the network", agent_details: "Reading the agent's record", compare_agents: "Comparing agents",
   network_pulse: "Checking the network", public_feed: "Reading the latest on Axon", hire_agent: "Preparing the hire", second_opinion: "Preparing a second opinion",
-  my_agents: "Looking at your agents", my_earnings: "Checking your earnings", withdraw_earnings: "Preparing the withdrawal", apply_improvement: "Preparing the update",
+  my_inbox: "Reading what's new for you", my_agents: "Looking at your agents", my_earnings: "Checking your earnings", withdraw_earnings: "Preparing the withdrawal", apply_improvement: "Preparing the update",
   build_agent: "Preparing the build", change_build: "Making the change", build_report: "Reading your build", pricing_advice: "Looking at what similar agents charge", publish_build: "Preparing to publish",
 };
 
@@ -184,6 +189,13 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
         const price = input.price_eth === undefined || input.price_eth === null ? undefined : Number(input.price_eth);
         const p = proposePublish(ctx, String(input.build_id ?? ""), price);
         return typeof p === "string" ? { result: { error: p }, label } : { result: { proposed: true, actionId: p.id, summary: p.summary, note: "Proposed only. Nothing is listed until the person taps Publish in the page." }, actionId: p.id, label };
+      }
+      case "my_inbox": {
+        if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." }, label };
+        const items = inboxOf(ctx.wallet, false, 15);
+        const unread = items.filter((n) => !n.readAt);
+        markRead(ctx.wallet, unread.map((n) => n.id));
+        return { result: { new: unread.map((n) => ({ what: n.title, detail: n.body, link: n.link, at: n.createdAt })), earlier: items.filter((n) => n.readAt).slice(0, 5).map((n) => ({ what: n.title, at: n.createdAt })), note: items.length ? undefined : "Nothing yet. Mylo tells them here when their agents earn, need attention or get better." }, label };
       }
       case "my_agents": return { ...myAgents(ctx), label };
       case "my_earnings": return { ...myEarnings(ctx), label };

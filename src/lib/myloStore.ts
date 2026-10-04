@@ -107,15 +107,19 @@ export function memoryOf(wallet: string): Fact[] {
 export interface Notice { id: string; kind: string; title: string; body: string | null; link: string | null; readAt: string | null; createdAt: string }
 
 /** Leave a wallet a notice. The same event (dedupeKey) lands once, however often it is noticed. Returns false if it was already there. */
-export function notify(wallet: string, kind: string, title: string, body: string | null, link: string | null, dedupeKey: string): boolean {
+export function notify(wallet: string, kind: string, title: string, body: string | null, link: string | null, dedupeKey: string, at: string = now()): boolean {
   const w = wallet.toLowerCase(), db = getDb();
   const added = db.prepare("INSERT OR IGNORE INTO mylo_inbox (id, wallet, kind, title, body, link, dedupe_key, created_at) VALUES (?,?,?,?,?,?,?,?)")
-    .run(randomUUID(), w, kind, title.slice(0, 140), body?.slice(0, 600) ?? null, link, dedupeKey, now()).changes > 0;
+    .run(randomUUID(), w, kind, title.slice(0, 140), body?.slice(0, 600) ?? null, link, dedupeKey, at).changes > 0;
   if (added) {
     db.prepare("DELETE FROM mylo_inbox WHERE wallet = ? AND (created_at < ? OR id NOT IN (SELECT id FROM mylo_inbox WHERE wallet = ? ORDER BY created_at DESC LIMIT ?))")
       .run(w, new Date(Date.now() - INBOX.keepDays * 86_400_000).toISOString(), w, INBOX.perWallet);
   }
   return added;
+}
+
+export function unreadCount(wallet: string): number {
+  return (getDb().prepare("SELECT COUNT(*) n FROM mylo_inbox WHERE wallet = ? AND read_at IS NULL").get(wallet.toLowerCase()) as { n: number }).n;
 }
 
 export function inboxOf(wallet: string, unreadOnly = false, limit = 50): Notice[] {
@@ -135,9 +139,9 @@ export function markRead(wallet: string, ids?: string[]): number {
 export interface Thought { id: string; kind: FeedKind; text: string; link: string | null; createdAt: string }
 
 /** Say something in public. Only the kinds the policy lists; the same event (dedupeKey) once; past the cap, the oldest goes. */
-export function think(kind: FeedKind, text: string, link: string | null = null, dedupeKey: string | null = null): Thought | null {
+export function think(kind: FeedKind, text: string, link: string | null = null, dedupeKey: string | null = null, at: string = now()): Thought | null {
   if (!(FEED_KINDS as readonly string[]).includes(kind)) return null;
-  const id = randomUUID(), at = now(), t = text.replace(/\s+/g, " ").trim().slice(0, FEED.textChars), db = getDb();
+  const id = randomUUID(), t = text.replace(/\s+/g, " ").trim().slice(0, FEED.textChars), db = getDb();
   if (!t) return null;
   const added = db.prepare("INSERT OR IGNORE INTO mylo_feed (id, kind, text, link, dedupe_key, created_at) VALUES (?,?,?,?,?,?)").run(id, kind, t, link, dedupeKey, at).changes > 0;
   if (!added) return null;
