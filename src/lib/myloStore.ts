@@ -154,3 +154,31 @@ export function feed(limit = 50, before?: string): Thought[] {
     ? getDb().prepare("SELECT id, kind, text, link, created_at createdAt FROM mylo_feed WHERE created_at < ? ORDER BY created_at DESC LIMIT ?").all(before, limit)
     : getDb().prepare("SELECT id, kind, text, link, created_at createdAt FROM mylo_feed ORDER BY created_at DESC LIMIT ?").all(limit)) as Thought[];
 }
+
+// ── Crews ─────────────────────────────────────────────────────────────────────
+
+export interface CrewMember { agentId: string; role: string }
+export interface Crew { name: string; members: CrewMember[]; updatedAt: string }
+
+/** Save a crew under a name (the same name replaces it). */
+export function saveCrew(wallet: string, name: string, members: CrewMember[]): Crew {
+  const w = wallet.toLowerCase(), n = name.trim().slice(0, 40), at = now();
+  getDb().prepare("INSERT INTO mylo_crews (wallet, name, members, created_at, updated_at) VALUES (?,?,?,?,?) ON CONFLICT(wallet, name) DO UPDATE SET members = excluded.members, updated_at = excluded.updated_at")
+    .run(w, n, JSON.stringify(members), at, at);
+  return { name: n, members, updatedAt: at };
+}
+
+export function crewsOf(wallet: string): Crew[] {
+  return (getDb().prepare("SELECT name, members, updated_at updatedAt FROM mylo_crews WHERE wallet = ? ORDER BY updated_at DESC").all(wallet.toLowerCase()) as { name: string; members: string; updatedAt: string }[])
+    .map((r) => ({ name: r.name, members: JSON.parse(r.members) as CrewMember[], updatedAt: r.updatedAt }));
+}
+
+export function getCrew(wallet: string, name: string): Crew | null {
+  const want = name.trim().toLowerCase();
+  return crewsOf(wallet).find((c) => c.name.toLowerCase() === want) ?? null;
+}
+
+export function deleteCrew(wallet: string, name: string): boolean {
+  const c = getCrew(wallet, name);
+  return c ? getDb().prepare("DELETE FROM mylo_crews WHERE wallet = ? AND name = ?").run(wallet.toLowerCase(), c.name).changes > 0 : false;
+}

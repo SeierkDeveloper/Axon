@@ -27,6 +27,7 @@ import { runDueRetainers, settleRetainerRuns, sweepStrandedRuns } from "../lib/r
 import { deliverRetainerWebhooks } from "../lib/retainerWebhooks";
 import { launch, drain, inFlightCount } from "./inflight";
 import { runMyloPass } from "../lib/myloPass";
+import { advanceRunningCrews } from "../lib/myloActions";
 
 // Agents that append live market prices to their task message
 const PRICE_AGENTS = new Set(["crypto-agent", "trading-agent"]);
@@ -661,7 +662,11 @@ export async function startWorkerLoops(): Promise<void> {
   }, RETAINER_INTERVAL_MS);
 
   // Mylo: what happened, for its public feed and people's inboxes. Reads the database only; never throws out of the loop.
-  const myloPass = () => { try { runMyloPass(); } catch (err) { logger.warn("mylo.pass_failed", "Mylo's pass failed", { err }); } };
+  const myloPass = () => {
+    try { runMyloPass(); } catch (err) { logger.warn("mylo.pass_failed", "Mylo's pass failed", { err }); }
+    // crews keep going with nobody watching: each step starts when the one before has finished
+    void advanceRunningCrews().catch((err) => logger.warn("mylo.crews_failed", "Moving Mylo's crews along failed", { err }));
+  };
   myloPass();
   myloTimer = setInterval(myloPass, MYLO_PASS_INTERVAL_MS);
 }

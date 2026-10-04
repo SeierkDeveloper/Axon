@@ -16,7 +16,7 @@ import { messagesAllowed, modelFor, myloEnabled, myloModels, MAX_REPLYING_TOTAL,
 import { addMessage, getConversation, historyOf, memoryOf, sentFromAddress, sentToday, startConversation } from "./myloStore";
 import { budgetShare, reserveCall, settleCall, type Hold } from "./myloBudget";
 import { MYLO_TOOL_DEFS, runTool, forModel, type Card } from "./myloTools";
-import { actionsOf, getAction, viewOf, type Action, type BuildDetail, type ImproveDetail, type PublishDetail, type WithdrawDetail } from "./myloActions";
+import { actionsOf, getAction, viewOf, type Action, type BuildDetail, type CrewDetail, type ImproveDetail, type PublishDetail, type ScheduleDetail, type WithdrawDetail } from "./myloActions";
 
 /** What the page is told while a turn runs, in order. */
 export type MyloEvent =
@@ -104,6 +104,19 @@ Building agents with Agent Studio:
 - publish_build: PROPOSE listing a tested build (it needs a score of 6 or more) at a price. Nothing is listed until
   they tap Publish. Once live, what it earns is theirs.
 
+Crews, autopilot, launching and perks:
+- save_crew and my_crews: a crew is two to four agents in order, each with a role; the first gets the task, each next
+  gets the task and the answer before it. Suggest roles that make sense for the job. Saving costs nothing.
+- run_crew: PROPOSE running a saved crew on a task. They pay every paid step from their wallet when they confirm; the
+  final result arrives here.
+- schedule_job: PROPOSE putting a paid agent on autopilot (every N hours, daily or weekly at a time in their time
+  zone). Each run pays from their own on-chain allowance, which they set on /dashboard; if it can't pay, the job waits.
+  Ask their time zone if a time was given without one. my_schedules lists them; manage_schedule pauses, resumes or
+  stops one when they ask.
+- launch_token: get a token launch ready for their own agent: suggest a name and a short ticker that fit it, then give
+  the launch page. They add an image and launch from their own wallet there. Never say it is launched.
+- my_tier: what their $AXON holding gives them and what the next tier adds. Say it plainly; never promise returns.
+
 Remembering:
 - remember: when they tell you something about themselves worth keeping for next time (their budget, what they build,
   how they like answers, agents they trust), save it as a short key and value and say in a few words that you will
@@ -179,6 +192,8 @@ export function noteOf(a: Action): string {
   if (a.kind === "build") { const d = a.detail as BuildDetail; return `build${d.name ? ` of ${d.name}` : ""}, build_id ${d.buildId ?? "none yet"}, ${a.status}${d.stage ? `, Studio stage ${d.stage}` : ""}${d.score !== null ? `, scored ${d.score}` : ""}${d.change ? `, after the change "${d.change}"` : ""}`; }
   if (a.kind === "publish") { const d = a.detail as PublishDetail; return `publish ${d.name} (build_id ${d.buildId}) at ${d.priceEth} ETH, ${a.status}${d.agentId ? `, live as /agents/${d.agentId}` : ""}`; }
   if (a.kind === "withdraw") { const d = a.detail as WithdrawDetail; return `withdraw ${d.amountEth} ETH from ${d.name} (agent_id ${d.agentId}), ${a.status}${d.error ? `: ${d.error}` : ""}`; }
+  if (a.kind === "crew") { const d = a.detail as CrewDetail; return `crew "${d.crewName}" run (${a.hires.map((h) => h.name).join(" then ")}), ${a.status}, on step ${d.current + 1}${d.error ? `: ${d.error}` : ""}`; }
+  if (a.kind === "schedule") { const d = a.detail as ScheduleDetail; return `autopilot for ${d.name} (${d.scheduleText})${d.retainerId ? `, retainer_id ${d.retainerId}` : ""}, ${a.status}${d.error ? `: ${d.error}` : ""}`; }
   if (a.kind === "improve") { const d = a.detail as ImproveDetail; return `apply the better version of ${d.name} (improvement_id ${d.improvementId}), ${a.status}${d.error ? `: ${d.error}` : ""}`; }
   return `hire of ${a.hires.map((h) => `${h.name} (id ${h.agentId})`).join(", ")}, ${a.status}`;
 }

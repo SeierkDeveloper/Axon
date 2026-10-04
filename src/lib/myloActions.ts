@@ -10,6 +10,10 @@
 //
 // Phase 4 adds the person's own things: withdrawing what their agents earned (Studio's payout sends it to the wallet
 // that owns the agent and nowhere else, within its limits) and applying a better version Axon tested for a live agent.
+//
+// Phase 8 adds crews (a saved team run in order, each agent getting the task and the one before's answer, every step
+// paid from the person's wallet when they confirm) and autopilot (a job on a schedule, Axon's retainers, paid from the
+// person's own on-chain allowance on each run within its limits).
 
 import { randomUUID } from "crypto";
 import { NextRequest } from "next/server";
@@ -25,6 +29,12 @@ import { earningsOf, withdraw } from "./studioWithdraw";
 import { decideImprovement, proposalsOf } from "./studioImprove";
 import { WITHDRAW } from "./studioPolicy";
 import { shortWallet } from "./myloPolicy";
+import { getCrew } from "./myloStore";
+import { createRetainer, RetainerError } from "./retainers";
+import { readCreate } from "./retainerApi";
+import { describeSchedule } from "./retainerSchedule";
+import { maxDailySpendWei } from "./retainerPolicy";
+import { weiToEth } from "./money";
 import { LIMITS, MIN_PUBLISH_SCORE, PRICE_ETH } from "./studioPolicy";
 import { logger } from "./logger";
 
@@ -37,7 +47,7 @@ export const TASK_CHARS = 4_000;
 
 export interface Hire { agentId: string; name: string; price: string | null; priceEth: number | null; taskId: string | null; error: string | null }
 export type ActionStatus = "proposed" | "running" | "done" | "failed" | "cancelled";
-export type ActionKind = "hire" | "build" | "publish" | "withdraw" | "improve";
+export type ActionKind = "hire" | "build" | "publish" | "withdraw" | "improve" | "crew" | "schedule";
 /** A build: the sentence (or the change asked for), then the Studio build and how far it has got. */
 export interface BuildDetail { sentence: string; change: string | null; buildId: string | null; name: string | null; stage: string | null; round: number; score: number | null; error: string | null; changing?: boolean }
 /** A publish: the tested build, at the price shown when it was proposed. */
@@ -46,11 +56,15 @@ export interface PublishDetail { buildId: string; name: string; priceEth: number
 export interface WithdrawDetail { agentId: string; name: string; amountEth: number; to: string; txHash: string | null; sent: string | null; error: string | null }
 /** Applying a better version Axon tested for a live agent. */
 export interface ImproveDetail { improvementId: string; agentId: string; name: string; fromScore: number | null; toScore: number | null; error: string | null }
-export type Detail = BuildDetail | PublishDetail | WithdrawDetail | ImproveDetail;
+/** A crew run: its name, each step's role, the step working now, and the payment for each paid step. */
+export interface CrewDetail { crewName: string; roles: string[]; current: number; payments: Record<string, string>; error: string | null }
+/** A job on a schedule: what, when, at most how much a run and a day, and the retainer once it exists. */
+export interface ScheduleDetail { agentId: string; name: string; schedule: Record<string, unknown>; scheduleText: string; maxPriceEth: number; maxPerDayEth: number; maxRuns: number | null; retainerId: string | null; nextRunAt: string | null; error: string | null }
+export type Detail = BuildDetail | PublishDetail | WithdrawDetail | ImproveDetail | CrewDetail | ScheduleDetail;
 export interface Action { id: string; conversationId: string; owner: string; wallet: string; kind: ActionKind; task: string; hires: Hire[]; detail: Detail | null; status: ActionStatus; resultMessageId: string | null; expiresAt: string; createdAt: string }
 
 /** Studio, as Mylo uses it. Swappable in tests, so no test calls a model. */
-export const studio = { startDraft: (w: string, s: string) => startDraft(w, s), tweakDraft: (id: string, w: string, r: string) => tweakDraft(id, w, r), runBuild: (id: string) => runBuild(id), mayRun, mayStart, publishBuild, withdraw: (agentId: string, w: string, eth: number) => withdraw(agentId, w, eth), decideImprovement };
+export const studio = { createRetainer: (w: string, input: Parameters<typeof createRetainer>[1]) => createRetainer(w, input), startDraft: (w: string, s: string) => startDraft(w, s), tweakDraft: (id: string, w: string, r: string) => tweakDraft(id, w, r), runBuild: (id: string) => runBuild(id), mayRun, mayStart, publishBuild, withdraw: (agentId: string, w: string, eth: number) => withdraw(agentId, w, eth), decideImprovement };
 
 const now = () => new Date().toISOString();
 
@@ -82,6 +96,8 @@ export function summaryOf(a: Pick<Action, "hires"> & Partial<Pick<Action, "kind"
   if (a.kind === "build") { const d = a.detail as BuildDetail; return d.change ? `Change ${d.name ?? "the agent"}: "${d.change}", then test it again.` : `Build an agent: "${d.sentence}".`; }
   if (a.kind === "publish") { const d = a.detail as PublishDetail; return `Publish ${d.name} on Axon at ${d.priceEth} ETH a task.`; }
   if (a.kind === "withdraw") { const d = a.detail as WithdrawDetail; return `Withdraw ${d.amountEth} ETH that ${d.name} earned, to your wallet ${shortWallet(d.to)}.`; }
+  if (a.kind === "crew") { const d = a.detail as CrewDetail; const cost = a.hires.reduce((x, h) => x + (h.priceEth ?? 0), 0); return `Run the crew "${d.crewName}": ${a.hires.map((h) => h.name).join(", then ")}${cost > 0 ? `, ${+cost.toFixed(8)} ETH in total` : ""}.`; }
+  if (a.kind === "schedule") { const d = a.detail as ScheduleDetail; return `Put ${d.name} on autopilot: ${d.scheduleText.charAt(0).toLowerCase()}${d.scheduleText.slice(1)}, at most ${d.maxPriceEth} ETH a run from your allowance.`; }
   if (a.kind === "improve") { const d = a.detail as ImproveDetail; return `Apply the better version of ${d.name}${d.fromScore !== null && d.toScore !== null ? ` (tested ${d.fromScore} before, ${d.toScore} now)` : ""}.`; }
   const cost = a.hires.reduce((s, h) => s + (h.priceEth ?? 0), 0);
   const who = a.hires.map((h) => `${h.name} (${h.priceEth === null ? "free" : `${h.priceEth} ETH`})`).join(" and ");
@@ -189,6 +205,43 @@ export function proposeImprovement(ctx: { wallet: string | null; owner: string; 
   return { id, summary: summaryOf({ hires: [], kind: "improve", detail }) };
 }
 
+/** Write down running one of the person's saved crews on a task, for them to confirm and pay. */
+export function proposeCrew(ctx: { wallet: string | null; owner: string; conversationId: string }, crewName: string, task: string): { id: string; summary: string } | string {
+  if (!ctx.wallet) return "Sign in with your wallet first.";
+  const crew = getCrew(ctx.wallet, crewName);
+  if (!crew) return `There's no crew called "${crewName}". Save one first.`;
+  const t = task.replace(/\r\n/g, "\n").trim();
+  if (t.length < 3) return "Say what the crew should do.";
+  if (t.length > TASK_CHARS) return `Keep the task under ${TASK_CHARS.toLocaleString("en-US")} characters.`;
+  const hires: Hire[] = [];
+  for (const m of crew.members) {
+    const a = getAgentById(m.agentId);
+    if (!a) return `${m.agentId} in this crew is no longer on Axon. Save the crew again without it.`;
+    hires.push({ agentId: a.agentId, name: a.name, price: a.price ?? null, priceEth: parsePriceToEth(a.price ?? undefined), taskId: null, error: null });
+  }
+  const detail: CrewDetail = { crewName: crew.name, roles: crew.members.map((m) => m.role), current: 0, payments: {}, error: null };
+  const id = insert({ ...ctx, wallet: ctx.wallet }, "crew", t, hires, detail);
+  return { id, summary: summaryOf({ hires, kind: "crew", detail }) };
+}
+
+/** The schedule as the person said it, in the retainer's own shape. */
+export interface ScheduleInput { kind: string; every_hours?: number; time?: string; time_zone?: string; day?: number }
+const toSchedule = (s: ScheduleInput) => ({ kind: s.kind, everyHours: s.every_hours, time: s.time, timeZone: s.time_zone || "UTC", day: s.day });
+
+/** Write down putting an agent on a schedule, paid from the person's allowance on each run, for them to confirm. */
+export async function proposeSchedule(ctx: { wallet: string | null; owner: string; conversationId: string }, agentId: string, task: string, schedule: ScheduleInput, maxRuns?: number | null): Promise<{ id: string; summary: string } | string> {
+  if (!ctx.wallet) return "Sign in with your wallet first.";
+  const parsed = readCreate({ agentId, instructions: task, schedule: toSchedule(schedule), ...(maxRuns ? { maxRuns } : {}) });
+  if (!parsed.ok) return ((await parsed.response.json()) as { error?: string }).error ?? "That schedule isn't valid.";
+  const agent = getAgentById(agentId);
+  if (!agent) return `There is no agent called ${agentId} on Axon.`;
+  if (!agent.price) return "Autopilot is for paid agents: each run pays from your allowance.";
+  const v = parsed.value;
+  const detail: ScheduleDetail = { agentId, name: agent.name, schedule: toSchedule(schedule), scheduleText: describeSchedule(v.schedule), maxPriceEth: +weiToEth(v.maxPriceWei).toFixed(8), maxPerDayEth: +weiToEth(maxDailySpendWei(v.schedule, v.maxPriceWei)).toFixed(8), maxRuns: v.maxRuns ?? null, retainerId: null, nextRunAt: null, error: null };
+  const id = insert({ ...ctx, wallet: ctx.wallet }, "schedule", v.instructions, [], detail);
+  return { id, summary: summaryOf({ hires: [], kind: "schedule", detail }) };
+}
+
 /** Write down publishing one of the person's tested builds, at a price, for them to confirm. */
 export function proposePublish(ctx: { wallet: string | null; owner: string; conversationId: string }, buildId: string, priceEth?: number): { id: string; summary: string } | string {
   if (!ctx.wallet) return "Sign in with your wallet first.";
@@ -242,6 +295,8 @@ export async function confirmAction(id: string, owner: string, wallet: string, c
   if (a.kind === "publish") return confirmPublish(a, wallet);
   if (a.kind === "withdraw") return confirmWithdraw(a, wallet);
   if (a.kind === "improve") return confirmImprove(a, wallet);
+  if (a.kind === "crew") return confirmCrew(a, wallet, c, createTask);
+  if (a.kind === "schedule") return confirmSchedule(a, wallet);
 
   for (const h of a.hires) {
     const agent = getAgentById(h.agentId);
@@ -322,6 +377,84 @@ async function confirmImprove(a: Action, wallet: string): Promise<Action> {
   return a;
 }
 
+/** What one crew step is asked: its role, the task, and from the second step on, the one before's answer. */
+function crewTask(a: Action, i: number, before: { name: string; role: string; output: string } | null): string {
+  const role = (a.detail as CrewDetail).roles[i];
+  const head = role ? `Your part in this crew: ${role}.\n\n` : "";
+  if (!before) return `${head}${a.task}`;
+  return `${head}The task: ${a.task}\n\nThe step before you (${before.name}${before.role ? `, ${before.role}` : ""}) produced:\n\n${before.output.slice(0, 6000)}`;
+}
+
+/** Hand one crew step to the hire route, paid by its own payment from the person's wallet (or free). */
+async function startCrewStep(a: Action, i: number, wallet: string, createTask: CreateTask, before: { name: string; role: string; output: string } | null): Promise<void> {
+  const d = a.detail as CrewDetail, h = a.hires[i];
+  const body: Record<string, unknown> = { to: h.agentId, task: crewTask(a, i, before), from: "anonymous" };
+  if (h.priceEth !== null) Object.assign(body, { paymentSignature: d.payments[h.agentId], payerWallet: wallet });
+  try {
+    const r = await createTask(body, { "x-forwarded-for": "mylo-crew" });
+    if (r.status >= 400) h.error = String(r.json.error ?? `The hire was refused (${r.status}).`);
+    else if (h.priceEth !== null && r.replay) h.error = "That payment was already used for another hire.";
+    else h.taskId = String(r.json.taskId);
+  } catch (err) {
+    h.error = err instanceof Error ? err.message.split("\n")[0].slice(0, 200) : "The hire failed.";
+  }
+}
+
+/** Start a crew: every paid step must be paid first; then the first step runs and the rest follow one by one. */
+async function confirmCrew(a: Action, wallet: string, c: Confirm, createTask: CreateTask): Promise<Action> {
+  const d = a.detail as CrewDetail;
+  if (c.method !== "wallet") { a.detail = { ...d, error: "A crew is paid from your wallet, one payment per paid step." }; a.status = "failed"; save(a); return a; }
+  const unpaid = a.hires.filter((h) => h.priceEth !== null && !/^0x[0-9a-fA-F]{64}$/.test(c.payments?.[h.agentId] ?? ""));
+  if (unpaid.length) { a.detail = { ...d, error: `Not paid: ${unpaid.map((h) => h.name).join(", ")}. Nothing ran.` }; a.status = "failed"; save(a); return a; }
+  a.detail = { ...d, payments: Object.fromEntries(a.hires.filter((h) => h.priceEth !== null).map((h) => [h.agentId, c.payments![h.agentId]])), current: 0 };
+  await startCrewStep(a, 0, wallet, createTask, null);
+  if (!a.hires[0].taskId) a.status = "failed";
+  save(a);
+  return a;
+}
+
+/**
+ * Move a running crew along: when the step working now has finished, start the next with its answer. Called when the
+ * page asks how it is going and by Mylo's background pass, so a crew keeps going with the page closed.
+ */
+export async function advanceCrew(id: string, owner: string, createTask: CreateTask = realCreateTask): Promise<void> {
+  const a = getAction(id, owner);
+  if (!a || a.kind !== "crew" || a.status !== "running") return;
+  const d = a.detail as CrewDetail, h = a.hires[d.current];
+  const t = h?.taskId ? getTaskById(h.taskId) : null;
+  if (!t || t.status !== "completed" || d.current >= a.hires.length - 1) return;
+  // claim the move to the next step, so two callers at once can't both start it
+  const next = d.current + 1;
+  a.detail = { ...d, current: next };
+  const claimed = getDb().prepare("UPDATE mylo_actions SET detail = ?, updated_at = ? WHERE id = ? AND detail = ?").run(JSON.stringify(a.detail), now(), a.id, JSON.stringify(d)).changes;
+  if (!claimed) return;
+  await startCrewStep(a, next, a.wallet, createTask, { name: h.name, role: d.roles[d.current] ?? "", output: t.output ?? "" });
+  save(a);
+}
+
+/** Every running crew, moved along. Mylo's background pass runs this. */
+export async function advanceRunningCrews(createTask: CreateTask = realCreateTask): Promise<number> {
+  const rows = getDb().prepare("SELECT id, owner FROM mylo_actions WHERE kind = 'crew' AND status = 'running'").all() as { id: string; owner: string }[];
+  for (const r of rows) { await advanceCrew(r.id, r.owner, createTask); refreshAction(r.id, r.owner); }
+  return rows.length;
+}
+
+/** Start the schedule: the retainer, owned by the person's wallet, paid from their allowance on each run. */
+async function confirmSchedule(a: Action, wallet: string): Promise<Action> {
+  const d = a.detail as ScheduleDetail;
+  const parsed = readCreate({ agentId: d.agentId, instructions: a.task, schedule: d.schedule, ...(d.maxRuns ? { maxRuns: d.maxRuns } : {}) });
+  if (!parsed.ok) { a.detail = { ...d, error: ((await parsed.response.json()) as { error?: string }).error ?? "That schedule isn't valid." }; a.status = "failed"; save(a); return a; }
+  try {
+    const r = await studio.createRetainer(wallet, parsed.value);
+    a.detail = { ...d, retainerId: r.retainerId, nextRunAt: r.nextRunAt };
+  } catch (err) {
+    a.detail = { ...d, error: err instanceof RetainerError || err instanceof Error ? err.message : "The schedule couldn't start." };
+    a.status = "failed";
+  }
+  save(a);
+  return a;
+}
+
 const short = (s: string | null | undefined, n: number) => (!s ? "" : s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const STUDIO_DONE = new Set(["ready", "stopped", "failed", "published"]);
 
@@ -355,6 +488,8 @@ export function refreshAction(id: string, owner: string): { action: Action; task
   if (a.kind === "publish") return refreshPublish(a);
   if (a.kind === "withdraw") return refreshWithdraw(a);
   if (a.kind === "improve") return refreshImprove(a);
+  if (a.kind === "crew") return refreshCrew(a);
+  if (a.kind === "schedule") return refreshSchedule(a);
   const tasks = a.hires.map((h) => {
     const t = h.taskId ? getTaskById(h.taskId) : null;
     return { agentId: h.agentId, status: t?.status ?? null, output: t?.status === "completed" ? (t.output ?? null) : null, error: h.error ?? (t?.status === "failed" ? (t.error ?? "It failed.") : null) };
@@ -421,6 +556,32 @@ function refreshWithdraw(a: Action): Refresh {
   if (a.status !== "running" || !d.sent) return { action: a, tasks: [], message: null };
   const what = `${d.amountEth} ETH that **${d.name}** earned`;
   return finishWith(a, d.sent === "sent" ? `Sent ${what} to your wallet ${shortWallet(d.to)}. The transaction is on the card above.` : `${what} is on its way to your wallet ${shortWallet(d.to)}. The transaction is on the card above.`, "done");
+}
+
+/** A crew's progress; when the last step finishes (or one fails), its result in the conversation, once. */
+function refreshCrew(a: Action): Refresh {
+  const d = a.detail as CrewDetail;
+  const tasks = a.hires.map((h) => { const t = h.taskId ? getTaskById(h.taskId) : null; return { agentId: h.agentId, status: t?.status ?? null, output: t?.status === "completed" ? (t.output ?? null) : null, error: h.error ?? (t?.status === "failed" ? (t.error ?? "It failed.") : null) }; });
+  if (a.status !== "running") return { action: a, tasks, message: null };
+  const step = (i: number) => `${i + 1}. **${a.hires[i].name}**${d.roles[i] ? ` (${d.roles[i]})` : ""}${a.hires[i].taskId ? `: [receipt](/r/${a.hires[i].taskId})` : ""}`;
+  const broke = tasks.findIndex((t, i) => i <= d.current && (t.error || t.status === "failed"));
+  if (broke >= 0) {
+    const r = finishWith(a, `The crew "${d.crewName}" stopped at step ${broke + 1}, ${a.hires[broke].name}: ${tasks[broke].error ?? "it didn't finish"}. Steps after it didn't run.\n\n${a.hires.slice(0, broke + 1).map((_, i) => step(i)).join("\n")}`, "failed");
+    return { ...r, tasks };
+  }
+  const last = a.hires.length - 1;
+  if (d.current === last && tasks[last].status === "completed") {
+    const r = finishWith(a, `The crew "${d.crewName}" finished. Here is the final result, from ${a.hires[last].name}:\n\n${(tasks[last].output ?? "").trim() || "(it returned nothing)"}\n\n---\n\n${a.hires.map((_, i) => step(i)).join("\n")}`, "done");
+    return { ...r, tasks };
+  }
+  return { action: a, tasks, message: null };
+}
+
+function refreshSchedule(a: Action): Refresh {
+  const d = a.detail as ScheduleDetail;
+  if (a.status !== "running" || !d.retainerId) return { action: a, tasks: [], message: null };
+  const next = d.nextRunAt ? new Date(d.nextRunAt).toUTCString().replace(":00 GMT", " UTC") : null;
+  return finishWith(a, `**${d.name}** is on autopilot: ${d.scheduleText.charAt(0).toLowerCase()}${d.scheduleText.slice(1)}${next ? `, first run ${next}` : ""}. Each run pays at most ${d.maxPriceEth} ETH from your allowance. Ask me to pause or stop it any time.`, "done");
 }
 
 function refreshImprove(a: Action): Refresh {

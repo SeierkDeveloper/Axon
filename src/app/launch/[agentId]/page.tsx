@@ -14,8 +14,12 @@ export async function generateMetadata({ params }: { params: Promise<{ agentId: 
   };
 }
 
-export default async function LaunchPage({ params }: { params: Promise<{ agentId: string }> }) {
+export default async function LaunchPage({ params, searchParams }: { params: Promise<{ agentId: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { agentId } = await params;
+  // a link from Mylo can fill in the name, ticker and description; the creator still reviews them and adds the image
+  const sp = await searchParams;
+  const one = (k: string, n: number) => (typeof sp[k] === "string" ? (sp[k] as string).slice(0, n) : "");
+  const prefill = { name: one("name", 40), symbol: one("symbol", 10).replace(/[^A-Za-z0-9]/g, "").toUpperCase(), description: one("description", 200) };
   const agent = getAgentById(agentId);
 
   return (
@@ -39,7 +43,7 @@ export default async function LaunchPage({ params }: { params: Promise<{ agentId
           </p>
         </div>
 
-        <LaunchClient agentId={agentId} />
+        <LaunchClient agentId={agentId} prefill={prefill} />
       </main>
     </div>
   );

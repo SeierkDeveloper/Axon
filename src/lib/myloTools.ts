@@ -1,4 +1,5 @@
-// Mylo, phases 2 to 4: the tools it works the network, Agent Studio and the person's own agents with. Lookups run at once and return what the model reads plus a
+// Mylo, phases 2 to 8: the tools it works the network, Agent Studio, the person's own agents, crews, autopilot,
+// token launches and $AXON perks with. Lookups run at once and return what the model reads plus a
 // card for the page. Anything that spends (a hire, a second opinion) never runs here: it becomes a proposal the person
 // confirms in the page, with the exact agent, task and price, and only their confirmation sets it going
 // (myloActions). Every lookup of the network reads public information only; a build report reads the person's own
@@ -15,7 +16,14 @@ import { getBurnLive } from "./burnLive";
 import { MEMORY, secretLike, toolGate, TURN_BUDGET } from "./myloPolicy";
 import { feed, forget, inboxOf, markRead, memoryOf, remember } from "./myloStore";
 import { getDb } from "./db";
-import { changeBuild, proposeBuild, proposeHire, proposeImprovement, proposePublish, proposeWithdraw } from "./myloActions";
+import { changeBuild, proposeBuild, proposeCrew, proposeHire, proposeImprovement, proposePublish, proposeSchedule, proposeWithdraw, type ScheduleInput } from "./myloActions";
+import { crewsOf, deleteCrew, getCrew, saveCrew } from "./myloStore";
+import { listRetainers, pauseRetainer, resumeRetainer, cancelRetainer, RetainerError } from "./retainers";
+import { retainerView, retainerLimits } from "./retainerApi";
+import { getTier, tiers, type TierName } from "./holderTier";
+import { BUILDS_PER_DAY } from "./studioPolicy";
+import { RETAINERS_BY_TIER } from "./retainerPolicy";
+import { CREWS_BY_TIER, CREW_SIZE, HOLDS_AXON, MESSAGES_PER_DAY, myloModels } from "./myloPolicy";
 import { earningsOf, withdrawalsOf } from "./studioWithdraw";
 import { proposalsOf } from "./studioImprove";
 import { checkEligibility } from "./agentLaunch";
@@ -93,6 +101,46 @@ export const MYLO_TOOL_DEFS = [
     input_schema: { type: "object", properties: { build_id: { type: "string" }, price_eth: { type: "number" } }, required: ["build_id"] },
   },
   {
+    name: "save_crew",
+    description: "Save a crew: two to four agents under a name, in the order they work, each with a short role (researcher, writer, editor). The first gets the task; each next one gets the task and the answer before it. The same name replaces a crew. Use agent ids from search. remove: true deletes the crew.",
+    input_schema: { type: "object", properties: { name: { type: "string" }, members: { type: "array", items: { type: "object", properties: { agent_id: { type: "string" }, role: { type: "string" } }, required: ["agent_id"] } }, remove: { type: "boolean" } }, required: ["name"] },
+  },
+  {
+    name: "my_crews",
+    description: "The person's saved crews, with their agents, roles and what a run costs.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "run_crew",
+    description: "Propose running a saved crew on a task. Nothing runs until the person confirms and pays every paid step from their wallet in the page; then the steps run in order and the final result arrives in the conversation.",
+    input_schema: { type: "object", properties: { crew: { type: "string", description: "The crew's name" }, task: { type: "string" } }, required: ["crew", "task"] },
+  },
+  {
+    name: "schedule_job",
+    description: "Propose putting a paid agent on autopilot: the same job on a schedule, each run paid from the person's own on-chain allowance within its limits. schedule.kind is interval (every_hours), daily (time HH:MM, time_zone) or weekly (day 0 Sunday to 6 Saturday, time, time_zone). Nothing starts until they confirm in the page.",
+    input_schema: { type: "object", properties: { agent_id: { type: "string" }, task: { type: "string", description: "What the agent does on every run" }, schedule: { type: "object", properties: { kind: { type: "string", enum: ["interval", "daily", "weekly"] }, every_hours: { type: "number" }, time: { type: "string" }, time_zone: { type: "string" }, day: { type: "integer" } }, required: ["kind"] }, max_runs: { type: "integer" } }, required: ["agent_id", "task", "schedule"] },
+  },
+  {
+    name: "my_schedules",
+    description: "The person's jobs on autopilot: what each does, when it runs next, what it costs, and whether it is paused.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "manage_schedule",
+    description: "Pause, resume or stop one of the person's jobs on autopilot, by its retainer_id from my_schedules.",
+    input_schema: { type: "object", properties: { retainer_id: { type: "string" }, action: { type: "string", enum: ["pause", "resume", "stop"] } }, required: ["retainer_id", "action"] },
+  },
+  {
+    name: "launch_token",
+    description: "Prepare launching a token for one of the person's agents: checks it can launch and gives the launch page with a name, ticker and description filled in. The person adds an image and launches from their own wallet there; Mylo never launches it.",
+    input_schema: { type: "object", properties: { agent_id: { type: "string" }, name: { type: "string" }, ticker: { type: "string" }, description: { type: "string" } }, required: ["agent_id"] },
+  },
+  {
+    name: "my_tier",
+    description: "What holding $AXON gives this person: their tier and balance, what it unlocks on Axon and in Mylo, and what the next tier adds.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
     name: "remember",
     description: "Remember one thing the person told you about themselves for next time: a short key (like budget, building, answer_style) and the value in their words. The same key replaces the old value. Never secrets.",
     input_schema: { type: "object", properties: { key: { type: "string" }, value: { type: "string" } }, required: ["key", "value"] },
@@ -157,6 +205,7 @@ export function agentCard(a: Agent): AgentCard {
 export const TOOL_LABELS: Record<string, string> = {
   search_agents: "Searching the network", agent_details: "Reading the agent's record", compare_agents: "Comparing agents",
   network_pulse: "Checking the network", public_feed: "Reading the latest on Axon", hire_agent: "Preparing the hire", second_opinion: "Preparing a second opinion",
+  save_crew: "Saving the crew", my_crews: "Looking at your crews", run_crew: "Preparing the crew", schedule_job: "Preparing the autopilot", my_schedules: "Looking at your autopilot", manage_schedule: "Updating your autopilot", launch_token: "Preparing the launch", my_tier: "Checking your $AXON tier",
   remember: "Remembering that", forget: "Forgetting that", my_inbox: "Reading what's new for you", my_agents: "Looking at your agents", my_earnings: "Checking your earnings", withdraw_earnings: "Preparing the withdrawal", apply_improvement: "Preparing the update",
   build_agent: "Preparing the build", change_build: "Making the change", build_report: "Reading your build", pricing_advice: "Looking at what similar agents charge", publish_build: "Preparing to publish",
 };
@@ -200,6 +249,39 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
         const p = proposePublish(ctx, String(input.build_id ?? ""), price);
         return typeof p === "string" ? { result: { error: p }, label } : { result: { proposed: true, actionId: p.id, summary: p.summary, note: "Proposed only. Nothing is listed until the person taps Publish in the page." }, actionId: p.id, label };
       }
+      case "save_crew": return { ...(await saveCrewTool(ctx, input)), label };
+      case "my_crews": {
+        if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." }, label };
+        return { result: { crews: crewsOf(ctx.wallet).map((c) => crewView(c.name, c.members)), note: crewsOf(ctx.wallet).length ? undefined : "No crews yet. Save one from agents they like." }, label };
+      }
+      case "run_crew": {
+        const p = proposeCrew(ctx, String(input.crew ?? ""), String(input.task ?? ""));
+        return typeof p === "string" ? { result: { error: p }, label } : { result: { proposed: true, actionId: p.id, summary: p.summary, note: "Proposed only. Nothing runs until the person confirms and pays each paid step in the page." }, actionId: p.id, label };
+      }
+      case "schedule_job": {
+        const p = await proposeSchedule(ctx, String(input.agent_id ?? ""), String(input.task ?? ""), (input.schedule ?? {}) as ScheduleInput, input.max_runs ? Number(input.max_runs) : null);
+        if (typeof p === "string") return { result: { error: p }, label };
+        const limits = await retainerLimits(ctx.wallet!);
+        return { result: { proposed: true, actionId: p.id, summary: p.summary, autopilot_slots: { in_use: limits.inUse, allowed: limits.active }, note: "Proposed only. Nothing starts until the person confirms in the page. Each run pays from their allowance (set on the Dashboard); if it can't pay, the job waits." }, actionId: p.id, label };
+      }
+      case "my_schedules": {
+        if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." }, label };
+        const list = listRetainers(ctx.wallet).map((r) => retainerView(r));
+        return { result: { jobs: list.map((r) => ({ retainer_id: r.retainerId, agent: getAgentById(r.agentId)?.name ?? r.agentId, does: r.instructions.slice(0, 160), when: r.scheduleText, status: r.status, paused_because: r.pauseText, next_run: r.nextRunAt, price_per_run: r.pricePerRun, at_most_per_day: r.maxPerDay, runs_done: r.runsDone })), limits: await retainerLimits(ctx.wallet), note: list.length ? undefined : "Nothing on autopilot yet." }, label };
+      }
+      case "manage_schedule": {
+        if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." }, label };
+        const id = String(input.retainer_id ?? ""), act = String(input.action ?? "");
+        try {
+          const r = act === "pause" ? pauseRetainer(id, ctx.wallet) : act === "resume" ? resumeRetainer(id, ctx.wallet) : act === "stop" ? cancelRetainer(id, ctx.wallet) : null;
+          if (!r) return { result: { error: "Say pause, resume or stop." }, label };
+          return { result: { done: act, job: { retainer_id: r.retainerId, status: r.status, next_run: r.nextRunAt } }, label };
+        } catch (err) {
+          return { result: { error: err instanceof RetainerError || err instanceof Error ? err.message : "That didn't work." }, label };
+        }
+      }
+      case "launch_token": return { ...launchTool(ctx, input), label };
+      case "my_tier": return { ...(await tierTool(ctx)), label };
       case "remember": {
         if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." }, label };
         const key = String(input.key ?? "").trim().toLowerCase().replace(/[^a-z0-9_ -]/g, "").replace(/\s+/g, "_").slice(0, 40);
@@ -395,4 +477,57 @@ function myEarnings(ctx: ToolContext): Omit<ToolOutcome, "label"> {
     },
     card: list.length ? { kind: "earnings", agents: list.map((e) => ({ agentId: e.agentId, name: e.name, earnedEth: e.earnedEth, availableEth: e.availableEth })), availableEth: available } : undefined,
   };
+}
+
+const crewView = (name: string, members: { agentId: string; role: string }[]) => {
+  const agents = members.map((m) => ({ agent_id: m.agentId, name: getAgentById(m.agentId)?.name ?? m.agentId, role: m.role, price_eth: parsePriceToEth(getAgentById(m.agentId)?.price ?? undefined) }));
+  return { name, steps: agents, cost_eth: +agents.reduce((s, a) => s + (a.price_eth ?? 0), 0).toFixed(8) };
+};
+
+/** Save (or remove) a crew: two to four agents of the network, in order, within the wallet's tier's number of crews. */
+async function saveCrewTool(ctx: ToolContext, input: Record<string, unknown>): Promise<Omit<ToolOutcome, "label">> {
+  if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." } };
+  const name = String(input.name ?? "").replace(/\s+/g, " ").trim();
+  if (name.length < 2) return { result: { error: "Give the crew a short name." } };
+  if (input.remove === true) return { result: deleteCrew(ctx.wallet, name) ? { removed: name } : { error: `There's no crew called "${name}".` } };
+  const raw = Array.isArray(input.members) ? input.members as { agent_id?: unknown; role?: unknown }[] : [];
+  const members = raw.map((m) => ({ agentId: String(m.agent_id ?? "").trim(), role: String(m.role ?? "").replace(/\s+/g, " ").trim().slice(0, 60) })).filter((m) => m.agentId);
+  if (members.length < CREW_SIZE.min || members.length > CREW_SIZE.max) return { result: { error: `A crew is ${CREW_SIZE.min} to ${CREW_SIZE.max} agents.` } };
+  if (new Set(members.map((m) => m.agentId)).size !== members.length) return { result: { error: "Each agent can be in a crew once." } };
+  for (const m of members) if (!getAgentById(m.agentId)) return { result: { error: `There is no agent called ${m.agentId} on Axon.` } };
+  const { tier } = await getTier(ctx.wallet);
+  const cap = CREWS_BY_TIER[tier.name];
+  if (!getCrew(ctx.wallet, name) && crewsOf(ctx.wallet).length >= cap) return { result: { error: `This wallet can keep ${cap} crews. Remove one, or hold more $AXON for more.` } };
+  const c = saveCrew(ctx.wallet, name, members);
+  return { result: { saved: crewView(c.name, c.members), note: "Saved. Running it is proposed separately and paid on their OK." } };
+}
+
+/** Get a launch ready: the agent can launch, and the page opens with what Mylo suggests filled in. */
+function launchTool(ctx: ToolContext, input: Record<string, unknown>): Omit<ToolOutcome, "label"> {
+  if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." } };
+  const agentId = String(input.agent_id ?? "");
+  const e = checkEligibility(agentId, ctx.wallet.toLowerCase());
+  if (!e.eligible) return { result: { can_launch: false, why_not: e.reason } };
+  const q = new URLSearchParams();
+  const name = String(input.name ?? "").trim().slice(0, 40), ticker = String(input.ticker ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 10), about = String(input.description ?? "").trim().slice(0, 200);
+  if (name) q.set("name", name);
+  if (ticker) q.set("symbol", ticker);
+  if (about) q.set("description", about);
+  return { result: { can_launch: true, page: `/launch/${agentId}${q.size ? `?${q}` : ""}`, filled_in: { name: name || null, ticker: ticker || null, description: about || null }, still_needed: "an image, then they launch from their own wallet on that page", record: e.record } };
+}
+
+/** What each tier gives, from the rules the rest of Axon actually enforces. */
+function perksOf(t: TierName) {
+  return { mylo_messages_a_day: MESSAGES_PER_DAY[t], mylo_model: HOLDS_AXON(t) ? `${myloModels().chat} (the smarter one)` : myloModels().base, studio_builds_a_day: BUILDS_PER_DAY[t], autopilot_jobs: RETAINERS_BY_TIER[t].active, autopilot_fastest_every_hours: RETAINERS_BY_TIER[t].fastestHours, saved_crews: CREWS_BY_TIER[t] };
+}
+
+async function tierTool(ctx: ToolContext): Promise<Omit<ToolOutcome, "label">> {
+  if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." } };
+  const r = await getTier(ctx.wallet);
+  const next = tiers().find((t) => t.rank === r.tier.rank + 1) ?? null;
+  return { result: {
+    tier: r.tier.name, axon_held: r.balance, perks: perksOf(r.tier.name),
+    next: next ? { tier: next.name, hold_at_least: next.minimum, more_axon_needed: r.balance === null ? null : Math.max(0, next.minimum - r.balance), perks: perksOf(next.name) } : null,
+    note: r.balance === null ? "The balance couldn't be read just now; this is the base tier until it can." : undefined,
+  } };
 }

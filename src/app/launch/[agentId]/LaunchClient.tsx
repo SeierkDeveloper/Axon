@@ -31,15 +31,15 @@ interface Eligibility {
 
 type Step = "idle" | "pair" | "launching" | "done";
 
-export default function LaunchClient({ agentId }: { agentId: string }) {
+export default function LaunchClient({ agentId, prefill }: { agentId: string; prefill?: { name: string; symbol: string; description: string } }) {
   const [wallet, setWallet] = useState<string | null>(null);
   const [elig, setElig] = useState<Eligibility | null>(null);
   const [step, setStep] = useState<Step>("idle");
   const [error, setError] = useState<string | null>(null);
 
-  const [name, setName] = useState("");
-  const [symbol, setSymbol] = useState("");
-  const [description, setDescription] = useState("");
+  const [name, setName] = useState(prefill?.name ?? "");
+  const [symbol, setSymbol] = useState(prefill?.symbol ?? "");
+  const [description, setDescription] = useState(prefill?.description ?? "");
   const [logo, setLogo] = useState("");
   const [devBuy, setDevBuy] = useState("0");
   const [devBps, setDevBps] = useState(7000);

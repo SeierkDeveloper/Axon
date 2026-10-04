@@ -50,6 +50,10 @@ export const MESSAGES_PER_DAY: Record<Speaker, number> = { guest: 0, base: 60, h
 /** Messages one address may send in a rolling day across every wallet used from it: wallets are free to make. */
 export const MESSAGES_PER_ADDRESS_PER_DAY = 300;
 
+/** Crews a wallet may keep saved, by its $AXON tier, and how many agents one crew may have. */
+export const CREWS_BY_TIER: Record<TierName, number> = { base: 3, holder: 10, builder: 25, operator: 50 };
+export const CREW_SIZE = { min: 2, max: 4 } as const;
+
 /** Speakers who hold $AXON, and so talk to the better model. */
 export const HOLDS_AXON = (who: Speaker) => who === "holder" || who === "builder" || who === "operator";
 
@@ -209,6 +213,16 @@ export const TOOLS: Record<string, ToolRule> = {
   apply_improvement: { kind: "act", wallet: true, confirm: true, spends: false },
   launch_agent_token: { kind: "act", wallet: true, confirm: true, spends: true },
   my_inbox: { kind: "read", wallet: true, confirm: false, spends: false },
+  // crews, autopilot and launching: running a crew and starting a schedule spend, so they wait for an OK; saving a crew,
+  // pausing or stopping your own schedule and preparing a launch link don't
+  save_crew: { kind: "act", wallet: true, confirm: false, spends: false },
+  my_crews: { kind: "read", wallet: true, confirm: false, spends: false },
+  run_crew: { kind: "act", wallet: true, confirm: true, spends: true },
+  schedule_job: { kind: "act", wallet: true, confirm: true, spends: true },
+  my_schedules: { kind: "read", wallet: true, confirm: false, spends: false },
+  manage_schedule: { kind: "act", wallet: true, confirm: false, spends: false },
+  launch_token: { kind: "read", wallet: true, confirm: false, spends: false },
+  my_tier: { kind: "read", wallet: true, confirm: false, spends: false },
   // memory: about yourself, so no confirmation, but only with a wallet
   remember: { kind: "act", wallet: true, confirm: false, spends: false },
   forget: { kind: "act", wallet: true, confirm: false, spends: false },

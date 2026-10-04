@@ -23,7 +23,9 @@ export interface BuildDetail { sentence: string; change: string | null; buildId:
 export interface PublishDetail { buildId: string; name: string; priceEth: number; score: number | null; agentId: string | null; error: string | null }
 export interface WithdrawDetail { agentId: string; name: string; amountEth: number; to: string; txHash: string | null; sent: string | null; error: string | null }
 export interface ImproveDetail { improvementId: string; agentId: string; name: string; fromScore: number | null; toScore: number | null; error: string | null }
-export interface ActionView { id: string; kind?: "hire" | "build" | "publish" | "withdraw" | "improve"; detail?: BuildDetail | PublishDetail | WithdrawDetail | ImproveDetail | null; status: "proposed" | "running" | "done" | "failed" | "cancelled"; task: string; summary: string; expiresAt: string; hires: { agentId: string; name: string; price: string | null; priceEth: number | null; taskId: string | null; error: string | null }[]; payTo: string | null }
+export interface CrewDetail { crewName: string; roles: string[]; current: number; error: string | null }
+export interface ScheduleDetail { agentId: string; name: string; scheduleText: string; maxPriceEth: number; maxPerDayEth: number; retainerId: string | null; nextRunAt: string | null; error: string | null }
+export interface ActionView { id: string; kind?: "hire" | "build" | "publish" | "withdraw" | "improve" | "crew" | "schedule"; detail?: BuildDetail | PublishDetail | WithdrawDetail | ImproveDetail | CrewDetail | ScheduleDetail | null; status: "proposed" | "running" | "done" | "failed" | "cancelled"; task: string; summary: string; expiresAt: string; hires: { agentId: string; name: string; price: string | null; priceEth: number | null; taskId: string | null; error: string | null }[]; payTo: string | null }
 
 // payments already made for a proposal, kept so a retry never asks anyone to pay the same agent twice
 const paidKey = (id: string) => `mylo.paid.${id}`;
@@ -189,7 +191,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
   // a build or a publish needs no payment: confirming starts it
   const confirmPlain = async () => {
     setErr(null);
-    setStep(a.kind === "build" ? "Starting the build" : a.kind === "withdraw" ? "Sending" : a.kind === "improve" ? "Applying" : "Publishing");
+    setStep(a.kind === "build" ? "Starting the build" : a.kind === "withdraw" ? "Sending" : a.kind === "improve" ? "Applying" : a.kind === "schedule" ? "Starting autopilot" : "Publishing");
     try {
       const res = await fetch(`/api/mylo/actions/${a.id}/confirm`, { method: "POST", headers: headers(), body: JSON.stringify({ method: "wallet", payments: {} }) });
       const j = (await res.json()) as { action?: ActionView; error?: string };
@@ -213,9 +215,13 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
   const pub = kind === "publish" ? (a.detail as PublishDetail) : null;
   const wd = kind === "withdraw" ? (a.detail as WithdrawDetail) : null;
   const imp = kind === "improve" ? (a.detail as ImproveDetail) : null;
-  const label = build ? (build.change ? "Change and retest" : "Build") : pub ? "Publish" : wd ? "Withdraw" : imp ? "Better version" : a.hires.length > 1 ? "Second opinion" : "Hire";
-  const doneWord = build ? "Built" : pub ? "Live" : wd ? "Sent" : imp ? "Applied" : "Done";
-  const badge = { proposed: expired ? "Expired" : "Waiting for your OK", running: build ? "Building" : pub ? "Publishing" : wd ? "Sending" : imp ? "Applying" : "Working", done: doneWord, failed: "Didn't finish", cancelled: "Cancelled" }[a.status];
+  const crew = kind === "crew" ? (a.detail as CrewDetail) : null;
+  const sched = kind === "schedule" ? (a.detail as ScheduleDetail) : null;
+  // a hire and a crew are both paid per agent from the wallet; everything else is a plain OK
+  const pays = kind === "hire" || kind === "crew";
+  const label = build ? (build.change ? "Change and retest" : "Build") : pub ? "Publish" : wd ? "Withdraw" : imp ? "Better version" : crew ? `Crew: ${crew.crewName}` : sched ? "Autopilot" : a.hires.length > 1 ? "Second opinion" : "Hire";
+  const doneWord = build ? "Built" : pub ? "Live" : wd ? "Sent" : imp ? "Applied" : sched ? "On autopilot" : "Done";
+  const badge = { proposed: expired ? "Expired" : "Waiting for your OK", running: build ? "Building" : pub ? "Publishing" : wd ? "Sending" : imp ? "Applying" : sched ? "Starting" : crew ? `Step ${crew.current + 1} of ${a.hires.length}` : "Working", done: doneWord, failed: "Didn't finish", cancelled: "Cancelled" }[a.status];
   const stage = build ? ({ changing: "Making the change", drafting: "Writing the agent", drafted: "Getting ready to test", testing: `Testing${build.round ? `, round ${build.round + 1}` : ""}`, improving: `Improving after round ${build.round}` } as Record<string, string>)[build.stage ?? ""] ?? "Starting" : null;
   const studioLink = build?.buildId ? `/studio?build=${build.buildId}` : null;
   return (
@@ -271,6 +277,44 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
         </div>
       )}
 
+      {crew && (
+        <>
+          <ol className="mt-3 space-y-2">
+            {a.hires.map((h, i) => (
+              <li key={h.agentId} className="flex items-start gap-3 text-sm">
+                <span className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full font-mono text-[10px] ${a.status === "running" && i === crew.current ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900" : "bg-gray-100 text-gray-500 dark:bg-gray-900 dark:text-gray-400"}`}>{i + 1}</span>
+                <span className="min-w-0 flex-1">
+                  <Link href={`/agents/${h.agentId}`} className="line-clamp-2 break-words font-semibold text-gray-900 hover:underline dark:text-white">{h.name}</Link>
+                  {crew.roles[i] && <span className="block text-xs text-gray-500 dark:text-gray-400">{crew.roles[i]}</span>}
+                </span>
+                <span className="shrink-0 font-mono text-xs text-gray-600 dark:text-gray-300">{h.error ? <span className="text-red-600 dark:text-red-400">{h.error}</span> : h.taskId ? <Link href={`/r/${h.taskId}`} className="underline">receipt</Link> : eth(h.priceEth)}</span>
+              </li>
+            ))}
+          </ol>
+          {crew.error && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{crew.error}</p>}
+          <details className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+            <summary className="cursor-pointer select-none">The task</summary>
+            <p className="mt-2 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-gray-700 dark:bg-gray-900 dark:text-gray-300">{a.task}</p>
+          </details>
+        </>
+      )}
+
+      {sched && (
+        <div className="mt-3">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <Link href={`/agents/${sched.agentId}`} className="line-clamp-2 break-words font-semibold text-gray-900 hover:underline dark:text-white">{sched.name}</Link>
+            <span className="shrink-0 font-mono text-xs text-gray-600 dark:text-gray-300">≤ {sched.maxPriceEth} ETH a run</span>
+          </div>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{sched.scheduleText}</p>
+          <p className="mt-1 font-mono text-[11px] text-gray-400">at most {sched.maxPerDayEth} ETH a day</p>
+          <details className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+            <summary className="cursor-pointer select-none">What it does each run</summary>
+            <p className="mt-2 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-gray-700 dark:bg-gray-900 dark:text-gray-300">{a.task}</p>
+          </details>
+          {sched.error && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{sched.error}</p>}
+        </div>
+      )}
+
       {kind === "hire" && (
         <>
           <ul className="mt-3 space-y-1.5">
@@ -292,10 +336,10 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
         <div className="mt-4 flex flex-wrap items-center gap-2">
           {!apiKey ? (
             <button type="button" onClick={() => void signIn()} disabled={walletBusy} className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-gray-900">Sign in to confirm</button>
-          ) : kind !== "hire" ? (
+          ) : !pays ? (
             <button type="button" onClick={() => void confirmPlain()} disabled={step !== null}
               className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">
-              {build ? "Build it" : pub ? "Publish" : wd ? `Withdraw ${wd.amountEth} ETH` : "Apply"}
+              {build ? "Build it" : pub ? "Publish" : wd ? `Withdraw ${wd.amountEth} ETH` : sched ? "Start autopilot" : "Apply"}
             </button>
           ) : (
             <>
@@ -303,7 +347,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
                 className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">
                 {cost > 0 ? `Confirm and pay ${+cost.toFixed(8)} ETH` : "Confirm"}
               </button>
-              {cost > 0 && allowance?.ok && (
+              {cost > 0 && allowance?.ok && !crew && (
                 <button type="button" onClick={() => void confirm("allowance")} disabled={step !== null} className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-900 transition hover:border-gray-900 disabled:opacity-50 dark:border-gray-700 dark:text-white dark:hover:border-white">Pay from allowance</button>
               )}
             </>
@@ -315,7 +359,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
       {err && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{err}</p>}
       {a.status === "proposed" && !expired && (
         <p className="mt-3 text-[11px] text-gray-400">
-          {build ? "Free. Studio writes it and tests it, which takes a few minutes. Counts as one of today's Studio builds." : pub ? "Lists it on Axon for anyone to hire. What it earns is yours." : wd ? "Goes only to the wallet that owns the agent." : imp ? "Your agent's next jobs use the better version." : `Paid ${cost > 0 ? "from your wallet to Axon, checked on chain" : "nothing: this agent is free"}.`}
+          {crew ? `Paid from your wallet, one payment per paid step${cost > 0 ? "" : " (all free here)"}. The steps run in order.` : sched ? "Each run pays from your allowance, within its limits. Pause or stop it any time." : build ? "Free. Studio writes it and tests it, which takes a few minutes. Counts as one of today's Studio builds." : pub ? "Lists it on Axon for anyone to hire. What it earns is yours." : wd ? "Goes only to the wallet that owns the agent." : imp ? "Your agent's next jobs use the better version." : `Paid ${cost > 0 ? "from your wallet to Axon, checked on chain" : "nothing: this agent is free"}.`}
           {" "}Expires in {Math.max(1, Math.round((Date.parse(a.expiresAt) - nowMs) / 60_000))} min.
         </p>
       )}
