@@ -15,6 +15,7 @@ import { thinkOnce, thoughts, owedThinkingEth, type Thought } from "@/lib/mindsM
 import type { Thinker } from "@/lib/mindsThinker";
 import { actDue, settleSent, payThinkingDue, keepUp, actingEnabled, sharesOf, STALE_MS, MIN_SHARE_WEI, type MindSender } from "@/lib/mindsAct";
 import { merkle, verify, divide, leafOf, type Share } from "@/lib/mindsMerkle";
+import { unreadChain } from "./helpers/unreadChain";
 
 let n = 0;
 const addr = () => `0x${(++n + 9_990_000).toString(16).padStart(40, "0")}`;
@@ -32,6 +33,7 @@ const snap = (over: Partial<Snapshot> = {}): Snapshot => ({ phase: 0, curve: "0x
 function world() {
   const state = { launches: [] as MindLaunchEvent[], treasury: treasury(), day: { spentTodayEth: 0, actionsToday: 0, costTodayEth: 0 } as VaultDay, snap: snap() };
   const chain: MindsChain = {
+    ...unreadChain,
     head: async () => 2000n, launches: async () => state.launches, blockTime: async () => new Date(T0 - 3_600_000).toISOString(), tokenMeta: async () => { throw new Error("none"); },
     treasury: async () => state.treasury, vaultDay: async () => state.day, feeFlow: async () => { throw new Error("unused"); }, snapshot: async () => state.snap, transfers: async () => [],
   };

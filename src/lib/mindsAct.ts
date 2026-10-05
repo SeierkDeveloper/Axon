@@ -66,7 +66,7 @@ const now = () => new Date().toISOString();
 
 export interface ActOptions { chain?: MindsChain; sender?: MindSender; env?: Record<string, string | undefined>; now?: number }
 
-interface Due { id: number; token: string; at: string; action: string; vault: string; pot: string; splitter: string | null; curve: string | null; phase: number; holders: number; holders_block: number | null }
+interface Due { id: number; token: string; at: string; action: string; vault: string; pot: string; splitter: string | null; curve: string | null; attached: number; phase: number; holders: number; holders_block: number | null }
 
 function setStatus(id: number, status: string, fields: { tx?: string; error?: string } = {}): void {
   getDb().prepare("UPDATE mind_actions SET status = ?, tx_hash = COALESCE(?, tx_hash), error = ?, updated_at = ? WHERE id = ?").run(status, fields.tx ?? null, fields.error ?? null, now(), id);
@@ -102,7 +102,7 @@ async function act(d: Due, o: Required<Pick<ActOptions, "chain" | "sender">> & {
   const [treasury, day, snap] = await Promise.all([o.chain.treasury(d.vault), o.chain.vaultDay(d.vault), o.chain.snapshot(d)]);
   const verdict = checkProposal(p, {
     allowed: treasury.limits.allowed, maxPerDayEth: treasury.limits.maxPerDayEth, maxPerActionEth: treasury.limits.maxPerActionEth, maxActionsPerDay: treasury.limits.maxActionsPerDay,
-    availableEth: treasury.availableEth, owedThinkingEth: owedThinkingEth(d.token), spentTodayEth: day.spentTodayEth, actionsToday: day.actionsToday, active: treasury.active, phase: snap.phase, holders: d.holders,
+    availableEth: treasury.availableEth, owedThinkingEth: owedThinkingEth(d.token), spentTodayEth: day.spentTodayEth, actionsToday: day.actionsToday, active: treasury.active, phase: snap.phase, holders: d.holders, attached: d.attached === 1,
   });
   if (!verdict.ok) return drop(`Refused on the second look: ${verdict.reason}`);
 
@@ -157,7 +157,7 @@ export async function actDue(o: ActOptions = {}, limit = 5): Promise<{ done: num
   if (!actingEnabled(env)) return null;
   const chain = o.chain ?? mindsChain, sender = o.sender ?? realSender(env), at = o.now ?? Date.now();
   const due = getDb().prepare(
-    `SELECT h.id, h.token, h.at, h.action, t.vault, t.pot, t.splitter, t.curve, COALESCE(s.phase, 0) phase, COALESCE(s.holders, 0) holders, s.holders_block
+    `SELECT h.id, h.token, h.at, h.action, t.vault, t.pot, t.splitter, t.curve, t.attached, COALESCE(s.phase, 0) phase, COALESCE(s.holders, 0) holders, s.holders_block
        FROM mind_thoughts h JOIN mind_tokens t ON t.token = h.token LEFT JOIN mind_stats s ON s.token = h.token
       WHERE h.status = 'thought' AND h.verdict = 'approved' AND h.action IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM mind_actions a WHERE a.thought_id = h.id)

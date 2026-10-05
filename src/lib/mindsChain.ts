@@ -69,6 +69,25 @@ export const KEEPER_ABI = parseAbi([
   "function preview() view returns (uint256 amount, uint256 nextAt, bool ready)",
 ]);
 
+/** A token launched before minds, as the chain describes it to somebody who wants to give it one. */
+export interface EarlierToken {
+  token: string;
+  /** the contract that launched it on Pons: its burn pot, when it has one */
+  pot: string | null;
+  /** the wallet that pot belongs to: the only one that can give the token a mind */
+  dev: string | null;
+  name: string | null;
+  symbol: string | null;
+  /** its mind's treasury, when it already has a mind */
+  vault: string | null;
+}
+
+const EARLIER_ABI = parseAbi([
+  "function dev() view returns (address)",
+  "function token() view returns (address)",
+  "function potOf(address dev) view returns (address)",
+]);
+
 /** What a treasury has done so far today, by its own count. */
 export interface VaultDay { spentTodayEth: number; actionsToday: number; costTodayEth: number }
 
@@ -322,6 +341,30 @@ export const mindsChain = {
       .map((l) => ({ token: lower(l.address), from: `0x${l.topics[1].slice(-40)}`, to: `0x${l.topics[2].slice(-40)}`, value: BigInt(l.data === "0x" ? "0x0" : l.data), blockNumber: Number(BigInt(l.blockNumber)), i: Number(BigInt(l.logIndex ?? "0x0")) }))
       .sort((a, b) => a.blockNumber - b.blockNumber || a.i - b.i)
       .map(({ i: _i, ...t }) => t);
+  },
+
+  /** A token launched before minds: who launched it, through what, and whether it has a mind already. */
+  async earlierToken(token: string, launcher: string): Promise<EarlierToken> {
+    const c = publicClient();
+    const address = token as `0x${string}`;
+    const info = await c.readContract({ address: LAUNCHPAD_FACTORY as `0x${string}`, abi: FACTORY_ABI, functionName: "getLaunchedToken", args: [address] }).catch(() => null);
+    if (!info?.exists) return { token: lower(token), pot: null, dev: null, name: null, symbol: null, vault: null };
+    // the launching contract is a burn pot only if it says who it belongs to; an ordinary wallet or contract does not
+    const [dev, meta, vault] = await Promise.all([
+      c.readContract({ address: info.deployer, abi: EARLIER_ABI, functionName: "dev" }).catch(() => null),
+      this.tokenMeta(token).catch(() => null),
+      c.readContract({ address: launcher as `0x${string}`, abi: LAUNCHER_ABI, functionName: "vaultOf", args: [address] }).catch(() => null),
+    ]);
+    return { token: lower(token), pot: dev ? lower(info.deployer) : null, dev: dev ? lower(dev) : null, name: meta?.name ?? null, symbol: meta?.symbol ?? null, vault: vault && !/^0x0+$/.test(vault) ? lower(vault) : null };
+  },
+
+  /** The token a wallet launched through the earlier agent-token factory, if any. */
+  async earlierTokenOf(wallet: string, factory: string): Promise<string | null> {
+    const c = publicClient();
+    const pot = await c.readContract({ address: factory as `0x${string}`, abi: EARLIER_ABI, functionName: "potOf", args: [wallet as `0x${string}`] }).catch(() => null);
+    if (!pot || /^0x0+$/.test(pot)) return null;
+    const token = await c.readContract({ address: pot, abi: EARLIER_ABI, functionName: "token" }).catch(() => null);
+    return token && !/^0x0+$/.test(token) ? lower(token) : null;
   },
 
   /** The treasury's own count of today: what its actions spent, how many there were, what its thinking was paid. */

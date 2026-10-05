@@ -119,6 +119,29 @@ export function launchInput(meta: LaunchMeta, ref: `0x${string}`, s: LaunchSetti
   } as const;
 }
 
+export type MindLimits = Pick<LaunchSettings, "canBuyback" | "canReward" | "canBurnAxon" | "maxPerDayEth" | "maxPerActionEth" | "maxActionsPerDay" | "maxCostPerDayEth">;
+
+/** Why these limits cannot be set, in words, or null when they can: the same ceilings the treasury enforces. */
+export function checkLimits(s: MindLimits): string | null {
+  const perDay = eth(s.maxPerDayEth), perAction = eth(s.maxPerActionEth), cost = eth(s.maxCostPerDayEth);
+  if (perDay === null || perAction === null) return "The mind's limits are amounts of ETH.";
+  if (perAction > perDay) return "One action cannot be more than the whole day's limit.";
+  if (!whole(s.maxActionsPerDay) || s.maxActionsPerDay > CEILINGS.actionsPerDay) return `A mind acts at most ${CEILINGS.actionsPerDay} times a day.`;
+  if (cost === null || cost > parseEther(String(CEILINGS.costPerDayEth))) return `Thinking costs at most ${CEILINGS.costPerDayEth} ETH a day.`;
+  return null;
+}
+
+/** A treasury's limits as its contract takes them. */
+export function mindLimits(s: MindLimits) {
+  return {
+    allowed: (s.canBuyback ? CAN.buyback : 0) | (s.canReward ? CAN.reward : 0) | (s.canBurnAxon ? CAN.burnAxon : 0),
+    maxPerDay: eth(s.maxPerDayEth) ?? 0n,
+    maxPerAction: eth(s.maxPerActionEth) ?? 0n,
+    maxActionsPerDay: s.maxActionsPerDay,
+    maxCostPerDay: eth(s.maxCostPerDayEth) ?? 0n,
+  } as const;
+}
+
 /** What the launch transaction carries: the launch factory's own fee, plus the creator's first buy. */
 export function launchValue(feeWei: bigint, s: Pick<LaunchSettings, "openingBuyEth">): bigint {
   return feeWei + (eth(s.openingBuyEth) ?? 0n);

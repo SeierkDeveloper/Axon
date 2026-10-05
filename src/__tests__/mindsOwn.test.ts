@@ -15,6 +15,7 @@ import { OWN_MIND, mindLabel } from "@/lib/mindsModels";
 import { checkOwnUrl, ownSecret, signOwn, ownThinker, publicPost, ownMindsOpen, OWN_SERVER_EXAMPLE, type Post } from "@/lib/mindsOwn";
 import { thinkOnce, thoughts, owedThinkingEth, tryOwn, type Thought } from "@/lib/mindsMind";
 import { mindModel } from "@/lib/mindsModels";
+import { unreadChain } from "./helpers/unreadChain";
 
 let n = 0;
 const addr = () => `0x${(++n + 9_900_000).toString(16).padStart(40, "0")}`;
@@ -31,6 +32,7 @@ async function launchOwn(url: string | undefined, vaultTreasury = treasury()) {
   if (typeof p === "string") throw new Error(p);
   const ev: MindLaunchEvent = { kind: "launched", token: addr(), creator: me, agentRef: p.ref, pot: addr(), splitter: addr(), vault: addr(), payout: me, taxBps: 300, creatorBps: 5000, burnBps: 2000, axonBps: 1000, mindBps: 2000, blockNumber: 1100 + n, txHash: `0x${String(n).padStart(64, "0")}` };
   const chain: MindsChain = {
+    ...unreadChain,
     head: async () => 2000n, launches: async () => [ev], blockTime: async () => new Date(T0 - 3_600_000).toISOString(), tokenMeta: async () => { throw new Error("none"); },
     treasury: async () => vaultTreasury, feeFlow: async () => { throw new Error("unused"); }, snapshot: async () => snap(), transfers: async () => [], vaultDay: async () => ({ spentTodayEth: 0, actionsToday: 0, costTodayEth: 0 }),
   };

@@ -19,6 +19,7 @@ import type { MindsChain, MindLaunchEvent, Treasury, FeeFlow } from "@/lib/minds
 import { prepare, skillsFrom, starterInstructions, LAUNCH_LIMITS } from "@/lib/mindsAgent";
 import { indexMinds, earnedSince, liveToken } from "@/lib/mindsIndex";
 import { getToken, getPrepared, listTokens, tokensOfCreator, tokenOfAgent, cursor, tokenCount } from "@/lib/mindsStore";
+import { unreadChain } from "./helpers/unreadChain";
 
 let n = 0;
 const addr = (seed = ++n) => `0x${(seed + 9_100_000).toString(16).padStart(40, "0")}`;
@@ -35,6 +36,7 @@ const FEES: FeeFlow = { totalEth: 0.1, toCreatorEth: 0.05, toBurnEth: 0.02, toAx
 function fakeChain(events: MindLaunchEvent[], head = 2000n) {
   const asked: { from: bigint; to: bigint }[] = [];
   const chain: MindsChain = {
+    ...unreadChain,
     head: async () => head,
     launches: async (_launcher, from, to) => { asked.push({ from, to }); return events.filter((e) => BigInt(e.blockNumber) >= from && BigInt(e.blockNumber) <= to); },
     blockTime: async (b) => new Date(Date.UTC(2026, 9, 5, 12, 0, 0) + b * 100).toISOString(),

@@ -18,10 +18,10 @@ const TOKENS_PER_PASS = 40;
 const MAX_HOLDER_BLOCKS = 2_000_000n;
 const NOBODY = ["0x0000000000000000000000000000000000000000", "0x000000000000000000000000000000000000dead"];
 
-export type MindEventKind = "launch" | "fees" | "burn" | "graduated" | "holders" | "earned" | "thought" | "bought" | "axon" | "rewarded";
+export type MindEventKind = "launch" | "fees" | "burn" | "graduated" | "holders" | "earned" | "thought" | "bought" | "axon" | "rewarded" | "attached" | "topup";
 
-interface StatsRow { token: string; phase: number; fees_eth: number; burns: number; burned_tokens: number; burned_eth: number; holders_block: number | null; holders_mark: number; earned_mark: number }
-interface TokenRow { token: string; pot: string; splitter: string | null; vault: string; curve: string | null; block_number: number; agent_id: string | null; launched_at: string }
+interface StatsRow { token: string; phase: number; treasury_eth: number; fees_eth: number; burns: number; burned_tokens: number; burned_eth: number; holders_block: number | null; holders_mark: number; earned_mark: number }
+interface TokenRow { token: string; pot: string; splitter: string | null; vault: string; curve: string | null; block_number: number; agent_id: string | null; launched_at: string; attached: number }
 
 /**
  * What an agent has earned from real work since its token launched, in ETH. Anything it earned before the launch is
@@ -100,11 +100,14 @@ function write(t: TokenRow, s: Snapshot, prev: StatsRow | undefined): number {
   if (s.burns > (prev?.burns ?? 0)) { addEvent(t.token, "burn", { tokens: s.burnedTokens - (prev?.burned_tokens ?? 0), eth: s.burnedEth - (prev?.burned_eth ?? 0) }); events++; }
   if (s.phase === 2 && (prev?.phase ?? 0) !== 2 && prev) { addEvent(t.token, "graduated"); events++; }
 
+  // a mind given to an earlier token is not fed by fees: its treasury only grows when somebody tops it up
+  if (t.attached && moved(s.treasuryEth, prev?.treasury_eth ?? 0)) { addEvent(t.token, "topup", { eth: s.treasuryEth - (prev?.treasury_eth ?? 0) }); events++; }
+
   // holders and the agent's earnings move in small steps; an event is a real change since the last one written down
   const holders = holderCount(t, s.curve, s.poolManager);
   const mark = prev?.holders_mark ?? 0;
   let holdersMark = mark;
-  if (Math.abs(holders - mark) >= Math.max(2, Math.ceil(mark * 0.1))) { addEvent(t.token, "holders", { tokens: holders }); holdersMark = holders; events++; }
+  if (!t.attached && Math.abs(holders - mark) >= Math.max(2, Math.ceil(mark * 0.1))) { addEvent(t.token, "holders", { tokens: holders }); holdersMark = holders; events++; }
   const earned = t.agent_id ? earnedSince(t.agent_id, t.launched_at) : 0;
   let earnedMark = prev?.earned_mark ?? 0;
   if (moved(earned, earnedMark)) { addEvent(t.token, "earned", { eth: earned - earnedMark }); earnedMark = earned; events++; }
@@ -132,13 +135,13 @@ export async function refreshStats(chain: MindsChain = mindsChain, env: Record<s
   await countHolders(chain, BigInt(upTo)).catch((err) => logger.warn("minds.holders_failed", "Counting holders failed", { err }));
 
   const due = db.prepare(
-    "SELECT t.token, t.pot, t.splitter, t.vault, t.curve, t.block_number, t.agent_id, t.launched_at FROM mind_tokens t LEFT JOIN mind_stats s ON s.token = t.token ORDER BY s.updated_at IS NOT NULL, s.updated_at ASC LIMIT ?",
+    "SELECT t.token, t.pot, t.splitter, t.vault, t.curve, t.block_number, t.agent_id, t.launched_at, t.attached FROM mind_tokens t LEFT JOIN mind_stats s ON s.token = t.token ORDER BY s.updated_at IS NOT NULL, s.updated_at ASC LIMIT ?",
   ).all(limit) as TokenRow[];
   let tokens = 0, events = 0;
   for (const t of due) {
     try {
       const snap = await chain.snapshot(t);
-      const prev = db.prepare("SELECT token, phase, fees_eth, burns, burned_tokens, burned_eth, holders_block, holders_mark, earned_mark FROM mind_stats WHERE token = ? AND updated_at IS NOT NULL").get(t.token) as StatsRow | undefined;
+      const prev = db.prepare("SELECT token, phase, treasury_eth, fees_eth, burns, burned_tokens, burned_eth, holders_block, holders_mark, earned_mark FROM mind_stats WHERE token = ? AND updated_at IS NOT NULL").get(t.token) as StatsRow | undefined;
       db.transaction(() => { events += write(t, snap, prev); })();
       tokens++;
     } catch (err) {

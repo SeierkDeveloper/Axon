@@ -27,6 +27,8 @@ export interface RuleContext {
   /** 0 on its curve, 1 between curve and pool, 2 in its pool, 3 rescued */
   phase: number;
   holders: number;
+  /** the token was launched before minds and got its mind later */
+  attached?: boolean;
 }
 
 /** Nothing smaller than this is worth its own gas. */
@@ -61,6 +63,7 @@ export function checkProposal(p: Proposal, c: RuleContext): Verdict {
   const free = c.availableEth - c.owedThinkingEth - THINKING_RESERVE_ETH;
   if (p.eth > free + 1e-12) return no(`The treasury cannot cover it: ${Math.max(0, free).toFixed(6)} ETH is free after what its thinking costs.`);
   if (p.kind === "buyback" && (c.phase === 1 || c.phase === 3)) return no("The token has no open market to buy on right now.");
+  if (p.kind === "reward" && c.attached) return no("Rewards are not open for a token launched before minds: its holders are only counted from the day it got its mind.");
   if (p.kind === "reward" && c.holders < 2) return no("There are not enough holders to reward yet.");
   return { ok: true };
 }

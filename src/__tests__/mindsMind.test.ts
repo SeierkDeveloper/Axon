@@ -15,6 +15,7 @@ import { checkProposal, readProposal, MIN_ACTION_ETH, THINKING_RESERVE_ETH, type
 import { thinkingMode, standInThinker, realThinker, type Thinker } from "@/lib/mindsThinker";
 import { thinkOnce, thinkDue, thoughts, owedThinkingEth, MIN_GAP_MS, MAX_COST_PER_DAY_ETH, type Thought } from "@/lib/mindsMind";
 import { CAN } from "@/lib/mindsLaunch";
+import { unreadChain } from "./helpers/unreadChain";
 
 let n = 0;
 const addr = () => `0x${(++n + 9_700_000).toString(16).padStart(40, "0")}`;
@@ -31,6 +32,7 @@ const snap = (over: Partial<Snapshot> = {}): Snapshot => ({ phase: 0, curve: add
 function world() {
   const state = { launches: [] as MindLaunchEvent[], snaps: new Map<string, Snapshot>(), treasuries: new Map<string, Treasury>() };
   const chain: MindsChain = {
+    ...unreadChain,
     head: async () => 2000n,
     launches: async () => state.launches,
     blockTime: async () => new Date(T0 - 3_600_000).toISOString(),

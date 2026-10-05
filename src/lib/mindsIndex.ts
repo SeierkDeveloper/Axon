@@ -10,9 +10,10 @@
 import { getDb } from "./db";
 import { agentMindsEnabled } from "./mindsPolicy";
 import { mindsChain, mindLauncherAddress, mindDeployBlock, type MindsChain, type MindLaunchEvent, type Treasury, type FeeFlow } from "./mindsChain";
-import { cursor, setCursor, upsertToken, getToken, getPrepared, markLaunched, linkAgent, type MindToken } from "./mindsStore";
+import { cursor, setCursor, upsertToken, getToken, getPrepared, markLaunched, linkAgent, tokenOfAgent, type MindToken } from "./mindsStore";
 import { agentFor } from "./mindsAgent";
 import { DEFAULT_MIND_MODEL, OWN_MIND } from "./mindsModels";
+import { getAttach } from "./mindsAttach";
 import { addEvent, earnedSince } from "./mindsStats";
 import { sameAddress } from "./address";
 import { logger } from "./logger";
@@ -30,17 +31,22 @@ async function record(ev: MindLaunchEvent, chain: MindsChain): Promise<boolean> 
   const prepared = ev.kind === "launched" ? getPrepared(ev.agentRef) : null;
   // the reference is public the moment it is sent; only the wallet that prepared it may use it
   const mine = prepared && sameAddress(prepared.wallet, ev.creator) ? prepared : null;
+  // a mind given to an earlier token: what its creator chose for it waits under the token's pot
+  const chosen = ev.kind === "attached" ? getAttach(ev.pot) : null;
+  const given = chosen && sameAddress(chosen.wallet, ev.creator) ? chosen : null;
+  const givenAgent = given?.agentId && !tokenOfAgent(given.agentId) ? given.agentId : null;
 
   const db = getDb();
   db.transaction(() => {
     const row: MindToken = {
       token: ev.token, creator: ev.creator, agentId: null, agentRef: ev.agentRef, pot: ev.pot, splitter: ev.splitter, vault: ev.vault, payout: ev.payout,
       taxBps: ev.taxBps, creatorBps: ev.creatorBps, burnBps: ev.burnBps, axonBps: ev.axonBps, mindBps: ev.mindBps, attached: ev.kind === "attached",
-      name: meta?.name ?? mine?.name ?? null, symbol: meta?.symbol ?? mine?.symbol ?? null, logo: mine?.logo ?? null, description: mine?.description ?? mine?.line ?? null, model: mine?.model ?? DEFAULT_MIND_MODEL, mindUrl: mine?.model === OWN_MIND ? mine.mindUrl : null,
+      name: meta?.name ?? mine?.name ?? null, symbol: meta?.symbol ?? mine?.symbol ?? null, logo: mine?.logo ?? null, description: mine?.description ?? mine?.line ?? null, model: mine?.model ?? given?.model ?? DEFAULT_MIND_MODEL, mindUrl: mine?.model === OWN_MIND ? mine.mindUrl : given?.model === OWN_MIND ? given.mindUrl : null,
       blockNumber: ev.blockNumber, txHash: ev.txHash, launchedAt,
     };
     upsertToken(row);
-    if (ev.kind === "launched") addEvent(ev.token, "launch", { at: launchedAt });
+    addEvent(ev.token, ev.kind === "launched" ? "launch" : "attached", { at: launchedAt });
+    if (givenAgent) linkAgent(ev.token, givenAgent);
     if (mine && mine.status === "prepared") {
       const agentId = agentFor(mine);
       if (agentId) linkAgent(ev.token, agentId);

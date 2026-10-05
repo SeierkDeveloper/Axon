@@ -35,7 +35,7 @@ function Card({ t, usd }: { t: BoardToken; usd: number | null }) {
             <span className="block h-full rounded-full bg-gray-900 dark:bg-white" style={{ width: `${Math.max(2, t.curveBps / 100)}%` }} />
           </span>
         )}
-        <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-gray-400">{t.holders} {t.holders === 1 ? "holder" : "holders"}</span>
+        <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-gray-400">{t.attached ? "" : `${t.holders} ${t.holders === 1 ? "holder" : "holders"}`}</span>
       </div>
     </Link>
   );

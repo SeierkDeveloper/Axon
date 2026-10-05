@@ -9,6 +9,7 @@ import { curveProgressBps, type MindsChain, type MindLaunchEvent, type Snapshot,
 import { prepare } from "@/lib/mindsAgent";
 import { indexMinds } from "@/lib/mindsIndex";
 import { refreshStats, board, boardTotals, events } from "@/lib/mindsStats";
+import { unreadChain } from "./helpers/unreadChain";
 
 let n = 0;
 const addr = () => `0x${(++n + 9_500_000).toString(16).padStart(40, "0")}`;
@@ -23,6 +24,7 @@ const snap = (over: Partial<Snapshot> = {}): Snapshot => ({ phase: 0, curve: CUR
 function world() {
   const state = { head: 2000n, launches: [] as MindLaunchEvent[], snaps: new Map<string, Snapshot>(), transfers: [] as TransferEvent[], asked: [] as { tokens: string[]; from: bigint; to: bigint }[] };
   const chain: MindsChain = {
+    ...unreadChain,
     head: async () => state.head,
     launches: async (_l, from, to) => state.launches.filter((e) => BigInt(e.blockNumber) >= from && BigInt(e.blockNumber) <= to),
     blockTime: async (b) => new Date(Date.UTC(2026, 9, 5, 12) + b * 100).toISOString(),

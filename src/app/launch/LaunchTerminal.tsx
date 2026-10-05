@@ -61,6 +61,8 @@ function eventText(e: MindEvent): string {
     case "bought": return `mind sent ${ethText(e.eth ?? 0)} to buy back and burn`;
     case "axon": return `mind sent ${ethText(e.eth ?? 0)} to burn $AXON`;
     case "rewarded": return `mind set ${ethText(e.eth ?? 0)} aside for holders`;
+    case "attached": return "was given a mind";
+    case "topup": return `mind's treasury topped up with ${ethText(e.eth ?? 0)}`;
   }
 }
 
@@ -186,6 +188,49 @@ function Rewards({ t }: { t: BoardToken }) {
   );
 }
 
+/** Anybody can add ETH to a mind's treasury. Nobody can take it back out, which the button says before it is pressed. */
+function TopUp({ t }: { t: BoardToken }) {
+  const { address, connect, busy } = useWallet();
+  const [amount, setAmount] = useState("");
+  const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
+  const [note, setNote] = useState<string | null>(null);
+  const ok = /^\d+(\.\d{1,18})?$/.test(amount) && Number(amount) > 0;
+  const send = async () => {
+    const p = provider();
+    if (!p || !address || !ok) return;
+    setState("sending"); setNote(null);
+    try {
+      const chain = (await p.request({ method: "eth_chainId" })) as string;
+      if (chain?.toLowerCase() !== CHAIN_ID_HEX) {
+        try { await p.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN_ID_HEX }] }); }
+        catch (e) { if ((e as { code?: number }).code === 4902) await p.request({ method: "wallet_addEthereumChain", params: [CHAIN_PARAMS] }); else throw e; }
+      }
+      const [whole, frac = ""] = amount.split(".");
+      const wei = BigInt(whole) * 10n ** 18n + BigInt(frac.padEnd(18, "0"));
+      await p.request({ method: "eth_sendTransaction", params: [{ from: address, to: t.vault, value: `0x${wei.toString(16)}` }] });
+      setState("sent"); setAmount(""); setNote("Sent. It shows in the treasury within a minute.");
+    } catch (e) {
+      setState("idle"); setNote(readableWalletError(e));
+    }
+  };
+  return (
+    <div className="border-t border-gray-200 bg-gray-50 px-4 py-5 sm:px-5 dark:border-gray-800 dark:bg-gray-900/40">
+      <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400">Top up its treasury</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-40">
+          <input aria-label="Amount of ETH" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, "").slice(0, 12))} placeholder="0.01" className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 pr-12 font-mono text-sm focus:border-gray-900 focus:outline-none dark:border-gray-700 dark:bg-gray-950 dark:focus:border-white" />
+          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-gray-400">ETH</span>
+        </div>
+        {address
+          ? <button type="button" onClick={() => void send()} disabled={!ok || state === "sending"} className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">{state === "sending" ? "Confirm in your wallet…" : "Top up"}</button>
+          : <button type="button" onClick={() => void connect()} disabled={busy} className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold transition hover:bg-white disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900">Connect a wallet</button>}
+      </div>
+      <p className="mt-2 text-xs text-gray-400">This mind is not fed by trading fees: it holds what people send it. What is sent cannot be taken back out by anybody; the mind spends it inside its limits.</p>
+      {note && <p role="status" className="mt-2 text-sm text-gray-600 dark:text-gray-300">{note}</p>}
+    </div>
+  );
+}
+
 function Detail({ t }: { t: BoardToken }) {
   const shares = [
     { label: "Creator", bps: t.creatorBps, tone: "bg-gray-900 dark:bg-white" },
@@ -241,7 +286,7 @@ function Detail({ t }: { t: BoardToken }) {
       </div>
     </div>
     <Mind t={t} />
-    <Rewards t={t} />
+    {t.attached ? <TopUp t={t} /> : <Rewards t={t} />}
     </>
   );
 }
@@ -332,7 +377,7 @@ export default function LaunchTerminal({ initial, openToken = null }: { initial:
                         </span>
                         <span className="mt-0.5 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                           <span className="min-w-0 truncate">{t.agentName ? `Agent: ${t.agentName}` : "No agent"}</span>
-                          <span className="ml-auto shrink-0 font-mono tabular-nums" suppressHydrationWarning>{holders(t.holders)} · {ago(t.launchedAt, now)}</span>
+                          <span className="ml-auto shrink-0 font-mono tabular-nums" suppressHydrationWarning>{t.attached ? "" : `${holders(t.holders)} · `}{ago(t.launchedAt, now)}</span>
                         </span>
                         <span className="mt-2 block"><Curve t={t} /></span>
                       </span>
@@ -374,7 +419,7 @@ export default function LaunchTerminal({ initial, openToken = null }: { initial:
                           <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-xs tabular-nums text-gray-500 dark:text-gray-400" suppressHydrationWarning>{ago(t.launchedAt, now)}</td>
                           <td className="whitespace-nowrap px-3 py-3 text-right font-mono tabular-nums">{money(t.mcapEth, ethUsd)}</td>
                           <td className="px-3 py-3"><Curve t={t} /></td>
-                          <td className="whitespace-nowrap px-3 py-3 text-right font-mono tabular-nums">{t.holders}</td>
+                          <td className="whitespace-nowrap px-3 py-3 text-right font-mono tabular-nums">{t.attached ? "…" : t.holders}</td>
                           <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-xs tabular-nums">{t.burnedTokens > 0 ? compact(t.burnedTokens) : "0"}</td>
                           <td className="whitespace-nowrap py-3 pl-3 pr-5 text-right font-mono text-xs tabular-nums">{ethText(t.treasuryEth)}</td>
                         </tr>

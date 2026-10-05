@@ -3,6 +3,7 @@ import LaunchPicker from "./LaunchPicker";
 import Link from "next/link";
 import MindLaunch from "./MindLaunch";
 import LaunchTerminal from "./LaunchTerminal";
+import GiveMind from "./GiveMind";
 import { board, boardTotals, events } from "@/lib/mindsStats";
 import { ethUsd } from "@/lib/ethPrice";
 import { launchFactoryAddress } from "@/lib/agentLaunch";
@@ -25,6 +26,26 @@ export default async function LaunchIndexPage({ searchParams }: { searchParams: 
     const prefill = { name: one("name", 32), symbol: (one("ticker", 10) || one("symbol", 10)).replace(/[^A-Za-z0-9]/g, "").toUpperCase(), line: one("line", 180), agentId: one("agent", 80) };
     const launching = Boolean(sp.new !== undefined || prefill.name || prefill.symbol || prefill.line || prefill.agentId);
 
+    // a mind for a token launched before minds
+    if (sp.mind !== undefined) {
+      return (
+        <div className="bg-white dark:bg-[#0a0a0a] min-h-screen text-[#0a0a0a] dark:text-white">
+          <SiteNav />
+          <main className="mx-auto max-w-6xl px-4 pt-28 pb-24 sm:px-6">
+            <Link href="/launch" className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">← All tokens</Link>
+            <div className="mx-auto mb-10 mt-6 max-w-2xl">
+              <p className="mb-3 font-mono text-xs uppercase tracking-[0.25em] text-gray-400">Give it a mind</p>
+              <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Your token is already out there. Give it a mind.</h1>
+              <p className="mt-4 leading-relaxed text-gray-500 dark:text-gray-400">
+                For a token launched through its own burn pot before minds existed. The mind gets a treasury of its own, thinks in the open, and can spend only inside the limits you set here.
+              </p>
+            </div>
+            <GiveMind token={typeof sp.mind === "string" && /^0x[0-9a-fA-F]{40}$/.test(sp.mind) ? sp.mind : ""} />
+          </main>
+        </div>
+      );
+    }
+
     // the form, when somebody came to launch
     if (launching) {
       return (
@@ -40,6 +61,7 @@ export default async function LaunchIndexPage({ searchParams }: { searchParams: 
               </p>
             </div>
             <MindLaunch prefill={prefill} />
+            <p className="mt-10 text-sm text-gray-500 dark:text-gray-400">Already launched a token through its own burn pot? <Link href="/launch?mind=1" className="font-semibold text-gray-900 underline underline-offset-2 dark:text-white">Give it a mind</Link>.</p>
           </main>
         </div>
       );

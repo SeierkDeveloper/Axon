@@ -79,13 +79,15 @@ const spentTodayUsd = (now: number) => (getDb().prepare("SELECT COALESCE(SUM(cos
 const REASON: Record<string, (e: { eth: number | null; tokens: number | null }) => string> = {
   launch: () => "the launch",
   fees: (e) => `fees paid out (${(e.eth ?? 0).toFixed(5)} ETH)`,
+  attached: () => "being given a mind",
+  topup: (e) => `its treasury being topped up (${(e.eth ?? 0).toFixed(5)} ETH)`,
   burn: (e) => `a burn (${Math.round(e.tokens ?? 0)} tokens)`,
   graduated: () => "graduating to its pool",
   holders: (e) => `holders now ${Math.round(e.tokens ?? 0)}`,
   earned: (e) => `its agent earning ${(e.eth ?? 0).toFixed(5)} ETH`,
 };
 
-interface MindRow { token: string; name: string | null; symbol: string | null; description: string | null; vault: string; creator: string; mind_url: string | null; model: string | null; agent_id: string | null; launched_at: string; tax_bps: number | null; phase: number; mcap_eth: number | null; curve_bps: number; holders: number; fees_eth: number; burned_tokens: number; treasury_eth: number }
+interface MindRow { token: string; name: string | null; symbol: string | null; description: string | null; vault: string; creator: string; mind_url: string | null; model: string | null; agent_id: string | null; launched_at: string; tax_bps: number | null; attached?: number; phase: number; mcap_eth: number | null; curve_bps: number; holders: number; fees_eth: number; burned_tokens: number; treasury_eth: number }
 
 const SYSTEM = `You are the mind of a token launched on Axon, on Robinhood Chain. The token stands behind an AI agent that people hire for real work. You have a treasury, filled by a share of the token's trading fees that its creator fixed at launch.
 
@@ -99,12 +101,13 @@ or, to propose: {"thought": "...", "action": {"kind": "buyback" | "reward" | "bu
 "buyback" buys the token back and burns it. "reward" sets ETH aside for holders to claim. "burn_axon" buys $AXON and burns it.`;
 
 function promptFor(m: MindRow, t: Treasury, owed: number, reasons: string[], earned: number, earlier: Thought[]): string {
-  const may = [t.limits.allowed & CAN.buyback && "buy back and burn", t.limits.allowed & CAN.reward && "reward holders", t.limits.allowed & CAN.burnAxon && "burn $AXON"].filter(Boolean).join(", ") || "nothing: you can only think";
+  const may = [t.limits.allowed & CAN.buyback && "buy back and burn", t.limits.allowed & CAN.reward && !m.attached && "reward holders", t.limits.allowed & CAN.burnAxon && "burn $AXON"].filter(Boolean).join(", ") || "nothing: you can only think";
   const free = Math.max(0, t.availableEth - owed - THINKING_RESERVE_ETH);
   return [
     `token: ${m.name ?? "unnamed"} ($${m.symbol ?? "?"})`,
     `about_its_agent: ${m.description ?? "not given"}`,
     `woke_by: ${reasons.join("; ")}`,
+    ...(m.attached ? ["note: this token was launched before minds. Its trading fees do not reach you; your treasury only holds what people send it."] : []),
     `where_it_trades: ${m.phase >= 2 ? "its pool (graduated)" : m.phase === 1 ? "between its curve and its pool: no market right now" : `its curve, ${(m.curve_bps / 100).toFixed(0)}% of the way to graduating`}`,
     `market_cap_eth: ${m.mcap_eth ?? "unknown"}`,
     `holders: ${m.holders}`,
@@ -144,7 +147,7 @@ export async function thinkOnce(token: string, o: ThinkOptions = {}): Promise<Th
   if (!agentMindsEnabled(env) || mode === "off") return { skipped: "thinking is off" };
   const db = getDb();
   const m = db.prepare(
-    `SELECT t.token, t.name, t.symbol, t.description, t.vault, t.creator, t.mind_url, t.model, t.agent_id, t.launched_at, t.tax_bps, COALESCE(s.phase, 0) phase, s.mcap_eth, COALESCE(s.curve_bps, 0) curve_bps, COALESCE(s.holders, 0) holders,
+    `SELECT t.token, t.name, t.symbol, t.description, t.vault, t.creator, t.mind_url, t.model, t.agent_id, t.launched_at, t.tax_bps, t.attached, COALESCE(s.phase, 0) phase, s.mcap_eth, COALESCE(s.curve_bps, 0) curve_bps, COALESCE(s.holders, 0) holders,
        COALESCE(s.fees_eth, 0) fees_eth, COALESCE(s.burned_tokens, 0) burned_tokens, COALESCE(s.treasury_eth, 0) treasury_eth
      FROM mind_tokens t JOIN mind_stats s ON s.token = t.token WHERE t.token = ? AND s.updated_at IS NOT NULL`,
   ).get(token.toLowerCase()) as MindRow | undefined;
@@ -212,7 +215,7 @@ export async function thinkOnce(token: string, o: ThinkOptions = {}): Promise<Th
   if (proposal) {
     const ctx: RuleContext = {
       allowed: treasury.limits.allowed, maxPerDayEth: treasury.limits.maxPerDayEth, maxPerActionEth: treasury.limits.maxPerActionEth, maxActionsPerDay: treasury.limits.maxActionsPerDay,
-      availableEth: treasury.availableEth, owedThinkingEth: owed + (standin ? 0 : costEth), spentTodayEth: 0, actionsToday: 0, active: treasury.active, phase: m.phase, holders: m.holders,
+      availableEth: treasury.availableEth, owedThinkingEth: owed + (standin ? 0 : costEth), spentTodayEth: 0, actionsToday: 0, active: treasury.active, phase: m.phase, holders: m.holders, attached: Boolean(m.attached),
     };
     const v = checkProposal(proposal, ctx);
     verdict = v.ok ? "approved" : "refused";
