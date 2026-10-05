@@ -213,6 +213,16 @@ describe("a mind thinking", () => {
     expect(h).toMatchObject({ verdict: "none", action: null });
   });
 
+  it("is told how long ago each of its earlier thoughts was", async () => {
+    const w = world();
+    const t = await w.launch("AGES");
+    got(await thinkOnce(t.token, { chain: w.chain, thinker: thinker({ thought: "A first small step for holders.", action: { kind: "buyback", eth: 0.001 } }).fn, env: LIVE, now: T0, usdPerEth: USD }));
+    getDb().prepare("INSERT INTO mind_events (token, kind, eth, at) VALUES (?, 'fees', 0.01, ?)").run(t.token, new Date(T0 + 1000).toISOString());
+    const later = thinker({ thought: "Fees came in again. Holding for now.", action: null });
+    got(await thinkOnce(t.token, { chain: w.chain, thinker: later.fn, env: LIVE, now: T0 + 3 * 3_600_000 + 12 * 60_000, usdPerEth: USD }));
+    expect(later.calls[0].prompt).toMatch(/- \(3 h 12 min ago\) A first small step for holders\. \[proposed buyback 0\.001 ETH: approved\]/);
+  });
+
   it("shows a thought with plain punctuation and never cut off in the middle of a sentence", async () => {
     const w = world();
     const t = await w.launch("DASH");
