@@ -30,9 +30,6 @@ interface IPotOfATokenLaunchedEarlier {
 contract MindLauncher {
     uint16 public constant BPS = 10_000;
     uint16 public constant MAX_TAX_BPS = 1000;
-    /// @notice The most a creator may send for their opening buy: what buys about 5% of a fresh curve. A creator who
-    ///         could take half the supply in the launch transaction, untaxed, is the oldest rug there is.
-    uint256 public constant MAX_OPENING_BUY = 0.09 ether;
     /// @notice The only launch settings these tokens launch with: the factory's standard.
     uint256 public constant LAUNCH_CONFIG_ID = 0;
 
@@ -111,7 +108,6 @@ contract MindLauncher {
     error LaunchesArePaused();
     error TaxTooHigh(uint16 bps, uint16 max);
     error BadShares();
-    error OpeningBuyTooLarge(uint256 sent, uint256 max);
     error WiringMismatch();
     error NotThatTokensCreator();
     error NoToken();
@@ -148,14 +144,13 @@ contract MindLauncher {
     // ---------- launching ----------
 
     /// @notice Launch a token with its mind. msg.value is the launch factory's fee plus the creator's optional
-    ///         opening buy; the tokens it buys go straight to the creator.
+    ///         opening buy, of whatever size they choose; the tokens it buys go straight to the creator, and what
+    ///         they bought is on the chain for anybody to see.
     function launch(LaunchInput calldata in_) external payable nonReentrant returns (address token) {
         if (launchesPaused) revert LaunchesArePaused();
         if (in_.payout == address(0)) revert ZeroAddress();
         if (in_.taxBps > MAX_TAX_BPS) revert TaxTooHigh(in_.taxBps, MAX_TAX_BPS);
         if (uint256(in_.creatorBps) + in_.burnBps + in_.axonBps + in_.mindBps != BPS) revert BadShares();
-        uint256 fee = ponsFactory.launchFee();
-        if (msg.value > fee + MAX_OPENING_BUY) revert OpeningBuyTooLarge(msg.value - fee, MAX_OPENING_BUY);
 
         (MindPot pot, MindSplitter splitter, MindVault vault) = _make(in_.taxBps);
         _wire(splitter, pot, vault, in_);

@@ -31,7 +31,6 @@ export const LAUNCHER_ABI = parseAbi([
   "function costSink() view returns (address)",
   "function mindsPaused() view returns (bool)",
   "function launchesPaused() view returns (bool)",
-  "function MAX_OPENING_BUY() view returns (uint256)",
 ]);
 
 export const VAULT_ABI = parseAbi([

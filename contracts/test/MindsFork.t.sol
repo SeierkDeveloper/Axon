@@ -167,13 +167,14 @@ contract MindsForkTest is ForkTest {
         launcher.launch{value: fee}(nobody);
     }
 
-    function test_fork_theOpeningBuyIsCapped() public {
-        uint256 fee = _pons().launchFee();
-        vm.deal(creator, fee + 1 ether);
-        MindLauncher.LaunchInput memory i = _in(300, 4000, 3000, 1000, 2000, keccak256("whale"));
-        vm.prank(creator);
-        vm.expectRevert(abi.encodeWithSelector(MindLauncher.OpeningBuyTooLarge.selector, 1 ether, launcher.MAX_OPENING_BUY()));
-        launcher.launch{value: fee + 1 ether}(i);
+    function test_fork_theOpeningBuyIsWhateverTheCreatorChooses() public {
+        address small = _launch(_in(300, 4000, 3000, 1000, 2000, keccak256("small")), 0.01 ether);
+        uint256 smallBag = _balanceOf(small, creator);
+        assertGt(smallBag, 0, "a small opening buy lands with the creator");
+
+        address big = _launch(_in(300, 4000, 3000, 1000, 2000, keccak256("whale")), 1 ether);
+        assertGt(_balanceOf(big, creator), smallBag * 10, "a large one buys far more, and is not refused");
+        assertEq(address(launcher).balance, 0, "nothing stays in the launcher");
     }
 
     function test_fork_launchesCanBePausedByTheGuardianOnly() public {
