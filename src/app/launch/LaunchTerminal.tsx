@@ -1,0 +1,288 @@
+"use client";
+
+/* eslint-disable @next/next/no-img-element -- token pictures come from wherever their creators put them */
+
+import { Fragment, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { EXPLORER, explorerTxUrl, ponsTokenUrl } from "@/lib/chain";
+import type { BoardToken, BoardTotals, MindEvent, BoardSort } from "@/lib/mindsStats";
+
+/**
+ * The launch terminal: every token launched on Axon, with the numbers its contracts report, and a running log of what
+ * happens to them. It reads one endpoint every few seconds; the worker keeps that endpoint's numbers fresh from the
+ * chain. Nothing here is typed in by anybody.
+ */
+
+export interface TerminalData { totals: BoardTotals; ethUsd: number | null; tokens: BoardToken[]; events: MindEvent[] }
+
+const POLL_MS = 6_000;
+
+const compact = (n: number) => (n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : n >= 100 ? n.toFixed(0) : n >= 1 ? n.toFixed(2) : n > 0 ? n.toPrecision(2) : "0");
+const ethText = (v: number) => `${v >= 100 ? v.toFixed(0) : v >= 1 ? v.toFixed(2) : v >= 0.001 ? v.toFixed(4) : v > 0 ? v.toPrecision(2) : "0"} ETH`;
+const money = (eth: number | null, usd: number | null) => (eth === null ? "…" : usd ? `$${compact(eth * usd)}` : ethText(eth));
+const pct = (bps: number | null) => (bps === null ? "…" : `${+(bps / 100).toFixed(1)}%`);
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+export function ago(iso: string, now: number): string {
+  const s = Math.max(0, Math.floor((now - Date.parse(iso)) / 1000));
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86_400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86_400)}d`;
+}
+
+function Logo({ src, symbol, size }: { src: string | null; symbol: string | null; size: number }) {
+  const [broken, setBroken] = useState(false);
+  const box = { width: size, height: size };
+  if (!src || broken) return <span style={box} className="grid shrink-0 place-items-center rounded-lg bg-gray-100 font-mono text-[10px] font-semibold text-gray-500 dark:bg-gray-800 dark:text-gray-400">{(symbol ?? "?").slice(0, 3)}</span>;
+  return <img src={src} alt="" style={box} loading="lazy" onError={() => setBroken(true)} className="shrink-0 rounded-lg bg-gray-100 object-cover dark:bg-gray-800" />;
+}
+
+function Curve({ t }: { t: BoardToken }) {
+  if (t.phase >= 2) return <span className="rounded-md bg-gray-900 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-white dark:bg-white dark:text-gray-900">Graduated</span>;
+  return (
+    <span className="flex items-center gap-2">
+      <span className="h-1.5 w-full min-w-[56px] overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800" role="img" aria-label={`${pct(t.curveBps)} of the way along its curve`}>
+        <span className="block h-full rounded-full bg-gray-900 dark:bg-white" style={{ width: `${Math.max(2, t.curveBps / 100)}%` }} />
+      </span>
+      <span className="w-9 shrink-0 text-right font-mono text-[11px] tabular-nums text-gray-400">{Math.floor(t.curveBps / 100)}%</span>
+    </span>
+  );
+}
+
+function eventText(e: MindEvent): string {
+  switch (e.kind) {
+    case "launch": return "launched";
+    case "fees": return `paid out ${ethText(e.eth ?? 0)}`;
+    case "burn": return `burned ${compact(e.tokens ?? 0)} $${e.symbol ?? ""}`;
+    case "graduated": return "graduated to its pool";
+  }
+}
+
+function Detail({ t }: { t: BoardToken }) {
+  const shares = [
+    { label: "Creator", bps: t.creatorBps, tone: "bg-gray-900 dark:bg-white" },
+    { label: `Burn $${t.symbol ?? ""}`, bps: t.burnBps, tone: "bg-gray-500 dark:bg-gray-400" },
+    { label: "Burn $AXON", bps: t.axonBps, tone: "bg-gray-400 dark:bg-gray-500" },
+    { label: "The mind", bps: t.mindBps, tone: "bg-gray-300 dark:bg-gray-700" },
+  ];
+  const contracts = [["Token", t.token], ["Burn pot", t.pot], ...(t.splitter ? [["Fee splitter", t.splitter]] : []), ["Mind treasury", t.vault]] as [string, string][];
+  return (
+    <div className="grid gap-6 bg-gray-50 px-4 py-5 sm:px-5 lg:grid-cols-[1fr_1fr_auto] dark:bg-gray-900/40">
+      <div>
+        <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400">Locked at launch</p>
+        {t.attached ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">This token was launched before minds. Its fees go where they always went; its mind was given to it later.</p>
+        ) : (
+          <>
+            <p className="text-sm"><span className="font-mono font-semibold tabular-nums">{pct(t.taxBps)}</span> <span className="text-gray-500 dark:text-gray-400">tax on every trade, divided like this:</span></p>
+            <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-800">
+              {shares.map((s) => (s.bps ?? 0) > 0 && <span key={s.label} className={`${s.tone} border-r-2 border-gray-50 last:border-r-0 dark:border-[#0f1115]`} style={{ width: `${(s.bps ?? 0) / 100}%` }} />)}
+            </div>
+            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+              {shares.map((s) => (
+                <div key={s.label} className="flex items-center gap-2">
+                  <span className={`h-2 w-2 shrink-0 rounded-sm ${s.tone}`} aria-hidden />
+                  <dt className="min-w-0 truncate text-gray-500 dark:text-gray-400">{s.label}</dt>
+                  <dd className="ml-auto font-mono tabular-nums">{pct(s.bps)}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="mt-3 text-xs text-gray-400">Axon takes 0%.</p>
+          </>
+        )}
+      </div>
+      <div>
+        <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400">Its contracts</p>
+        <dl className="space-y-1.5 font-mono text-xs">
+          {contracts.map(([k, v]) => (
+            <div key={k} className="flex items-baseline justify-between gap-4">
+              <dt className="shrink-0 font-sans text-gray-500 dark:text-gray-400">{k}</dt>
+              <dd><a href={`${EXPLORER}/address/${v}`} target="_blank" rel="noopener noreferrer" className="text-gray-700 underline decoration-gray-300 underline-offset-2 hover:text-gray-900 dark:text-gray-300 dark:decoration-gray-700 dark:hover:text-white">{short(v)}</a></dd>
+            </div>
+          ))}
+          <div className="flex items-baseline justify-between gap-4">
+            <dt className="shrink-0 font-sans text-gray-500 dark:text-gray-400">Launched by</dt>
+            <dd><a href={explorerTxUrl(t.txHash)} target="_blank" rel="noopener noreferrer" className="text-gray-700 underline decoration-gray-300 underline-offset-2 hover:text-gray-900 dark:text-gray-300 dark:decoration-gray-700 dark:hover:text-white">{short(t.creator)}</a></dd>
+          </div>
+        </dl>
+      </div>
+      <div className="flex flex-row gap-2 lg:flex-col">
+        <a href={ponsTokenUrl(t.token)} target="_blank" rel="noopener noreferrer" className="rounded-xl bg-gray-900 px-4 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">Trade on Pons</a>
+        {t.agentId && <Link href={`/agents/${t.agentId}`} className="rounded-xl border border-gray-200 px-4 py-2.5 text-center text-sm font-semibold transition hover:bg-white dark:border-gray-700 dark:hover:bg-gray-900">Hire its agent</Link>}
+      </div>
+    </div>
+  );
+}
+
+export default function LaunchTerminal({ initial, openToken = null }: { initial: TerminalData; openToken?: string | null }) {
+  const [data, setData] = useState(initial);
+  const [sort, setSort] = useState<BoardSort>("new");
+  const [open, setOpen] = useState<string | null>(openToken);
+  const [now, setNow] = useState(() => Date.now());
+  const [fresh, setFresh] = useState<Set<number>>(new Set());
+  const seen = useRef(Math.max(0, ...initial.events.map((e) => e.id)));
+
+  useEffect(() => {
+    let alive = true;
+    const load = () => fetch(`/api/minds/tokens?sort=${sort}`)
+      .then((r) => (r.ok ? (r.json() as Promise<TerminalData>) : null))
+      .then((d) => {
+        if (!alive || !d) return;
+        // what arrived since the last look is lit for a moment, so the eye finds it
+        const news = d.events.filter((e) => e.id > seen.current).map((e) => e.id);
+        if (news.length) {
+          seen.current = Math.max(...news);
+          setFresh(new Set(news));
+          setTimeout(() => { if (alive) setFresh(new Set()); }, 2500);
+        }
+        setData(d);
+        setNow(Date.now());
+      })
+      .catch(() => {});
+    void load();
+    const t = setInterval(load, POLL_MS);
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => { alive = false; clearInterval(t); clearInterval(tick); };
+  }, [sort]);
+
+  const { totals, tokens, events, ethUsd } = data;
+  const stats = [
+    { label: "Tokens launched", value: String(totals.tokens) },
+    { label: "Fees paid out", value: ethText(totals.feesEth) },
+    { label: "Spent on burns", value: ethText(totals.burnedEth) },
+    { label: "Held by minds", value: ethText(totals.treasuryEth) },
+  ];
+  const th = "whitespace-nowrap px-3 py-2.5 font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-gray-400";
+  const holders = (n: number) => `${n} ${n === 1 ? "holder" : "holders"}`;
+
+  return (
+    <div>
+      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-gray-200 bg-gray-200 lg:grid-cols-4 dark:border-gray-800 dark:bg-gray-800">
+        {stats.map((s) => (
+          <div key={s.label} className="bg-white px-4 py-4 sm:px-5 dark:bg-[#0a0a0a]">
+            <dt className="font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400">{s.label}</dt>
+            <dd className="mt-1 font-mono text-xl font-semibold tabular-nums sm:text-2xl">{s.value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+        {/* ── every token ── */}
+        <section aria-label="Tokens" className="min-w-0">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold">Tokens</h2>
+            <div className="flex rounded-lg border border-gray-200 p-0.5 text-xs dark:border-gray-800">
+              {([["new", "Newest"], ["mcap", "Market cap"], ["burned", "Most burned"]] as const).map(([k, t]) => (
+                <button key={k} type="button" onClick={() => setSort(k)} aria-pressed={sort === k} className={`rounded-md px-3 py-1.5 font-medium transition ${sort === k ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900" : "text-gray-500 hover:text-gray-900 dark:hover:text-white"}`}>{t}</button>
+              ))}
+            </div>
+          </div>
+
+          {tokens.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-gray-300 px-6 py-16 text-center dark:border-gray-700">
+              <p className="text-lg font-semibold">Nothing has launched here yet.</p>
+              <p className="mx-auto mt-2 max-w-sm text-sm text-gray-500 dark:text-gray-400">The first token launched on Axon shows up here the moment its transaction lands.</p>
+              <Link href="/launch?new=1" className="mt-6 inline-flex rounded-xl bg-gray-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">Launch the first one</Link>
+            </div>
+          ) : (
+            <>
+              {/* a phone gets one card a token: a table squeezed to that width reads as nothing */}
+              <ul className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 md:hidden dark:divide-gray-800/70 dark:border-gray-800">
+                {tokens.map((t) => (
+                  <li key={t.token}>
+                    <button type="button" onClick={() => setOpen(open === t.token ? null : t.token)} aria-expanded={open === t.token} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
+                      <Logo src={t.logo} symbol={t.symbol} size={40} />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-baseline gap-2">
+                          <span className="truncate font-semibold">{t.name ?? short(t.token)}</span>
+                          <span className="shrink-0 font-mono text-xs text-gray-400">${t.symbol ?? "?"}</span>
+                          <span className="ml-auto shrink-0 font-mono text-sm font-semibold tabular-nums">{money(t.mcapEth, ethUsd)}</span>
+                        </span>
+                        <span className="mt-0.5 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                          <span className="min-w-0 truncate">{t.agentName ? `Agent: ${t.agentName}` : "No agent"}</span>
+                          <span className="ml-auto shrink-0 font-mono tabular-nums" suppressHydrationWarning>{holders(t.holders)} · {ago(t.launchedAt, now)}</span>
+                        </span>
+                        <span className="mt-2 block"><Curve t={t} /></span>
+                      </span>
+                    </button>
+                    {open === t.token && <Detail t={t} />}
+                  </li>
+                ))}
+              </ul>
+
+              <div className="hidden overflow-hidden rounded-2xl border border-gray-200 md:block dark:border-gray-800">
+                <table className="w-full table-fixed border-collapse text-sm">
+                  <thead className="border-b border-gray-200 dark:border-gray-800">
+                    <tr>
+                      <th scope="col" className={`${th} w-[31%] pl-5 text-left`}>Token</th>
+                      <th scope="col" className={`${th} w-[7%] text-right`}>Age</th>
+                      <th scope="col" className={`${th} w-[12%] text-right`}>Market cap</th>
+                      <th scope="col" className={`${th} w-[17%] text-left`}>Curve</th>
+                      <th scope="col" className={`${th} w-[9%] text-right`}>Holders</th>
+                      <th scope="col" className={`${th} w-[9%] text-right`}>Burned</th>
+                      <th scope="col" className={`${th} w-[15%] pr-5 text-right`}>Mind holds</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tokens.map((t) => (
+                      <Fragment key={t.token}>
+                        <tr onClick={() => setOpen(open === t.token ? null : t.token)} className="cursor-pointer border-b border-gray-100 transition last:border-b-0 hover:bg-gray-50 dark:border-gray-800/70 dark:hover:bg-gray-900/50">
+                          <td className="py-3 pl-5 pr-3">
+                            <button type="button" aria-expanded={open === t.token} className="flex w-full min-w-0 items-center gap-3 text-left">
+                              <Logo src={t.logo} symbol={t.symbol} size={36} />
+                              <span className="min-w-0 flex-1">
+                                <span className="flex items-baseline gap-2">
+                                  <span className="truncate font-semibold">{t.name ?? short(t.token)}</span>
+                                  <span className="shrink-0 font-mono text-xs text-gray-400">${t.symbol ?? "?"}</span>
+                                </span>
+                                <span className="block truncate text-xs text-gray-500 dark:text-gray-400">{t.agentName ? `Agent: ${t.agentName}` : "No agent"}</span>
+                              </span>
+                            </button>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-xs tabular-nums text-gray-500 dark:text-gray-400" suppressHydrationWarning>{ago(t.launchedAt, now)}</td>
+                          <td className="whitespace-nowrap px-3 py-3 text-right font-mono tabular-nums">{money(t.mcapEth, ethUsd)}</td>
+                          <td className="px-3 py-3"><Curve t={t} /></td>
+                          <td className="whitespace-nowrap px-3 py-3 text-right font-mono tabular-nums">{t.holders}</td>
+                          <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-xs tabular-nums">{t.burnedTokens > 0 ? compact(t.burnedTokens) : "0"}</td>
+                          <td className="whitespace-nowrap py-3 pl-3 pr-5 text-right font-mono text-xs tabular-nums">{ethText(t.treasuryEth)}</td>
+                        </tr>
+                        {open === t.token && (
+                          <tr className="border-b border-gray-100 last:border-b-0 dark:border-gray-800/70">
+                            <td colSpan={7} className="p-0"><Detail t={t} /></td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </section>
+
+        {/* ── what is happening ── */}
+        <section aria-label="Live" className="min-w-0">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="relative flex h-2 w-2" aria-hidden>
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60 motion-reduce:animate-none" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            </span>
+            <h2 className="text-sm font-semibold">Live</h2>
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-800">
+            {events.length === 0 ? (
+              <p className="px-4 py-10 text-center text-sm text-gray-400">Launches, fees paid out and burns show here as they happen.</p>
+            ) : (
+              <ol className="max-h-[560px] divide-y divide-gray-100 overflow-y-auto font-mono text-xs dark:divide-gray-800/70">
+                {events.map((e) => (
+                  <li key={e.id} className={`flex items-center gap-3 px-4 py-2.5 transition-colors duration-1000 ${fresh.has(e.id) ? "bg-emerald-50 dark:bg-emerald-950/40" : ""}`}>
+                    <Logo src={e.logo} symbol={e.symbol} size={22} />
+                    <span className="min-w-0 flex-1 truncate"><span className="font-semibold">${e.symbol ?? "?"}</span> <span className="text-gray-500 dark:text-gray-400">{eventText(e)}</span></span>
+                    <time dateTime={e.at} className="shrink-0 tabular-nums text-gray-400" suppressHydrationWarning>{ago(e.at, now)}</time>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}

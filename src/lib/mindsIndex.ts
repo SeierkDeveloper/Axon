@@ -12,6 +12,7 @@ import { agentMindsEnabled } from "./mindsPolicy";
 import { mindsChain, mindLauncherAddress, mindDeployBlock, type MindsChain, type MindLaunchEvent, type Treasury, type FeeFlow } from "./mindsChain";
 import { cursor, setCursor, upsertToken, getToken, getPrepared, markLaunched, linkAgent, type MindToken } from "./mindsStore";
 import { agentFor } from "./mindsAgent";
+import { addEvent } from "./mindsStats";
 import { toWei, weiToEth } from "./money";
 import { sameAddress } from "./address";
 import { logger } from "./logger";
@@ -39,6 +40,7 @@ async function record(ev: MindLaunchEvent, chain: MindsChain): Promise<boolean> 
       blockNumber: ev.blockNumber, txHash: ev.txHash, launchedAt,
     };
     upsertToken(row);
+    if (ev.kind === "launched") addEvent(ev.token, "launch", { at: launchedAt });
     if (mine && mine.status === "prepared") {
       const agentId = agentFor(mine);
       if (agentId) linkAgent(ev.token, agentId);

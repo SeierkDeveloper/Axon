@@ -5,9 +5,10 @@
 // The reads go through one object (`mindsChain`) so the indexer and the pages can be tested against a chain that is
 // written down in the test rather than fetched.
 
-import { decodeEventLog, formatEther, parseAbi, type Hex } from "viem";
+import { decodeEventLog, encodeAbiParameters, encodePacked, formatEther, keccak256, parseAbi, type Hex } from "viem";
 import { blockNumber, getLogs, publicClient } from "./evm";
 import { normalizeAddress } from "./address";
+import { LAUNCHPAD_FACTORY } from "./launchIndex";
 
 /** The MindLauncher, once it is deployed. Unset means Agent Minds has nothing to read and nothing to launch through. */
 export function mindLauncherAddress(env: Record<string, string | undefined> = process.env): `0x${string}` | null {
@@ -113,6 +114,60 @@ export interface FeeFlow {
   burns: number;
 }
 
+/** A token as the board shows it: where it trades, what it is worth, and what its contracts have done. */
+export interface Snapshot {
+  /** 0 on its curve, 1 swept, 2 trading in its pool, 3 rescued */
+  phase: number;
+  curve: string;
+  /** ETH for one whole token, or null while there is nowhere to read a price (between curve and pool) */
+  priceEth: number | null;
+  supply: number;
+  /** how far along its curve, in hundredths of a percent */
+  curveBps: number;
+  feesEth: number;
+  toMindEth: number;
+  burnedTokens: number;
+  burnedEth: number;
+  burns: number;
+  treasuryEth: number;
+  /** where its liquidity sits once it has graduated: a holder of the token that is nobody's wallet */
+  poolManager: string | null;
+}
+
+export interface TransferEvent { token: string; from: string; to: string; value: bigint; blockNumber: number }
+
+const MULTICALL = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
+const ZERO = "0x0000000000000000000000000000000000000000" as const;
+const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+/** v4-core StateLibrary: the pools mapping lives at slot 6, and sqrtPriceX96 is the first word. */
+const POOLS_SLOT = 6n;
+const Q192 = 2n ** 192n;
+
+const FACTORY_ABI = parseAbi([
+  "function getLaunchedToken(address) view returns ((address token,address curve,address deployer,address creatorFeeRecipient,address pairToken,uint256 graduationThreshold,uint24 poolFee,int24 tickSpacing,uint16 creatorTaxBps,bool buybackEnabled,uint8 phase,uint256 sweptQuote,uint256 sweptTokens,uint256 sweptAt,bool exists))",
+  "function poolManager() view returns (address)",
+  "function memeHook() view returns (address)",
+]);
+const CURVE_ABI = parseAbi(["function getReserves() view returns (uint256 quoteReserve, uint256 tokenReserve)"]);
+const SUPPLY_ABI = parseAbi(["function totalSupply() view returns (uint256)"]);
+const EXTSLOAD_ABI = parseAbi(["function extsload(bytes32) view returns (bytes32)"]);
+
+/**
+ * How far along its curve a token is, in hundredths of a percent. A fresh curve opens with a phantom reserve of two
+ * fifths of the graduation threshold on its quote side (1.68 ETH against 4.2), and is ready to graduate when the ETH
+ * really paid in reaches the threshold: measured on a copy of the chain, buy by buy.
+ */
+export function curveProgressBps(quoteReserve: bigint, threshold: bigint): number {
+  if (threshold <= 0n) return 0;
+  const paidIn = quoteReserve - (threshold * 2n) / 5n;
+  if (paidIn <= 0n) return 0;
+  const bps = (paidIn * 10_000n) / threshold;
+  return bps > 10_000n ? 10_000 : Number(bps);
+}
+
+// the pool manager and the hook never change for a factory; read once
+let venue: { poolManager: `0x${string}`; hook: `0x${string}` } | null = null;
+
 const eth = (wei: bigint) => Number(formatEther(wei));
 const lower = (a: string) => a.toLowerCase();
 
@@ -173,6 +228,77 @@ export const mindsChain = {
       claimedEth: eth(claimed), thinkingEth: eth(thinking), rewards: Number(rewards), paused, frozen, active,
       limits: { allowed: limits[0], maxPerDayEth: eth(limits[1]), maxPerActionEth: eth(limits[2]), maxActionsPerDay: limits[3], maxCostPerDayEth: eth(limits[4]) },
     };
+  },
+
+  /** Everything the board shows for one token, in two round trips to the chain however much it reads. */
+  async snapshot(t: { token: string; pot: string; splitter: string | null; vault: string }): Promise<Snapshot> {
+    const c = publicClient();
+    const token = t.token as `0x${string}`, pot = t.pot as `0x${string}`, vault = t.vault as `0x${string}`;
+    const splitter = (t.splitter ?? ZERO) as `0x${string}`;
+    const r = await c.multicall({
+      multicallAddress: MULTICALL,
+      allowFailure: true,
+      contracts: [
+        { address: LAUNCHPAD_FACTORY as `0x${string}`, abi: FACTORY_ABI, functionName: "getLaunchedToken", args: [token] },
+        { address: token, abi: SUPPLY_ABI, functionName: "totalSupply" },
+        { address: pot, abi: POT_ABI, functionName: "totalEthBurned" },
+        { address: pot, abi: POT_ABI, functionName: "totalTokensBurned" },
+        { address: pot, abi: POT_ABI, functionName: "burnCount" },
+        { address: vault, abi: VAULT_ABI, functionName: "available" },
+        { address: vault, abi: VAULT_ABI, functionName: "reserved" },
+        { address: splitter, abi: SPLITTER_ABI, functionName: "totalSplit" },
+        { address: splitter, abi: SPLITTER_ABI, functionName: "totalToMind" },
+      ],
+    });
+    const info = r[0].status === "success" ? r[0].result : null;
+    // a token's own record is the one read nothing else can stand in for
+    if (!info || !info.exists) throw new Error(`the launch factory has no record of ${t.token}`);
+    const n = (i: number) => (r[i].status === "success" ? (r[i].result as bigint) : 0n);
+
+    let priceEth: number | null = null;
+    let curveBps = info.phase === 0 ? 0 : 10_000;
+    if (info.phase === 0) {
+      const [quote, tokens] = await c.readContract({ address: info.curve, abi: CURVE_ABI, functionName: "getReserves" });
+      // the spot price a trade faces: the quote side over the token side, both in eighteen decimals
+      if (tokens > 0n) priceEth = Number((quote * 10n ** 18n) / tokens) / 1e18;
+      curveBps = curveProgressBps(quote, info.graduationThreshold);
+    } else if (info.phase === 2) {
+      if (!venue) {
+        const [poolManager, hook] = await Promise.all([
+          c.readContract({ address: LAUNCHPAD_FACTORY as `0x${string}`, abi: FACTORY_ABI, functionName: "poolManager" }),
+          c.readContract({ address: LAUNCHPAD_FACTORY as `0x${string}`, abi: FACTORY_ABI, functionName: "memeHook" }),
+        ]);
+        venue = { poolManager, hook };
+      }
+      // ETH is currency0 because its address is zero, so the pool's price is tokens for one ETH
+      const poolId = keccak256(encodeAbiParameters(
+        [{ type: "address" }, { type: "address" }, { type: "uint24" }, { type: "int24" }, { type: "address" }],
+        [ZERO, token, info.poolFee, info.tickSpacing, venue.hook],
+      ));
+      const slot = keccak256(encodePacked(["bytes32", "uint256"], [poolId, POOLS_SLOT]));
+      const raw = await c.readContract({ address: venue.poolManager, abi: EXTSLOAD_ABI, functionName: "extsload", args: [slot] });
+      const sqrtP = BigInt(raw) & ((1n << 160n) - 1n);
+      if (sqrtP > 0n) {
+        const tokensPerEth = (10n ** 18n * sqrtP * sqrtP) / Q192;
+        if (tokensPerEth > 0n) priceEth = Number((10n ** 36n) / tokensPerEth) / 1e18;
+      }
+    }
+    return {
+      phase: info.phase, curve: lower(info.curve), priceEth, supply: eth(n(1)), curveBps,
+      burnedEth: eth(n(2)), burnedTokens: eth(n(3)), burns: Number(n(4)), treasuryEth: eth(n(5) + n(6)), feesEth: eth(n(7)), toMindEth: eth(n(8)),
+      poolManager: venue ? lower(venue.poolManager) : null,
+    };
+  },
+
+  /** Every transfer of these tokens in a range of blocks, oldest first. */
+  async transfers(tokens: string[], from: bigint, to: bigint): Promise<TransferEvent[]> {
+    if (!tokens.length || from > to) return [];
+    const logs = (await getLogs(from, to, { address: tokens, topics: [TRANSFER_TOPIC] })) as (RawLog & { address: string; logIndex: Hex })[];
+    return logs
+      .filter((l) => l.topics.length === 3)
+      .map((l) => ({ token: lower(l.address), from: `0x${l.topics[1].slice(-40)}`, to: `0x${l.topics[2].slice(-40)}`, value: BigInt(l.data === "0x" ? "0x0" : l.data), blockNumber: Number(BigInt(l.blockNumber)), i: Number(BigInt(l.logIndex ?? "0x0")) }))
+      .sort((a, b) => a.blockNumber - b.blockNumber || a.i - b.i)
+      .map(({ i: _i, ...t }) => t);
   },
 
   async feeFlow(splitter: string | null, pot: string): Promise<FeeFlow> {

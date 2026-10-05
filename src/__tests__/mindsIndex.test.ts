@@ -41,6 +41,8 @@ function fakeChain(events: MindLaunchEvent[], head = 2000n) {
     tokenMeta: async () => ({ name: "Chain Name", symbol: "CHAIN" }),
     treasury: async () => TREASURY,
     feeFlow: async () => FEES,
+    snapshot: async () => { throw new Error("not read in these tests"); },
+    transfers: async () => [],
   };
   return { chain, asked };
 }

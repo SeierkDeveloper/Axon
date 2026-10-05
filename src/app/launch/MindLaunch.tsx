@@ -206,6 +206,7 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
         <div className="mt-6 flex flex-wrap justify-center gap-3">
           <a href={ponsTokenUrl(done.token)} target="_blank" rel="noopener noreferrer" className="rounded-xl bg-gray-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">Trade it on Pons</a>
           {done.agentId && <Link href={`/agents/${done.agentId}`} className="rounded-xl border border-gray-200 px-5 py-3 text-sm font-semibold transition hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900">See its agent</Link>}
+          <Link href={`/launch?token=${done.token.toLowerCase()}`} className="rounded-xl border border-gray-200 px-5 py-3 text-sm font-semibold transition hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900">See it in the terminal</Link>
         </div>
         <dl className="mt-8 space-y-2 text-left font-mono text-xs">
           {([["Token", done.token], ["Burn pot", done.pot], ["Fee splitter", done.splitter], ["Mind treasury", done.vault]] as const).map(([k, v]) => (

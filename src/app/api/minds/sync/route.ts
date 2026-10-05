@@ -3,6 +3,7 @@ import { apiError } from "@/lib/apiError";
 import { withRequestContext } from "@/lib/withRequestContext";
 import { agentMindsEnabled } from "@/lib/mindsPolicy";
 import { indexMinds } from "@/lib/mindsIndex";
+import { refreshStats } from "@/lib/mindsStats";
 import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
     if (!agentMindsEnabled()) return apiError("NOT_FOUND", "Not found", 404);
     if (!running && Date.now() - lastAt >= MIN_GAP_MS) {
       lastAt = Date.now();
-      running = indexMinds().catch((err) => logger.warn("minds.sync_failed", "Reading the launcher's events on request failed", { err })).finally(() => { running = null; });
+      running = indexMinds().then(() => refreshStats(undefined, undefined, 10)).catch((err) => logger.warn("minds.sync_failed", "Reading the launcher's events on request failed", { err })).finally(() => { running = null; });
     }
     if (running) await running;
     return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });

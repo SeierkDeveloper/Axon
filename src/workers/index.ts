@@ -29,6 +29,7 @@ import { launch, drain, inFlightCount } from "./inflight";
 import { runMyloPass } from "../lib/myloPass";
 import { advanceRunningCrews } from "../lib/myloActions";
 import { indexMinds } from "../lib/mindsIndex";
+import { refreshStats } from "../lib/mindsStats";
 
 // Agents that append live market prices to their task message
 const PRICE_AGENTS = new Set(["crypto-agent", "trading-agent"]);
@@ -685,6 +686,8 @@ export async function startWorkerLoops(): Promise<void> {
     mindsRunning = true;
     indexMinds()
       .then((r) => { if (r?.added) logger.info("minds.index", "Tokens with a mind read from the chain", { ...r }); })
+      // then the numbers the board shows: price, holders, fees, burns, treasuries
+      .then(() => refreshStats())
       .catch((err) => logger.warn("minds.index_failed", "Reading the launcher's events failed", { err }))
       .finally(() => { mindsRunning = false; });
   }, MINDS_INDEX_INTERVAL_MS);

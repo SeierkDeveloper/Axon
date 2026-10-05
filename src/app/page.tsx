@@ -4,6 +4,7 @@ import NetworkCanvas from "@/components/NetworkCanvas";
 import FadeIn from "@/components/FadeIn";
 import TerminalCode from "@/components/TerminalCode";
 import SiteNav from "@/components/SiteNav";
+import MindsBoard from "./MindsBoard";
 import { getNetworkStats } from "@/lib/analytics";
 import { homeCardFingerprint } from "./homeCard";
 import { AXON_TOKEN_ADDRESS as AXON_TOKEN } from "@/lib/money";
@@ -246,6 +247,9 @@ export default async function Home() {
           </FadeIn>
         </div>
       </section>
+
+      {/* Launched on Axon: tokens with an agent and a mind. Renders nothing unless Agent Minds is switched on. */}
+      <MindsBoard />
 
       {/* Axon Build */}
       <section className="px-6 pb-16">

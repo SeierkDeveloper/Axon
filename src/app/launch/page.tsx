@@ -1,6 +1,10 @@
 import SiteNav from "@/components/SiteNav";
 import LaunchPicker from "./LaunchPicker";
+import Link from "next/link";
 import MindLaunch from "./MindLaunch";
+import LaunchTerminal from "./LaunchTerminal";
+import { board, boardTotals, events } from "@/lib/mindsStats";
+import { ethUsd } from "@/lib/ethPrice";
 import { launchFactoryAddress } from "@/lib/agentLaunch";
 import { agentMindsEnabled } from "@/lib/mindsPolicy";
 
@@ -19,18 +23,43 @@ export default async function LaunchIndexPage({ searchParams }: { searchParams: 
     const sp = await searchParams;
     const one = (k: string, n: number) => (typeof sp[k] === "string" ? (sp[k] as string).slice(0, n) : "");
     const prefill = { name: one("name", 32), symbol: (one("ticker", 10) || one("symbol", 10)).replace(/[^A-Za-z0-9]/g, "").toUpperCase(), line: one("line", 180), agentId: one("agent", 80) };
+    const launching = Boolean(sp.new !== undefined || prefill.name || prefill.symbol || prefill.line || prefill.agentId);
+
+    // the form, when somebody came to launch
+    if (launching) {
+      return (
+        <div className="bg-white dark:bg-[#0a0a0a] min-h-screen text-[#0a0a0a] dark:text-white">
+          <SiteNav />
+          <main className="mx-auto max-w-6xl px-4 pt-28 pb-24 sm:px-6">
+            <Link href="/launch" className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">← All tokens</Link>
+            <div className="mb-10 mt-6 max-w-2xl">
+              <p className="mb-3 font-mono text-xs uppercase tracking-[0.25em] text-gray-400">Launch</p>
+              <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">A token, an agent that works for it, and a mind behind both.</h1>
+              <p className="mt-4 leading-relaxed text-gray-500 dark:text-gray-400">
+                Name it, give it a picture and say what its agent does. One transaction launches the token on Pons with its own burn pot and a treasury its mind runs in the open. You set the tax and where the fees go, once.
+              </p>
+            </div>
+            <MindLaunch prefill={prefill} />
+          </main>
+        </div>
+      );
+    }
+
+    // otherwise the terminal: every token launched here, live
+    const initial = { totals: boardTotals(), ethUsd: await ethUsd(), tokens: board("new", 60), events: events(40) };
     return (
       <div className="bg-white dark:bg-[#0a0a0a] min-h-screen text-[#0a0a0a] dark:text-white">
         <SiteNav />
         <main className="mx-auto max-w-6xl px-4 pt-28 pb-24 sm:px-6">
-          <div className="mb-10 max-w-2xl">
-            <p className="mb-3 font-mono text-xs uppercase tracking-[0.25em] text-gray-400">Launch</p>
-            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">A token, an agent that works for it, and a mind behind both.</h1>
-            <p className="mt-4 leading-relaxed text-gray-500 dark:text-gray-400">
-              Name it, give it a picture and say what its agent does. One transaction launches the token on Pons with its own burn pot and a treasury its mind runs in the open. You set the tax and where the fees go, once.
-            </p>
+          <div className="mb-8 flex flex-wrap items-end justify-between gap-6">
+            <div className="max-w-2xl">
+              <p className="mb-3 font-mono text-xs uppercase tracking-[0.25em] text-gray-400">Launch</p>
+              <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Every token here has an agent and a mind.</h1>
+              <p className="mt-3 leading-relaxed text-gray-500 dark:text-gray-400">Launched on Axon, trading on Pons. Each one&apos;s numbers come from its own contracts on Robinhood Chain.</p>
+            </div>
+            <Link href="/launch?new=1" className="rounded-xl bg-gray-900 px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">Launch a token</Link>
           </div>
-          <MindLaunch prefill={prefill} />
+          <LaunchTerminal initial={initial} openToken={typeof sp.token === "string" ? sp.token.toLowerCase() : null} />
         </main>
       </div>
     );
