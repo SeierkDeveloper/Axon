@@ -20,6 +20,7 @@ import { checkProposal, type Proposal } from "./mindsRules";
 import { divide, merkle } from "./mindsMerkle";
 import { addEvent } from "./mindsStats";
 import { owedThinkingEth } from "./mindsMind";
+import { mindsHalted } from "./mindsAdmin";
 import { publicClient, walletClientFor } from "./evm";
 import { logger } from "./logger";
 
@@ -34,7 +35,7 @@ export const MIN_SWEEP_ETH = 0.0003;
 const NOBODY = ["0x0000000000000000000000000000000000000000", "0x000000000000000000000000000000000000dead"];
 
 export function actingEnabled(env: Record<string, string | undefined> = process.env): boolean {
-  return agentMindsEnabled(env) && (env.MINDS_ACTING ?? "off").trim().toLowerCase() === "on" && Boolean(env.MIND_SIGNER_KEY?.trim());
+  return agentMindsEnabled(env) && (env.MINDS_ACTING ?? "off").trim().toLowerCase() === "on" && Boolean(env.MIND_SIGNER_KEY?.trim()) && !mindsHalted();
 }
 
 /** How the signer reaches the chain. The real one signs with MIND_SIGNER_KEY; tests write their own. */
@@ -159,7 +160,7 @@ export async function actDue(o: ActOptions = {}, limit = 5): Promise<{ done: num
   const due = getDb().prepare(
     `SELECT h.id, h.token, h.at, h.action, t.vault, t.pot, t.splitter, t.curve, t.attached, COALESCE(s.phase, 0) phase, COALESCE(s.holders, 0) holders, s.holders_block
        FROM mind_thoughts h JOIN mind_tokens t ON t.token = h.token LEFT JOIN mind_stats s ON s.token = h.token
-      WHERE h.status = 'thought' AND h.verdict = 'approved' AND h.action IS NOT NULL
+      WHERE h.status = 'thought' AND h.verdict = 'approved' AND h.action IS NOT NULL AND t.stopped_at IS NULL
         AND NOT EXISTS (SELECT 1 FROM mind_actions a WHERE a.thought_id = h.id)
         AND NOT EXISTS (SELECT 1 FROM mind_actions a WHERE a.token = h.token AND a.status IN ('pending', 'sent'))
         AND h.id = (SELECT MIN(h2.id) FROM mind_thoughts h2 WHERE h2.token = h.token AND h2.status = 'thought' AND h2.verdict = 'approved' AND h2.action IS NOT NULL
@@ -177,7 +178,8 @@ export async function actDue(o: ActOptions = {}, limit = 5): Promise<{ done: num
 /** Actions that were sent and never heard back from (a restart in between): look their transactions up and close them. */
 export async function settleSent(o: ActOptions = {}): Promise<number> {
   const env = o.env ?? process.env;
-  if (!actingEnabled(env)) return 0;
+  // closing the record of something already sent sends nothing, so it goes on while minds are stopped
+  if (!actingEnabled(env) && !(mindsHalted() && Boolean(env.MIND_SIGNER_KEY?.trim()) && (env.MINDS_ACTING ?? "off").trim().toLowerCase() === "on")) return 0;
   const sender = o.sender ?? realSender(env);
   const db = getDb();
   // written down but never sent: the process stopped in between. A thought is never acted on twice, so this is final.
@@ -210,7 +212,7 @@ export async function payThinkingDue(o: ActOptions = {}, limit = 5): Promise<num
   const chain = o.chain ?? mindsChain, sender = o.sender ?? realSender(env);
   const rows = getDb().prepare(
     `SELECT t.token, t.vault FROM mind_tokens t
-      WHERE NOT EXISTS (SELECT 1 FROM mind_actions a WHERE a.token = t.token AND a.status IN ('pending', 'sent'))
+      WHERE t.stopped_at IS NULL AND NOT EXISTS (SELECT 1 FROM mind_actions a WHERE a.token = t.token AND a.status IN ('pending', 'sent'))
         AND (SELECT COALESCE(SUM(cost_eth), 0) FROM mind_thoughts h WHERE h.token = t.token AND h.standin = 0)
           - (SELECT COALESCE(SUM(eth), 0) FROM mind_actions a WHERE a.token = t.token AND a.kind = 'thinking' AND a.status IN ('pending', 'sent', 'done')) >= ?
       LIMIT ?`,
@@ -250,7 +252,7 @@ export async function keepUp(o: ActOptions = {}, limit = 20): Promise<{ swept: n
   const env = o.env ?? process.env;
   if (!actingEnabled(env)) return null;
   const sender = o.sender ?? realSender(env);
-  const rows = getDb().prepare("SELECT token, pot, splitter FROM mind_tokens ORDER BY launched_at DESC LIMIT ?").all(limit) as { token: string; pot: string; splitter: string | null }[];
+  const rows = getDb().prepare("SELECT token, pot, splitter FROM mind_tokens WHERE stopped_at IS NULL ORDER BY launched_at DESC LIMIT ?").all(limit) as { token: string; pot: string; splitter: string | null }[];
   const out = { swept: 0, burned: 0 };
   for (const r of rows) {
     try {

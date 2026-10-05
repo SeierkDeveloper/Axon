@@ -163,6 +163,10 @@ export interface BoardToken {
   feesEth: number; toMindEth: number; burnedTokens: number; burnedEth: number; burns: number; treasuryEth: number;
   /** ETH this token's mind has set aside for holders so far */
   rewardsEth: number;
+  /** and what it has sent to buybacks, to burning $AXON and paid for its own thinking */
+  boughtEth: number; axonEth: number; thinkingPaidEth: number; thoughts: number;
+  /** stopped from Axon's side: it does not think and nothing is sent for it */
+  stopped: boolean;
 }
 
 export type BoardSort = "new" | "mcap" | "burned";
@@ -174,11 +178,16 @@ export function board(sort: BoardSort = "new", limit = 60): BoardToken[] {
        t.pot, t.splitter, t.vault, t.payout, t.attached, t.tax_bps taxBps, t.creator_bps creatorBps, t.burn_bps burnBps, t.axon_bps axonBps, t.mind_bps mindBps, t.model,
        COALESCE(s.phase, 0) phase, s.price_eth priceEth, s.mcap_eth mcapEth, COALESCE(s.curve_bps, 0) curveBps, COALESCE(s.holders, 0) holders,
        COALESCE(s.fees_eth, 0) feesEth, COALESCE(s.to_mind_eth, 0) toMindEth, COALESCE(s.burned_tokens, 0) burnedTokens, COALESCE(s.burned_eth, 0) burnedEth, COALESCE(s.burns, 0) burns, COALESCE(s.treasury_eth, 0) treasuryEth,
-       COALESCE((SELECT SUM(a.eth) FROM mind_actions a WHERE a.token = t.token AND a.kind = 'reward' AND a.status = 'done'), 0) rewardsEth
+       COALESCE((SELECT SUM(a.eth) FROM mind_actions a WHERE a.token = t.token AND a.kind = 'reward' AND a.status = 'done'), 0) rewardsEth,
+       COALESCE((SELECT SUM(a.eth) FROM mind_actions a WHERE a.token = t.token AND a.kind = 'buyback' AND a.status = 'done'), 0) boughtEth,
+       COALESCE((SELECT SUM(a.eth) FROM mind_actions a WHERE a.token = t.token AND a.kind = 'burn_axon' AND a.status = 'done'), 0) axonEth,
+       COALESCE((SELECT SUM(a.eth) FROM mind_actions a WHERE a.token = t.token AND a.kind = 'thinking' AND a.status = 'done'), 0) thinkingPaidEth,
+       (SELECT COUNT(*) FROM mind_thoughts h WHERE h.token = t.token AND h.status = 'thought') thoughts,
+       t.stopped_at IS NOT NULL stopped
      FROM mind_tokens t LEFT JOIN mind_stats s ON s.token = t.token LEFT JOIN agents a ON a.agent_id = t.agent_id
      ORDER BY ${ORDER[sort] ?? ORDER.new} LIMIT ?`,
-  ).all(Math.min(200, Math.max(1, limit))) as (Omit<BoardToken, "attached"> & { attached: number })[];
-  return rows.map((r) => ({ ...r, attached: r.attached === 1 }));
+  ).all(Math.min(200, Math.max(1, limit))) as (Omit<BoardToken, "attached" | "stopped"> & { attached: number; stopped: number })[];
+  return rows.map((r) => ({ ...r, attached: r.attached === 1, stopped: r.stopped === 1 }));
 }
 
 export interface BoardTotals { tokens: number; feesEth: number; burnedEth: number; toMindEth: number; treasuryEth: number }

@@ -21,6 +21,7 @@ import { addEvent, earnedSince } from "./mindsStats";
 import { validateAgentText } from "./agentContent";
 import { extractJson } from "./studioDraft";
 import { ethUsd } from "./ethPrice";
+import { mindsHalted } from "./mindsAdmin";
 import { logger } from "./logger";
 
 /** The least time between two thoughts of one mind, however much happens. */
@@ -87,7 +88,7 @@ const REASON: Record<string, (e: { eth: number | null; tokens: number | null }) 
   earned: (e) => `its agent earning ${(e.eth ?? 0).toFixed(5)} ETH`,
 };
 
-interface MindRow { token: string; name: string | null; symbol: string | null; description: string | null; vault: string; creator: string; mind_url: string | null; model: string | null; agent_id: string | null; launched_at: string; tax_bps: number | null; attached?: number; phase: number; mcap_eth: number | null; curve_bps: number; holders: number; fees_eth: number; burned_tokens: number; treasury_eth: number }
+interface MindRow { token: string; name: string | null; symbol: string | null; description: string | null; vault: string; creator: string; mind_url: string | null; model: string | null; agent_id: string | null; launched_at: string; tax_bps: number | null; attached?: number; stopped_at?: string | null; phase: number; mcap_eth: number | null; curve_bps: number; holders: number; fees_eth: number; burned_tokens: number; treasury_eth: number }
 
 const SYSTEM = `You are the mind of a token launched on Axon, on Robinhood Chain. The token stands behind an AI agent that people hire for real work. You have a treasury, filled by a share of the token's trading fees that its creator fixed at launch.
 
@@ -145,13 +146,15 @@ export async function thinkOnce(token: string, o: ThinkOptions = {}): Promise<Th
   const env = o.env ?? process.env, now = o.now ?? Date.now(), chain = o.chain ?? mindsChain;
   const mode = thinkingMode(env);
   if (!agentMindsEnabled(env) || mode === "off") return { skipped: "thinking is off" };
+  if (mindsHalted()) return { skipped: "every mind is stopped" };
   const db = getDb();
   const m = db.prepare(
-    `SELECT t.token, t.name, t.symbol, t.description, t.vault, t.creator, t.mind_url, t.model, t.agent_id, t.launched_at, t.tax_bps, t.attached, COALESCE(s.phase, 0) phase, s.mcap_eth, COALESCE(s.curve_bps, 0) curve_bps, COALESCE(s.holders, 0) holders,
+    `SELECT t.token, t.name, t.symbol, t.description, t.vault, t.creator, t.mind_url, t.model, t.agent_id, t.launched_at, t.tax_bps, t.attached, t.stopped_at, COALESCE(s.phase, 0) phase, s.mcap_eth, COALESCE(s.curve_bps, 0) curve_bps, COALESCE(s.holders, 0) holders,
        COALESCE(s.fees_eth, 0) fees_eth, COALESCE(s.burned_tokens, 0) burned_tokens, COALESCE(s.treasury_eth, 0) treasury_eth
      FROM mind_tokens t JOIN mind_stats s ON s.token = t.token WHERE t.token = ? AND s.updated_at IS NOT NULL`,
   ).get(token.toLowerCase()) as MindRow | undefined;
   if (!m) return { skipped: "its numbers have not been read yet" };
+  if (m.stopped_at) return { skipped: "the mind is stopped" };
 
   const last = db.prepare("SELECT at, status, last_event_id FROM mind_thoughts WHERE token = ? ORDER BY id DESC LIMIT 1").get(m.token) as { at: string; status: string; last_event_id: number } | undefined;
   if (last && now - Date.parse(last.at) < (last.status === "failed" ? FAILED_GAP_MS : MIN_GAP_MS)) return { skipped: "it thought a moment ago" };
@@ -232,12 +235,12 @@ export async function thinkOnce(token: string, o: ThinkOptions = {}): Promise<Th
 /** Let the minds that have something to think about think: a few a pass, the longest-waiting first. */
 export async function thinkDue(o: ThinkOptions = {}, limit = MINDS_PER_PASS): Promise<{ thought: number; skipped: number } | null> {
   const env = o.env ?? process.env;
-  if (!agentMindsEnabled(env) || thinkingMode(env) === "off") return null;
+  if (!agentMindsEnabled(env) || thinkingMode(env) === "off" || mindsHalted()) return null;
   const now = o.now ?? Date.now();
   // minds with an event newer than their last thought, and no thought in the last ten minutes
   const due = getDb().prepare(
     `SELECT t.token FROM mind_tokens t
-      WHERE EXISTS (SELECT 1 FROM mind_events e WHERE e.token = t.token AND e.kind NOT IN ('thought', 'bought', 'axon', 'rewarded') AND e.id > COALESCE((SELECT MAX(last_event_id) FROM mind_thoughts h WHERE h.token = t.token), 0))
+      WHERE t.stopped_at IS NULL AND EXISTS (SELECT 1 FROM mind_events e WHERE e.token = t.token AND e.kind NOT IN ('thought', 'bought', 'axon', 'rewarded') AND e.id > COALESCE((SELECT MAX(last_event_id) FROM mind_thoughts h WHERE h.token = t.token), 0))
         AND COALESCE((SELECT MAX(at) FROM mind_thoughts h WHERE h.token = t.token), '') < ?
       ORDER BY COALESCE((SELECT MAX(at) FROM mind_thoughts h WHERE h.token = t.token), '') ASC LIMIT ?`,
   ).all(new Date(now - MIN_GAP_MS).toISOString(), limit) as { token: string }[];

@@ -77,7 +77,7 @@ export default async function LaunchIndexPage({ searchParams }: { searchParams: 
             <div className="max-w-2xl">
               <p className="mb-3 font-mono text-xs uppercase tracking-[0.25em] text-gray-400">Launch</p>
               <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Every token here has an agent and a mind.</h1>
-              <p className="mt-3 leading-relaxed text-gray-500 dark:text-gray-400">Launched on Axon, trading on Pons. Each one&apos;s numbers come from its own contracts on Robinhood Chain.</p>
+              <p className="mt-3 leading-relaxed text-gray-500 dark:text-gray-400">Launched on Axon, trading on Pons. Each one&apos;s numbers come from its own contracts on Robinhood Chain. Axon takes 0% of their fees.</p>
             </div>
             <Link href="/launch?new=1" className="rounded-xl bg-gray-900 px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">Launch a token</Link>
           </div>

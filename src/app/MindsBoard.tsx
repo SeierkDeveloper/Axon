@@ -75,6 +75,7 @@ export default async function MindsBoard() {
               <p className="mx-auto mt-2 max-w-md text-sm text-gray-500 dark:text-gray-400">One transaction launches a token with an agent that works for it and a mind with its own treasury. The first one shows here.</p>
             </div>
           )}
+          <p className="mt-4 text-xs text-gray-400">Launched by their creators, not by Axon, which takes 0% of their fees. Tokens can lose all of their value; trade at your own risk.</p>
         </div>
       </FadeIn>
     </section>

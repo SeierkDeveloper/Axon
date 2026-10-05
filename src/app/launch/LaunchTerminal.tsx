@@ -83,6 +83,15 @@ function Mind({ t }: { t: BoardToken }) {
   return (
     <div className="border-t border-gray-200 bg-gray-50 px-4 py-5 sm:px-5 dark:border-gray-800 dark:bg-gray-900/40">
       <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400">Its mind <span className="normal-case tracking-normal text-gray-500 dark:text-gray-400">· runs on {mindLabel(t.model).replace(/^Its/, "its")}</span></p>
+      {t.stopped && <p className="mb-3 rounded-lg bg-gray-200 px-3 py-2 text-sm text-gray-700 dark:bg-gray-800 dark:text-gray-200">This mind is stopped. It does not think and nothing is sent for it; its treasury is untouched.</p>}
+      <dl className="mb-4 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-4">
+        {([["Thoughts", String(t.thoughts)], ["Sent to buybacks", ethText(t.boughtEth)], [t.attached ? "Sent to burn $AXON" : "Set aside for holders", ethText(t.attached ? t.axonEth : t.rewardsEth)], ["Paid for its thinking", ethText(t.thinkingPaidEth)]] as const).map(([k, v]) => (
+          <div key={k}>
+            <dt className="text-gray-500 dark:text-gray-400">{k}</dt>
+            <dd className="font-mono tabular-nums">{v}</dd>
+          </div>
+        ))}
+      </dl>
       {items === null ? (
         <p className="text-sm text-gray-400">…</p>
       ) : items.length === 0 ? (
@@ -463,6 +472,9 @@ export default function LaunchTerminal({ initial, openToken = null }: { initial:
           </div>
         </section>
       </div>
+      <p className="mt-10 max-w-3xl text-xs leading-relaxed text-gray-400">
+        Tokens here are launched by their creators, not by Axon. Axon takes 0% of any token&apos;s fees and charges no launch fee of its own. A token&apos;s tax, where its fees go and what its mind may do are fixed when it launches and cannot be changed by anybody. Tokens can lose all of their value. Nothing on this page is financial advice; trade at your own risk.
+      </p>
     </div>
   );
 }
