@@ -49,7 +49,8 @@ async function main() {
   ].filter((x) => !process.argv[2] || x.key.includes(process.argv[2]));
 
   let n = 0, bad = 0, spent = 0;
-  for (const model of MIND_MODELS) {
+  // a third argument narrows it to the models reached one way: "openrouter" or "anthropic"
+  for (const model of MIND_MODELS.filter((m) => !process.argv[3] || m.via === process.argv[3])) {
     console.log(`\n== ${model.label} (${model.maker}, via ${model.via})`);
     if (!modelAvailable(model, env)) { console.log("FAIL  no key for it on this service"); bad++; continue; }
     for (const s of SITUATIONS) {

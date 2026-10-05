@@ -19,7 +19,9 @@ export function thinkingMode(env: Record<string, string | undefined> = process.e
   return v === "live" || v === "standin" ? v : "off";
 }
 
-const MAX_OUTPUT_TOKENS = 700;
+// Room for a model that reasons before it answers: its reasoning counts against this, and an answer cut off half way
+// cannot be read. The thought itself is a few sentences; what is shown is trimmed separately.
+const MAX_OUTPUT_TOKENS = 2400;
 const TIMEOUT_MS = 60_000;
 
 export const realThinker: Thinker = async (model, system, prompt) => {
@@ -33,10 +35,10 @@ export const realThinker: Thinker = async (model, system, prompt) => {
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${process.env.OPENROUTER_API_KEY ?? ""}` },
-    body: JSON.stringify({ model: model.id, max_tokens: MAX_OUTPUT_TOKENS, usage: { include: true }, messages: [{ role: "system", content: system }, { role: "user", content: prompt }] }),
+    body: JSON.stringify({ model: model.id, max_tokens: MAX_OUTPUT_TOKENS, reasoning: { effort: "low" }, usage: { include: true }, messages: [{ role: "system", content: system }, { role: "user", content: prompt }] }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
-  const body = (await res.json().catch(() => ({}))) as { choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
+  const body = (await res.json().catch(() => ({}))) as { choices?: { message?: { content?: string }; finish_reason?: string }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
   if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${body.error?.message ?? "no answer"}`);
   const inputTokens = body.usage?.prompt_tokens ?? 0, outputTokens = body.usage?.completion_tokens ?? 0;
   // the provider's own figure when it gives one; the list price otherwise

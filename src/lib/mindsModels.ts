@@ -31,7 +31,7 @@ export const isMindModel = (id: unknown): id is string => typeof id === "string"
 export const priceUsd = (m: MindModel, inputTokens: number, outputTokens: number): number => (inputTokens * m.inUsd + outputTokens * m.outUsd) / 1_000_000;
 
 /** A thought is about this big: what is held against a mind's budget before it starts. */
-export const THOUGHT_TOKENS = { input: 1_600, output: 450 } as const;
+export const THOUGHT_TOKENS = { input: 1_600, output: 900 } as const;
 export const estimateThoughtUsd = (m: MindModel): number => priceUsd(m, THOUGHT_TOKENS.input, THOUGHT_TOKENS.output);
 
 /** Can this model be reached with the keys this server has? */
