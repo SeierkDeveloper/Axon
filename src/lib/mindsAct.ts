@@ -65,7 +65,7 @@ export async function sendInTurn<T>(send: () => Promise<T>, pauseMs = 1_500, tri
   }
 }
 
-export function realSender(env: Record<string, string | undefined> = process.env): MindSender {
+function realSender(env: Record<string, string | undefined> = process.env): MindSender {
   const { account, client } = walletClientFor(env.MIND_SIGNER_KEY ?? "");
   const reader = publicClient();
   return {

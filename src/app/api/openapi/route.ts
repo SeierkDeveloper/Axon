@@ -2163,6 +2163,57 @@ const SPEC = {
       get: { summary: "A wallet's memory is its own", tags: ["Mylo"], security: [] },
       delete: { tags: ["Mylo"], security: [] },
     },
+
+    "/minds/attach": {
+      get: { summary: "Token, the token the wallet launched through the earlier agent-token flow, if it has one", tags: ["Minds"], security: [] },
+      post: { summary: "It is about to give its token, and hand back the pot its transaction names", tags: ["Minds"] },
+    },
+
+    "/minds/launch": {
+      get: { summary: "Factory's fee as it is right now, and the wallet's own agents that do not have a token yet", tags: ["Minds"], security: [] },
+    },
+
+    "/minds/logo/{id}": {
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+      get: { tags: ["Minds"], security: [] },
+    },
+
+    "/minds/logo": {
+      post: { summary: "Answers with the link that goes into the launch transaction", tags: ["Minds"] },
+    },
+
+    "/minds/own/secret": {
+      get: { summary: "Axon's secret, worked out from the wallet and stored nowhere", tags: ["Minds"] },
+    },
+
+    "/minds/own/test": {
+      post: { summary: "Read exactly as a real thought would be", tags: ["Minds"] },
+    },
+
+    "/minds/prepare": {
+      post: { summary: "Transaction carries", tags: ["Minds"] },
+    },
+
+    "/minds/rewards": {
+      get: { summary: "The proof its treasury checks", tags: ["Minds"], security: [] },
+    },
+
+    "/minds/sync": {
+      post: { summary: "It when a launch confirms, so the token and its agent are there when the creator looks", tags: ["Minds"], security: [] },
+    },
+
+    "/minds/thoughts": {
+      get: { summary: "Mind's when no token is named", tags: ["Minds"], security: [] },
+    },
+
+    "/minds/tokens/{token}": {
+      parameters: [{ name: "token", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Its fees have paid out, and what its agent has earned from work since the launch", tags: ["Minds"], security: [] },
+    },
+
+    "/minds/tokens": {
+      get: { summary: "The worker last read from the chain, the totals across all of them, and what happened lately", tags: ["Minds"], security: [] },
+    },
   },
 };
 
