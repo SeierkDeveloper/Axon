@@ -103,7 +103,9 @@ describe("preparing a launch", () => {
 
 describe("the starter agent's template", () => {
   it("takes its skills from the line", () => {
-    expect(skillsFrom("Reads a company's filings and explains what changed")).toEqual(["reads", "company", "filings", "explains", "changed"]);
+    expect(skillsFrom("Reads a company's filings and explains what changed")).toEqual(["company", "filings", "explains", "changed"]);
+    expect(skillsFrom("Turns long documents into short, clear briefs")).toEqual(["documents", "briefs", "turns"]);
+    expect(skillsFrom("Fixes bugs in code")).toEqual(["fixes", "bugs", "code"]);
     expect(skillsFrom("!!!")).toEqual(["general"]);
   });
   it("puts the creator's line in the instructions", () => {
@@ -139,7 +141,7 @@ describe("reading the launcher", () => {
     expect(t.launchedAt).toBe(new Date(Date.UTC(2026, 9, 5, 12, 0, 0) + 150_000).toISOString());
 
     const agent = getAgentById(t.agentId!)!;
-    expect(agent).toMatchObject({ name: "Ledger Lens", publicKey: `minds:${p.ref}`, capabilities: ["reads", "company", "filings", "explains", "changed"] });
+    expect(agent).toMatchObject({ name: "Ledger Lens", publicKey: `minds:${p.ref}`, capabilities: ["company", "filings", "explains", "changed"] });
     expect(agent.walletAddress?.toLowerCase()).toBe(me);
     expect(getInstructions(agent.agentId)).toContain("Reads a company's filings and explains what changed.");
     const row = getDb().prepare("SELECT description FROM agents WHERE agent_id = ?").get(agent.agentId) as { description: string };

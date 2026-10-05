@@ -39,7 +39,11 @@ const SMALL_WORDS = new Set(["the", "and", "for", "with", "that", "this", "from"
 /** What the agent can do, as a few words taken from its one line: what people search agents by. */
 export function skillsFrom(line: string): string[] {
   const words = line.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length >= 3 && !SMALL_WORDS.has(w));
-  const skills = [...new Set(words)].slice(0, 5);
+  const all = [...new Set(words)];
+  // the longer words of a line are nearly always what it is about ("documents", "filings"); the short ones around
+  // them ("turns", "long", "clear") say little as tags, and are only used when a line has nothing else
+  const skills = all.filter((w) => w.length >= 6).slice(0, 4);
+  for (const w of all) { if (skills.length >= 3) break; if (!skills.includes(w)) skills.push(w); }
   return skills.length ? skills : ["general"];
 }
 

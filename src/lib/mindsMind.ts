@@ -123,6 +123,7 @@ function promptFor(m: MindRow, t: Treasury, owed: number, reasons: string[], ear
     `max_per_action_eth: ${t.limits.maxPerActionEth}`,
     `max_per_day_eth: ${t.limits.maxPerDayEth}`,
     `actions_per_day: ${t.limits.maxActionsPerDay}`,
+    "gas_for_your_actions: paid by Axon's sender, never from your treasury (the smallest action is 0.0001 ETH)",
     `bought_back_so_far_eth: ${t.boughtBackEth}`,
     `rewarded_so_far_eth: ${t.rewardedEth}`,
     earlier.length ? `your_last_thoughts (newest first):\n${earlier.map((e) => `- ${e.thought}${e.action ? ` [proposed ${e.action.kind} ${e.action.eth} ETH: ${e.verdict}]` : ""}`).join("\n")}` : "your_last_thoughts: none, this is your first",
