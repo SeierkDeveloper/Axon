@@ -1,0 +1,68 @@
+// Agent Minds: asking a model to think.
+//
+// One call in, one answer out, with what it cost. Claude is asked through Axon's own Anthropic key; every other model
+// through OpenRouter, which reports the exact cost of each call. The free stand-in writes a plain thought from the
+// numbers it is given with no model at all: it is what tests and the private site use, so that building this never
+// spends anybody's balance.
+
+import Anthropic from "@anthropic-ai/sdk";
+import { priceUsd, type MindModel } from "./mindsModels";
+
+export interface Thinking { text: string; inputTokens: number; outputTokens: number; costUsd: number }
+export type Thinker = (model: MindModel, system: string, prompt: string) => Promise<Thinking>;
+
+export type ThinkingMode = "off" | "standin" | "live";
+
+/** Whether minds think, and with what. Off unless said otherwise: a model is only ever called when this says "live". */
+export function thinkingMode(env: Record<string, string | undefined> = process.env): ThinkingMode {
+  const v = (env.MINDS_THINKING ?? "off").trim().toLowerCase();
+  return v === "live" || v === "standin" ? v : "off";
+}
+
+const MAX_OUTPUT_TOKENS = 700;
+const TIMEOUT_MS = 60_000;
+
+export const realThinker: Thinker = async (model, system, prompt) => {
+  if (model.via === "anthropic") {
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: TIMEOUT_MS, maxRetries: 1 });
+    const r = await client.messages.create({ model: model.id, max_tokens: MAX_OUTPUT_TOKENS, system, messages: [{ role: "user", content: prompt }] });
+    const text = r.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+    const inputTokens = r.usage.input_tokens, outputTokens = r.usage.output_tokens;
+    return { text, inputTokens, outputTokens, costUsd: priceUsd(model, inputTokens, outputTokens) };
+  }
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${process.env.OPENROUTER_API_KEY ?? ""}` },
+    body: JSON.stringify({ model: model.id, max_tokens: MAX_OUTPUT_TOKENS, usage: { include: true }, messages: [{ role: "system", content: system }, { role: "user", content: prompt }] }),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  const body = (await res.json().catch(() => ({}))) as { choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
+  if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${body.error?.message ?? "no answer"}`);
+  const inputTokens = body.usage?.prompt_tokens ?? 0, outputTokens = body.usage?.completion_tokens ?? 0;
+  // the provider's own figure when it gives one; the list price otherwise
+  const reported = body.usage?.cost;
+  return { text: body.choices?.[0]?.message?.content ?? "", inputTokens, outputTokens, costUsd: typeof reported === "number" && reported >= 0 ? reported : priceUsd(model, inputTokens, outputTokens) };
+};
+
+/**
+ * The free stand-in: a thought written from the numbers in the prompt by plain code. It proposes a small buyback when
+ * the treasury has grown, and nothing otherwise. Its "cost" is what a model of that price would have charged for text
+ * of that size, so budgets behave as they will with a real model; nothing is actually spent.
+ */
+export const standInThinker: Thinker = async (model, system, prompt) => {
+  const num = (label: string) => Number(new RegExp(`${label}: ([0-9.eE+-]+)`).exec(prompt)?.[1] ?? "0");
+  const free = num("free_to_spend_eth"), perAction = num("max_per_action_eth"), holders = num("holders");
+  const woke = /woke_by: (.*)/.exec(prompt)?.[1] ?? "something moved";
+  const can = /may: (.*)/.exec(prompt)?.[1] ?? "";
+  const size = Math.min(perAction, Math.floor((free / 4) * 1e6) / 1e6);
+  const act = size >= 0.0001 && /buy back/.test(can);
+  const out = {
+    thought: act
+      ? `Woke on ${woke}. The treasury has ${free.toFixed(5)} ETH free with ${holders} holders. A quarter of that goes to a buyback and burn now; the rest stays for later.`
+      : `Woke on ${woke}. ${holders} holders. The treasury has ${free.toFixed(5)} ETH free, which is not enough to act on. Holding.`,
+    action: act ? { kind: "buyback", eth: size } : null,
+  };
+  const text = JSON.stringify(out);
+  const inputTokens = Math.ceil((system.length + prompt.length) / 4), outputTokens = Math.ceil(text.length / 4);
+  return { text, inputTokens, outputTokens, costUsd: priceUsd(model, inputTokens, outputTokens) };
+};

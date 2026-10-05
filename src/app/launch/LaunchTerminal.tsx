@@ -6,6 +6,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { EXPLORER, explorerTxUrl, ponsTokenUrl } from "@/lib/chain";
 import type { BoardToken, BoardTotals, MindEvent, BoardSort } from "@/lib/mindsStats";
+import { mindModel } from "@/lib/mindsModels";
 
 /**
  * The launch terminal: every token launched on Axon, with the numbers its contracts report, and a running log of what
@@ -52,7 +53,53 @@ function eventText(e: MindEvent): string {
     case "fees": return `paid out ${ethText(e.eth ?? 0)}`;
     case "burn": return `burned ${compact(e.tokens ?? 0)} $${e.symbol ?? ""}`;
     case "graduated": return "graduated to its pool";
+    case "holders": return `now has ${Math.round(e.tokens ?? 0)} holders`;
+    case "earned": return `agent earned ${ethText(e.eth ?? 0)}`;
+    case "thought": return "mind wrote a thought";
   }
+}
+
+interface ThoughtView { id: number; at: string; modelLabel: string; thought: string | null; action: { kind: string; eth: number } | null; verdict: "none" | "approved" | "refused"; verdictReason: string | null }
+const ACTION: Record<string, string> = { buyback: "buy back and burn", reward: "reward holders", burn_axon: "burn $AXON" };
+
+/** What a token's mind has been thinking, newest first. Loaded when the token is opened. */
+function Mind({ t }: { t: BoardToken }) {
+  const [items, setItems] = useState<ThoughtView[] | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    let alive = true;
+    const load = () => fetch(`/api/minds/thoughts?token=${t.token}&limit=3`).then((r) => (r.ok ? (r.json() as Promise<{ thoughts: ThoughtView[] }>) : null)).then((d) => { if (alive && d) { setItems(d.thoughts); setNow(Date.now()); } }).catch(() => {});
+    void load();
+    const timer = setInterval(load, 15_000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [t.token]);
+  return (
+    <div className="border-t border-gray-200 bg-gray-50 px-4 py-5 sm:px-5 dark:border-gray-800 dark:bg-gray-900/40">
+      <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400">Its mind <span className="normal-case tracking-normal text-gray-500 dark:text-gray-400">· runs on {mindModel(t.model).label}</span></p>
+      {items === null ? (
+        <p className="text-sm text-gray-400">…</p>
+      ) : items.length === 0 ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">It has not thought yet. A mind wakes when something happens to its token and its treasury can pay for the thought.</p>
+      ) : (
+        <ol className="space-y-4">
+          {items.map((h) => (
+            <li key={h.id}>
+              <p className="text-sm leading-relaxed">{h.thought}</p>
+              <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-gray-400">
+                <span suppressHydrationWarning>{ago(h.at, now)} ago · {h.modelLabel}</span>
+                {h.action && (
+                  <span className={`rounded-md px-1.5 py-0.5 ${h.verdict === "approved" ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900" : "bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300"}`}>
+                    proposed: {ACTION[h.action.kind] ?? h.action.kind} with {ethText(h.action.eth)} · {h.verdict === "approved" ? "passed the rule check" : "refused by the rule check"}
+                  </span>
+                )}
+                {h.verdict === "refused" && h.verdictReason && <span className="font-sans">{h.verdictReason}</span>}
+              </p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
 }
 
 function Detail({ t }: { t: BoardToken }) {
@@ -64,6 +111,7 @@ function Detail({ t }: { t: BoardToken }) {
   ];
   const contracts = [["Token", t.token], ["Burn pot", t.pot], ...(t.splitter ? [["Fee splitter", t.splitter]] : []), ["Mind treasury", t.vault]] as [string, string][];
   return (
+    <>
     <div className="grid gap-6 bg-gray-50 px-4 py-5 sm:px-5 lg:grid-cols-[1fr_1fr_auto] dark:bg-gray-900/40">
       <div>
         <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400">Locked at launch</p>
@@ -108,6 +156,8 @@ function Detail({ t }: { t: BoardToken }) {
         {t.agentId && <Link href={`/agents/${t.agentId}`} className="rounded-xl border border-gray-200 px-4 py-2.5 text-center text-sm font-semibold transition hover:bg-white dark:border-gray-700 dark:hover:bg-gray-900">Hire its agent</Link>}
       </div>
     </div>
+    <Mind t={t} />
+    </>
   );
 }
 

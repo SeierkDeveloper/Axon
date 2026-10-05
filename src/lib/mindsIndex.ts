@@ -12,8 +12,8 @@ import { agentMindsEnabled } from "./mindsPolicy";
 import { mindsChain, mindLauncherAddress, mindDeployBlock, type MindsChain, type MindLaunchEvent, type Treasury, type FeeFlow } from "./mindsChain";
 import { cursor, setCursor, upsertToken, getToken, getPrepared, markLaunched, linkAgent, type MindToken } from "./mindsStore";
 import { agentFor } from "./mindsAgent";
-import { addEvent } from "./mindsStats";
-import { toWei, weiToEth } from "./money";
+import { DEFAULT_MIND_MODEL } from "./mindsModels";
+import { addEvent, earnedSince } from "./mindsStats";
 import { sameAddress } from "./address";
 import { logger } from "./logger";
 
@@ -36,7 +36,7 @@ async function record(ev: MindLaunchEvent, chain: MindsChain): Promise<boolean> 
     const row: MindToken = {
       token: ev.token, creator: ev.creator, agentId: null, agentRef: ev.agentRef, pot: ev.pot, splitter: ev.splitter, vault: ev.vault, payout: ev.payout,
       taxBps: ev.taxBps, creatorBps: ev.creatorBps, burnBps: ev.burnBps, axonBps: ev.axonBps, mindBps: ev.mindBps, attached: ev.kind === "attached",
-      name: meta?.name ?? mine?.name ?? null, symbol: meta?.symbol ?? mine?.symbol ?? null, logo: mine?.logo ?? null, description: mine?.description ?? null,
+      name: meta?.name ?? mine?.name ?? null, symbol: meta?.symbol ?? mine?.symbol ?? null, logo: mine?.logo ?? null, description: mine?.description ?? mine?.line ?? null, model: mine?.model ?? DEFAULT_MIND_MODEL,
       blockNumber: ev.blockNumber, txHash: ev.txHash, launchedAt,
     };
     upsertToken(row);
@@ -78,16 +78,7 @@ export async function indexMinds(chain: MindsChain = mindsChain, env: Record<str
 
 // ── What a token's page reads ─────────────────────────────────────────────────
 
-/**
- * What the agent has earned from real work since its token launched, in ETH. Anything it earned before the launch is
- * not the token's: the count starts at the launch and only goes forward.
- */
-export function earnedSince(agentId: string, launchedAt: string): number {
-  const rows = getDb().prepare(
-    "SELECT amount_eth v FROM transactions WHERE to_agent = ? AND status = 'completed' AND COALESCE(currency, 'ETH') = 'ETH' AND COALESCE(settled_at, created_at) >= ?",
-  ).all(agentId, launchedAt) as { v: number | string }[];
-  return weiToEth(rows.reduce((s, r) => s + (toWei(r.v) ?? 0n), 0n));
-}
+export { earnedSince };
 
 export interface MindTokenLive extends MindToken {
   agent: { agentId: string; name: string; earnedEth: number } | null;

@@ -9,6 +9,7 @@ import { getDb } from "./db";
 import { agentMindsEnabled } from "./mindsPolicy";
 import { mindsChain, mindLauncherAddress, type MindsChain, type Snapshot } from "./mindsChain";
 import { cursor } from "./mindsStore";
+import { toWei, weiToEth } from "./money";
 import { logger } from "./logger";
 
 /** Tokens refreshed in one pass, longest-waiting first. */
@@ -17,10 +18,21 @@ const TOKENS_PER_PASS = 40;
 const MAX_HOLDER_BLOCKS = 2_000_000n;
 const NOBODY = ["0x0000000000000000000000000000000000000000", "0x000000000000000000000000000000000000dead"];
 
-export type MindEventKind = "launch" | "fees" | "burn" | "graduated";
+export type MindEventKind = "launch" | "fees" | "burn" | "graduated" | "holders" | "earned" | "thought";
 
-interface StatsRow { token: string; phase: number; fees_eth: number; burns: number; burned_tokens: number; burned_eth: number; holders_block: number | null }
-interface TokenRow { token: string; pot: string; splitter: string | null; vault: string; curve: string | null; block_number: number }
+interface StatsRow { token: string; phase: number; fees_eth: number; burns: number; burned_tokens: number; burned_eth: number; holders_block: number | null; holders_mark: number; earned_mark: number }
+interface TokenRow { token: string; pot: string; splitter: string | null; vault: string; curve: string | null; block_number: number; agent_id: string | null; launched_at: string }
+
+/**
+ * What an agent has earned from real work since its token launched, in ETH. Anything it earned before the launch is
+ * not the token's: the count starts at the launch and only goes forward.
+ */
+export function earnedSince(agentId: string, launchedAt: string): number {
+  const rows = getDb().prepare(
+    "SELECT amount_eth v FROM transactions WHERE to_agent = ? AND status = 'completed' AND COALESCE(currency, 'ETH') = 'ETH' AND COALESCE(settled_at, created_at) >= ?",
+  ).all(agentId, launchedAt) as { v: number | string }[];
+  return weiToEth(rows.reduce((s, r) => s + (toWei(r.v) ?? 0n), 0n));
+}
 
 export function addEvent(token: string, kind: MindEventKind, v: { eth?: number | null; tokens?: number | null; at?: string } = {}): void {
   getDb().prepare("INSERT INTO mind_events (token, kind, eth, tokens, at) VALUES (?,?,?,?,?)").run(token.toLowerCase(), kind, v.eth ?? null, v.tokens ?? null, v.at ?? new Date().toISOString());
@@ -88,12 +100,22 @@ function write(t: TokenRow, s: Snapshot, prev: StatsRow | undefined): number {
   if (s.burns > (prev?.burns ?? 0)) { addEvent(t.token, "burn", { tokens: s.burnedTokens - (prev?.burned_tokens ?? 0), eth: s.burnedEth - (prev?.burned_eth ?? 0) }); events++; }
   if (s.phase === 2 && (prev?.phase ?? 0) !== 2 && prev) { addEvent(t.token, "graduated"); events++; }
 
+  // holders and the agent's earnings move in small steps; an event is a real change since the last one written down
+  const holders = holderCount(t, s.curve, s.poolManager);
+  const mark = prev?.holders_mark ?? 0;
+  let holdersMark = mark;
+  if (Math.abs(holders - mark) >= Math.max(2, Math.ceil(mark * 0.1))) { addEvent(t.token, "holders", { tokens: holders }); holdersMark = holders; events++; }
+  const earned = t.agent_id ? earnedSince(t.agent_id, t.launched_at) : 0;
+  let earnedMark = prev?.earned_mark ?? 0;
+  if (moved(earned, earnedMark)) { addEvent(t.token, "earned", { eth: earned - earnedMark }); earnedMark = earned; events++; }
+
   if (!t.curve) db.prepare("UPDATE mind_tokens SET curve = ? WHERE token = ?").run(s.curve, t.token);
-  db.prepare(`INSERT INTO mind_stats (token, phase, price_eth, mcap_eth, curve_bps, holders, fees_eth, to_mind_eth, burned_tokens, burned_eth, burns, treasury_eth, updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+  db.prepare(`INSERT INTO mind_stats (token, phase, price_eth, mcap_eth, curve_bps, holders, fees_eth, to_mind_eth, burned_tokens, burned_eth, burns, treasury_eth, holders_mark, earned_mark, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(token) DO UPDATE SET phase = excluded.phase, price_eth = excluded.price_eth, mcap_eth = excluded.mcap_eth, curve_bps = excluded.curve_bps, holders = excluded.holders, fees_eth = excluded.fees_eth,
-      to_mind_eth = excluded.to_mind_eth, burned_tokens = excluded.burned_tokens, burned_eth = excluded.burned_eth, burns = excluded.burns, treasury_eth = excluded.treasury_eth, updated_at = excluded.updated_at`)
-    .run(t.token, s.phase, s.priceEth, s.priceEth === null ? null : s.priceEth * s.supply, s.curveBps, holderCount(t, s.curve, s.poolManager), s.feesEth, s.toMindEth, s.burnedTokens, s.burnedEth, s.burns, s.treasuryEth, new Date().toISOString());
+      to_mind_eth = excluded.to_mind_eth, burned_tokens = excluded.burned_tokens, burned_eth = excluded.burned_eth, burns = excluded.burns, treasury_eth = excluded.treasury_eth,
+      holders_mark = excluded.holders_mark, earned_mark = excluded.earned_mark, updated_at = excluded.updated_at`)
+    .run(t.token, s.phase, s.priceEth, s.priceEth === null ? null : s.priceEth * s.supply, s.curveBps, holders, s.feesEth, s.toMindEth, s.burnedTokens, s.burnedEth, s.burns, s.treasuryEth, holdersMark, earnedMark, new Date().toISOString());
   return events;
 }
 
@@ -110,13 +132,13 @@ export async function refreshStats(chain: MindsChain = mindsChain, env: Record<s
   await countHolders(chain, BigInt(upTo)).catch((err) => logger.warn("minds.holders_failed", "Counting holders failed", { err }));
 
   const due = db.prepare(
-    "SELECT t.token, t.pot, t.splitter, t.vault, t.curve, t.block_number FROM mind_tokens t LEFT JOIN mind_stats s ON s.token = t.token ORDER BY s.updated_at IS NOT NULL, s.updated_at ASC LIMIT ?",
+    "SELECT t.token, t.pot, t.splitter, t.vault, t.curve, t.block_number, t.agent_id, t.launched_at FROM mind_tokens t LEFT JOIN mind_stats s ON s.token = t.token ORDER BY s.updated_at IS NOT NULL, s.updated_at ASC LIMIT ?",
   ).all(limit) as TokenRow[];
   let tokens = 0, events = 0;
   for (const t of due) {
     try {
       const snap = await chain.snapshot(t);
-      const prev = db.prepare("SELECT token, phase, fees_eth, burns, burned_tokens, burned_eth, holders_block FROM mind_stats WHERE token = ? AND updated_at IS NOT NULL").get(t.token) as StatsRow | undefined;
+      const prev = db.prepare("SELECT token, phase, fees_eth, burns, burned_tokens, burned_eth, holders_block, holders_mark, earned_mark FROM mind_stats WHERE token = ? AND updated_at IS NOT NULL").get(t.token) as StatsRow | undefined;
       db.transaction(() => { events += write(t, snap, prev); })();
       tokens++;
     } catch (err) {
@@ -133,7 +155,7 @@ export interface BoardToken {
   token: string; name: string | null; symbol: string | null; logo: string | null; creator: string; launchedAt: string; txHash: string;
   agentId: string | null; agentName: string | null;
   pot: string; splitter: string | null; vault: string; payout: string | null; attached: boolean;
-  taxBps: number | null; creatorBps: number | null; burnBps: number | null; axonBps: number | null; mindBps: number | null;
+  taxBps: number | null; creatorBps: number | null; burnBps: number | null; axonBps: number | null; mindBps: number | null; model: string | null;
   phase: number; priceEth: number | null; mcapEth: number | null; curveBps: number; holders: number;
   feesEth: number; toMindEth: number; burnedTokens: number; burnedEth: number; burns: number; treasuryEth: number;
 }
@@ -144,7 +166,7 @@ const ORDER: Record<BoardSort, string> = { new: "t.launched_at DESC", mcap: "COA
 export function board(sort: BoardSort = "new", limit = 60): BoardToken[] {
   const rows = getDb().prepare(
     `SELECT t.token, t.name, t.symbol, t.logo, t.creator, t.launched_at launchedAt, t.tx_hash txHash, t.agent_id agentId, a.name agentName,
-       t.pot, t.splitter, t.vault, t.payout, t.attached, t.tax_bps taxBps, t.creator_bps creatorBps, t.burn_bps burnBps, t.axon_bps axonBps, t.mind_bps mindBps,
+       t.pot, t.splitter, t.vault, t.payout, t.attached, t.tax_bps taxBps, t.creator_bps creatorBps, t.burn_bps burnBps, t.axon_bps axonBps, t.mind_bps mindBps, t.model,
        COALESCE(s.phase, 0) phase, s.price_eth priceEth, s.mcap_eth mcapEth, COALESCE(s.curve_bps, 0) curveBps, COALESCE(s.holders, 0) holders,
        COALESCE(s.fees_eth, 0) feesEth, COALESCE(s.to_mind_eth, 0) toMindEth, COALESCE(s.burned_tokens, 0) burnedTokens, COALESCE(s.burned_eth, 0) burnedEth, COALESCE(s.burns, 0) burns, COALESCE(s.treasury_eth, 0) treasuryEth
      FROM mind_tokens t LEFT JOIN mind_stats s ON s.token = t.token LEFT JOIN agents a ON a.agent_id = t.agent_id

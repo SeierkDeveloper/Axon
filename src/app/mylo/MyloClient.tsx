@@ -7,6 +7,7 @@ import MarkdownOutput from "@/components/MarkdownOutput";
 import { useWallet } from "@/components/WalletProvider";
 import { ActionCard, Card, type ActionView, type CardData } from "./MyloCards";
 import MyloFeed from "./MyloFeed";
+import MindsFeed from "./MindsFeed";
 
 // Mylo's page: Mylo centred and large, its name under it, then the conversation, the box to type in and, before the
 // first message, things to ask. Talking to Mylo needs a signed-in wallet; without one the box is a sign-in button.
@@ -330,6 +331,8 @@ export default function MyloClient() {
 
         {/* Mylo thinking in public, for everyone, while no conversation is open */}
         {empty && <MyloFeed />}
+        {/* and the minds of the tokens launched here, beside it; renders nothing until there is one */}
+        {empty && <MindsFeed />}
       </div>
 
       {/* what Mylo remembers, and the way to make it forget: drawn on the page body, so the page's own transitions can't

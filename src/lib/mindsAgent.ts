@@ -16,6 +16,7 @@ import { freeHandle } from "./studioDraft";
 import { PRICE_ETH } from "./studioPolicy";
 import { normalizeAddress, sameAddress } from "./address";
 import { prepareLaunch, preparedToday, tokenOfAgent, type PreparedLaunch } from "./mindsStore";
+import { DEFAULT_MIND_MODEL, isMindModel } from "./mindsModels";
 
 export const LAUNCH_LIMITS = {
   nameChars: 32,
@@ -51,7 +52,7 @@ Do the task you are given, fully, and give the finished work as your answer. Sta
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
 
-export interface LaunchRequest { name?: unknown; symbol?: unknown; line?: unknown; agentId?: unknown; logo?: unknown; description?: unknown }
+export interface LaunchRequest { name?: unknown; symbol?: unknown; line?: unknown; agentId?: unknown; logo?: unknown; description?: unknown; model?: unknown }
 
 /**
  * Prepare a launch for a wallet: check what it asks for and write it down with the reference its transaction will
@@ -68,6 +69,9 @@ export function prepare(wallet: string, req: LaunchRequest): PreparedLaunch | st
   const localLogo = process.env.NODE_ENV !== "production" && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(logo ?? "");
   if (logo && !localLogo && !/^(https:\/\/|ipfs:\/\/)/.test(logo)) return "The picture has to be an https or ipfs link.";
   const description = text(req.description, LAUNCH_LIMITS.descriptionChars) || null;
+  // the model its mind runs on: one of the list, or the default when none was picked
+  if (req.model !== undefined && req.model !== null && req.model !== "" && !isMindModel(req.model)) return "Pick one of the models on the list for its mind.";
+  const model = isMindModel(req.model) ? req.model : DEFAULT_MIND_MODEL;
   if (preparedToday(me) >= LAUNCH_LIMITS.preparesPerDay) return "That is a lot of launches prepared today. Try again tomorrow.";
 
   const agentId = text(req.agentId, 80);
@@ -78,14 +82,14 @@ export function prepare(wallet: string, req: LaunchRequest): PreparedLaunch | st
     if (tokenOfAgent(agent.agentId)) return "That agent already has a token.";
     const bad = validateAgentContent(name, agent.agentId, []) ?? (description ? validateAgentText(description) : null);
     if (bad) return bad;
-    return prepareLaunch({ wallet: me, agentId: agent.agentId, name, symbol, line: null, logo, description });
+    return prepareLaunch({ wallet: me, agentId: agent.agentId, name, symbol, line: null, logo, description, model });
   }
 
   const line = text(req.line, LAUNCH_LIMITS.lineChars);
   if (line.length < LAUNCH_LIMITS.lineMin) return "Say in one line what the agent does.";
   const bad = validateAgentContent(name, freeHandle(name, me), skillsFrom(line)) ?? validateAgentText(`${line}\n${description ?? ""}`);
   if (bad) return bad;
-  return prepareLaunch({ wallet: me, agentId: null, name, symbol, line, logo, description });
+  return prepareLaunch({ wallet: me, agentId: null, name, symbol, line, logo, description, model });
 }
 
 /**

@@ -8,6 +8,7 @@ import { decodeEventLog, encodeFunctionData, formatEther } from "viem";
 import { useWallet } from "@/components/WalletProvider";
 import { CHAIN_ID_HEX, CHAIN_PARAMS, explorerTxUrl, ponsTokenUrl, provider, readableWalletError } from "@/lib/chain";
 import { CEILINGS, DEFAULT_SETTINGS, MIND_LAUNCH_ABI, checkSettings, creatorBps, launchInput, launchValue, lockedSummary, type LaunchSettings } from "@/lib/mindsLaunch";
+import { DEFAULT_MIND_MODEL, MIND_MODELS, mindModel } from "@/lib/mindsModels";
 
 /**
  * Launching a token with an agent and a mind behind it, on one screen and in one signature.
@@ -19,7 +20,7 @@ import { CEILINGS, DEFAULT_SETTINGS, MIND_LAUNCH_ABI, checkSettings, creatorBps,
 
 export interface Prefill { name: string; symbol: string; line: string; agentId: string }
 
-interface Info { launcher: string | null; launchFeeWei: string; agents: { agentId: string; name: string }[] }
+interface Info { launcher: string | null; launchFeeWei: string; agents: { agentId: string; name: string }[]; models?: { id: string; label: string; maker: string; available: boolean }[] }
 interface Done { token: string; txHash: string; pot: string; splitter: string; vault: string; agentId: string | null }
 type Step = "idle" | "picture" | "preparing" | "wallet" | "confirming" | "reading" | "done";
 
@@ -69,6 +70,7 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
   const [picture, setPicture] = useState<{ blob: Blob; preview: string } | null>(null);
   const [settings, setSettings] = useState<Omit<LaunchSettings, "payout">>(DEFAULT_SETTINGS);
   const [payout, setPayout] = useState("");
+  const [model, setModel] = useState(DEFAULT_MIND_MODEL);
   const [advanced, setAdvanced] = useState(false);
   const [agreed, setAgreed] = useState(false);
 
@@ -107,7 +109,9 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
   const chosen = agents.find((a) => a.agentId === agentId) ?? null;
   const feeWei = info ? BigInt(info.launchFeeWei) : null;
   const total = feeWei !== null ? launchValue(feeWei, s) : null;
-  const summary = lockedSummary(symbol, s);
+  const summary = [...lockedSummary(symbol, s).slice(0, -1), { label: "Its mind runs on", value: mindModel(model).label }, ...lockedSummary(symbol, s).slice(-1)];
+  // a model this server has no key for cannot be picked; the list itself is the same everywhere
+  const models = MIND_MODELS.map((m) => ({ ...m, available: info?.models?.find((x) => x.id === m.id)?.available ?? m.id === DEFAULT_MIND_MODEL }));
 
   const missing = !name.trim() ? "Give the token a name"
     : !/^[A-Z0-9]{2,10}$/.test(symbol) ? "Give it a ticker"
@@ -158,7 +162,7 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
 
       setStep("preparing");
       const description = own ? "" : line.trim();
-      const pr = await fetch("/api/minds/prepare", { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ name: name.trim(), symbol, logo: logo.url, ...(own ? { agentId } : { line: line.trim() }), description }) });
+      const pr = await fetch("/api/minds/prepare", { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ name: name.trim(), symbol, logo: logo.url, ...(own ? { agentId } : { line: line.trim() }), description, model }) });
       const prepared = (await pr.json().catch(() => ({}))) as { ref?: `0x${string}`; launcher?: string; error?: string };
       if (!pr.ok || !prepared.ref || !prepared.launcher) throw new Error(prepared.error ?? "The launch could not be prepared.");
 
@@ -305,6 +309,20 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
               </div>
             </>
           )}
+        </section>
+
+        <section className="rounded-2xl border border-gray-200 p-5 sm:p-6 dark:border-gray-800">
+          <p className={label}>Its mind</p>
+          <div role="radiogroup" aria-label="The model its mind runs on" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {models.map((m) => (
+              <button key={m.id} type="button" role="radio" aria-checked={model === m.id} disabled={!m.available} onClick={() => setModel(m.id)}
+                className={`rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${model === m.id ? "border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-gray-900" : "border-gray-200 hover:border-gray-900 dark:border-gray-800 dark:hover:border-white"}`}>
+                <span className="block truncate text-sm font-semibold">{m.label}</span>
+                <span className={`block truncate text-[11px] ${model === m.id ? "text-gray-300 dark:text-gray-500" : "text-gray-400"}`}>{m.available ? m.maker : "Not open yet"}</span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-gray-400">The model that thinks for this token. It thinks when something happens, in public, and pays for its own thinking from its treasury at cost. Chosen once.</p>
         </section>
 
         <section className="rounded-2xl border border-gray-200 p-5 sm:p-6 dark:border-gray-800">

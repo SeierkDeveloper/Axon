@@ -188,7 +188,7 @@ describe("an agent the wallet already owns", () => {
     const me = wallet();
     const a = ownAgent(me, "Free Agent"), b = ownAgent(me, "Taken Agent");
     ownAgent(wallet(), "Somebody Else's");
-    upsertToken({ token: wallet(), creator: me, agentId: b.agentId, agentRef: REF, pot: wallet(), splitter: wallet(), vault: wallet(), payout: me, taxBps: 300, creatorBps: 5000, burnBps: 2000, axonBps: 1000, mindBps: 2000, attached: false, name: "T", symbol: "T", logo: null, description: null, blockNumber: 1, txHash: `0x${"c".repeat(64)}`, launchedAt: new Date().toISOString() });
+    upsertToken({ token: wallet(), creator: me, agentId: b.agentId, agentRef: REF, pot: wallet(), splitter: wallet(), vault: wallet(), payout: me, taxBps: 300, creatorBps: 5000, burnBps: 2000, axonBps: 1000, mindBps: 2000, attached: false, name: "T", symbol: "T", logo: null, description: null, model: null, blockNumber: 1, txHash: `0x${"c".repeat(64)}`, launchedAt: new Date().toISOString() });
     expect(launchableAgents(me.toUpperCase().replace("0X", "0x"))).toEqual([{ agentId: a.agentId, name: "Free Agent" }]);
   });
 });

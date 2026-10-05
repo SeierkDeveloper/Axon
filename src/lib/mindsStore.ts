@@ -23,6 +23,8 @@ export interface MindToken {
   symbol: string | null;
   logo: string | null;
   description: string | null;
+  /** the model its mind runs on, fixed at launch */
+  model: string | null;
   blockNumber: number;
   txHash: string;
   launchedAt: string;
@@ -37,28 +39,30 @@ export interface PreparedLaunch {
   line: string | null;
   logo: string | null;
   description: string | null;
+  /** the model its mind runs on: chosen here, once */
+  model: string | null;
   status: "prepared" | "launched";
   token: string | null;
   createdAt: string;
 }
 
-const TOKEN_COLS = "token, creator, agent_id agentId, agent_ref agentRef, pot, splitter, vault, payout, tax_bps taxBps, creator_bps creatorBps, burn_bps burnBps, axon_bps axonBps, mind_bps mindBps, attached, name, symbol, logo, description, block_number blockNumber, tx_hash txHash, launched_at launchedAt";
+const TOKEN_COLS = "token, creator, agent_id agentId, agent_ref agentRef, pot, splitter, vault, payout, tax_bps taxBps, creator_bps creatorBps, burn_bps burnBps, axon_bps axonBps, mind_bps mindBps, attached, name, symbol, logo, description, model, block_number blockNumber, tx_hash txHash, launched_at launchedAt";
 const asToken = (r: Record<string, unknown>): MindToken => ({ ...(r as unknown as MindToken), attached: r.attached === 1 });
 
 // ── Prepared launches ─────────────────────────────────────────────────────────
 
 /** Note a launch somebody is about to sign. The reference goes into their transaction, and is how the chain's record
  *  of that launch finds its way back to the agent it is for. */
-export function prepareLaunch(p: { wallet: string; agentId: string | null; name: string; symbol: string; line: string | null; logo: string | null; description: string | null }): PreparedLaunch {
+export function prepareLaunch(p: { wallet: string; agentId: string | null; name: string; symbol: string; line: string | null; logo: string | null; description: string | null; model?: string | null }): PreparedLaunch {
   const ref = `0x${randomBytes(32).toString("hex")}`;
   const now = new Date().toISOString();
-  getDb().prepare("INSERT INTO mind_launches (ref, wallet, agent_id, name, symbol, line, logo, description, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,'prepared',?,?)")
-    .run(ref, p.wallet.toLowerCase(), p.agentId, p.name, p.symbol, p.line, p.logo, p.description, now, now);
+  getDb().prepare("INSERT INTO mind_launches (ref, wallet, agent_id, name, symbol, line, logo, description, model, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,'prepared',?,?)")
+    .run(ref, p.wallet.toLowerCase(), p.agentId, p.name, p.symbol, p.line, p.logo, p.description, p.model ?? null, now, now);
   return getPrepared(ref)!;
 }
 
 export function getPrepared(ref: string): PreparedLaunch | null {
-  const r = getDb().prepare("SELECT ref, wallet, agent_id agentId, name, symbol, line, logo, description, status, token, created_at createdAt FROM mind_launches WHERE ref = ?").get(ref.toLowerCase()) as PreparedLaunch | undefined;
+  const r = getDb().prepare("SELECT ref, wallet, agent_id agentId, name, symbol, line, logo, description, model, status, token, created_at createdAt FROM mind_launches WHERE ref = ?").get(ref.toLowerCase()) as PreparedLaunch | undefined;
   return r ?? null;
 }
 
@@ -75,10 +79,10 @@ export function markLaunched(ref: string, token: string): void {
 
 /** Write a token as the chain states it. A token already here keeps its agent and its page details. */
 export function upsertToken(t: MindToken): void {
-  getDb().prepare(`INSERT INTO mind_tokens (token, creator, agent_id, agent_ref, pot, splitter, vault, payout, tax_bps, creator_bps, burn_bps, axon_bps, mind_bps, attached, name, symbol, logo, description, block_number, tx_hash, launched_at, created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  getDb().prepare(`INSERT INTO mind_tokens (token, creator, agent_id, agent_ref, pot, splitter, vault, payout, tax_bps, creator_bps, burn_bps, axon_bps, mind_bps, attached, name, symbol, logo, description, model, block_number, tx_hash, launched_at, created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(token) DO UPDATE SET vault = excluded.vault, agent_id = COALESCE(mind_tokens.agent_id, excluded.agent_id), name = COALESCE(mind_tokens.name, excluded.name), symbol = COALESCE(mind_tokens.symbol, excluded.symbol)`)
-    .run(t.token, t.creator, t.agentId, t.agentRef, t.pot, t.splitter, t.vault, t.payout, t.taxBps, t.creatorBps, t.burnBps, t.axonBps, t.mindBps, t.attached ? 1 : 0, t.name, t.symbol, t.logo, t.description, t.blockNumber, t.txHash, t.launchedAt, new Date().toISOString());
+    .run(t.token, t.creator, t.agentId, t.agentRef, t.pot, t.splitter, t.vault, t.payout, t.taxBps, t.creatorBps, t.burnBps, t.axonBps, t.mindBps, t.attached ? 1 : 0, t.name, t.symbol, t.logo, t.description, t.model, t.blockNumber, t.txHash, t.launchedAt, new Date().toISOString());
 }
 
 export function getToken(token: string): MindToken | null {
