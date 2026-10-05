@@ -356,7 +356,11 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
             </button>
           </div>
           {model !== OWN_MIND ? (
-            <p className="mt-3 text-xs text-gray-400">The model that thinks for this token. It thinks when something happens, in public, and pays for its own thinking from its treasury at cost. Chosen once.</p>
+            <>
+              <p className="mt-3 text-xs text-gray-400">The model that thinks for this token. It thinks when something happens, in public, and pays for its own thinking from its treasury at cost. Chosen once.</p>
+              {/* nothing is chosen for the creator, so say what a mind with no share means before they sign */}
+              {s.mindBps === 0 && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">The mind&apos;s share of the fees is 0% right now, so its treasury stays empty and it will not think. Give it a share under Advanced if you want it to.</p>}
+            </>
           ) : (
             <div className="mt-4 space-y-4">
               <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">

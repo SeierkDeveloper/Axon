@@ -102,10 +102,17 @@ describe("the launch call", () => {
 });
 
 describe("the settings a creator can choose", () => {
-  it("opens with settings that can launch as they are", () => {
+  it("opens with nothing chosen for the creator: no tax, and every share at zero", () => {
     const s = settings();
     expect(checkSettings(s)).toBeNull();
-    expect(creatorBps(s)).toBe(5000);
+    expect(s).toMatchObject({ taxBps: 0, burnBps: 0, axonBps: 0, mindBps: 0 });
+    expect(creatorBps(s)).toBe(10_000);
+    const rows = Object.fromEntries(lockedSummary("LENS", s).map((r) => [r.label, r.value]));
+    expect(rows["Tax on every trade"]).toBe("0%");
+    expect(rows["Burns $LENS"]).toBe("0%");
+    expect(rows["Burns $AXON"]).toBe("0%");
+    expect(rows["To the mind"]).toBe("0%");
+    expect(rows["To Axon"]).toBe("0%");
   });
 
   it("refuses what the contracts would refuse, in words", () => {
@@ -128,7 +135,7 @@ describe("the settings a creator can choose", () => {
   });
 
   it("states what gets locked, and that Axon's share is nothing", () => {
-    const s = settings({ canReward: false });
+    const s = settings({ canReward: false, taxBps: 300, burnBps: 2000, axonBps: 1000, mindBps: 2000 });
     const rows = Object.fromEntries(lockedSummary("LENS", s).map((r) => [r.label, r.value]));
     expect(rows["Tax on every trade"]).toBe("3%");
     expect(rows["Burns $LENS"]).toBe("20%");

@@ -43,12 +43,15 @@ export interface LaunchSettings {
   website: string;
 }
 
-/** What the form opens with. A creator who never opens Advanced launches with these. */
+/**
+ * What the form opens with: no tax, and nothing taken out of the fees for anything. The creator chooses every number
+ * themselves; nothing is decided for them.
+ */
 export const DEFAULT_SETTINGS: Omit<LaunchSettings, "payout"> = {
-  taxBps: 300,
-  burnBps: 2000,
-  axonBps: 1000,
-  mindBps: 2000,
+  taxBps: 0,
+  burnBps: 0,
+  axonBps: 0,
+  mindBps: 0,
   canBuyback: true,
   canReward: true,
   canBurnAxon: true,
