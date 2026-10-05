@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-05T18:00:21.632Z",
-  "finishedAt": "2026-10-05T18:00:50.027Z",
-  "commit": "b2ef6a9",
+  "startedAt": "2026-10-05T19:27:46.801Z",
+  "finishedAt": "2026-10-05T19:28:13.827Z",
+  "commit": "5009d90",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 17080
+      "ms": 16397
     },
     {
       "id": "links",
@@ -17,7 +17,7 @@
       "ok": true,
       "checked": 200,
       "findings": [],
-      "ms": 68
+      "ms": 82
     },
     {
       "id": "dead-exports",
@@ -42,7 +42,7 @@
           ]
         }
       ],
-      "ms": 936
+      "ms": 961
     },
     {
       "id": "api-reference",
@@ -50,7 +50,7 @@
       "ok": true,
       "checked": 332,
       "findings": [],
-      "ms": 59
+      "ms": 60
     },
     {
       "id": "sdk-routes",
@@ -58,7 +58,7 @@
       "ok": true,
       "checked": 124,
       "findings": [],
-      "ms": 25
+      "ms": 24
     },
     {
       "id": "examples",
@@ -66,7 +66,7 @@
       "ok": true,
       "checked": 35,
       "findings": [],
-      "ms": 9
+      "ms": 10
     },
     {
       "id": "packages",
@@ -83,13 +83,13 @@
           ]
         }
       ],
-      "ms": 4330
+      "ms": 3638
     },
     {
       "id": "migrations",
       "title": "Migrations are complete and in order",
       "ok": true,
-      "checked": 101,
+      "checked": 102,
       "findings": [],
       "ms": 1
     }
