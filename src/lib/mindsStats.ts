@@ -103,11 +103,13 @@ function write(t: TokenRow, s: Snapshot, prev: StatsRow | undefined): number {
   // a mind given to an earlier token is not fed by fees: its treasury only grows when somebody tops it up
   if (t.attached && moved(s.treasuryEth, prev?.treasury_eth ?? 0)) { addEvent(t.token, "topup", { eth: s.treasuryEth - (prev?.treasury_eth ?? 0) }); events++; }
 
-  // holders and the agent's earnings move in small steps; an event is a real change since the last one written down
+  // a token's holder count wobbles all day; what is worth a line is a milestone, said once, on the way up. The mark
+  // is the last count a line was written for, so a count that falls back and climbs again says nothing twice.
   const holders = holderCount(t, s.curve, s.poolManager);
   const mark = prev?.holders_mark ?? 0;
   let holdersMark = mark;
-  if (!t.attached && Math.abs(holders - mark) >= Math.max(2, Math.ceil(mark * 0.1))) { addEvent(t.token, "holders", { tokens: holders }); holdersMark = holders; events++; }
+  const reached = holderMilestone(holders);
+  if (!t.attached && reached > mark) { addEvent(t.token, "holders", { tokens: reached }); holdersMark = reached; events++; }
   const earned = t.agent_id ? earnedSince(t.agent_id, t.launched_at) : 0;
   let earnedMark = prev?.earned_mark ?? 0;
   if (moved(earned, earnedMark)) { addEvent(t.token, "earned", { eth: earned - earnedMark }); earnedMark = earned; events++; }
@@ -172,6 +174,11 @@ export interface BoardToken {
 /** How many tokens a page of the launch page holds: three rows of five on a wide screen. */
 export const PAGE_SIZE = 15;
 
+/** The holder counts that get a line in the log. */
+export const HOLDER_MILESTONES = [10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 25_000, 50_000, 100_000] as const;
+/** The highest milestone a holder count has reached, or 0 below the first. */
+export const holderMilestone = (holders: number): number => HOLDER_MILESTONES.reduce<number>((top, m) => (holders >= m ? m : top), 0);
+
 export type BoardSort = "new" | "mcap" | "burned";
 const ORDER: Record<BoardSort, string> = { new: "t.launched_at DESC", mcap: "COALESCE(s.mcap_eth, 0) DESC, t.launched_at DESC", burned: "COALESCE(s.burned_eth, 0) DESC, t.launched_at DESC" };
 
@@ -216,6 +223,6 @@ export interface MindEvent { id: number; token: string; kind: MindEventKind; eth
 /** What happened, newest first. `after` gives only what is newer than an event already seen. */
 export function events(limit = 40, after = 0): MindEvent[] {
   return getDb().prepare(
-    "SELECT e.id, e.token, e.kind, e.eth, e.tokens, e.at, t.name, t.symbol, t.logo FROM mind_events e JOIN mind_tokens t ON t.token = e.token WHERE e.id > ? ORDER BY e.id DESC LIMIT ?",
+    "SELECT e.id, e.token, e.kind, e.eth, e.tokens, e.at, t.name, t.symbol, t.logo FROM mind_events e JOIN mind_tokens t ON t.token = e.token WHERE e.id > ? ORDER BY e.at DESC, e.id DESC LIMIT ?",
   ).all(after, Math.min(100, Math.max(1, limit))) as MindEvent[];
 }

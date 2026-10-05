@@ -8,7 +8,7 @@ import { getDb } from "@/lib/db";
 import { curveProgressBps, type MindsChain, type MindLaunchEvent, type Snapshot, type TransferEvent } from "@/lib/mindsChain";
 import { prepare } from "@/lib/mindsAgent";
 import { indexMinds } from "@/lib/mindsIndex";
-import { refreshStats, board, boardToken, boardTotals, events, PAGE_SIZE } from "@/lib/mindsStats";
+import { refreshStats, board, boardToken, boardTotals, events, holderMilestone, PAGE_SIZE } from "@/lib/mindsStats";
 import { unreadChain } from "./helpers/unreadChain";
 
 let n = 0;
@@ -84,6 +84,21 @@ describe("the numbers a token shows", () => {
     expect(row).toMatchObject({ token: t.token, name: "Ledger Lens", symbol: "LENS", agentName: "Ledger Lens", phase: 0, priceEth: 2e-9, curveBps: 1234, feesEth: 0.05, toMindEth: 0.01, treasuryEth: 0.008, burnedTokens: 250_000, burnedEth: 0.004, burns: 2, taxBps: 300, mindBps: 2000, attached: false });
     expect(row.mcapEth).toBeCloseTo(2, 9);
     expect(boardTotals()).toMatchObject({ tokens: 1, feesEth: 0.05, burnedEth: 0.004, toMindEth: 0.01, treasuryEth: 0.008 });
+  });
+
+  it("writes a holders line only at a milestone, once, and never for a count that fell", async () => {
+    expect([0, 9, 10, 24, 25, 49, 50, 99, 100, 999, 1000, 250_000].map(holderMilestone)).toEqual([0, 0, 10, 10, 25, 25, 50, 50, 100, 500, 1000, 100_000]);
+    const w = world();
+    const t = w.launch("Ledger Lens", "LENS", 1100);
+    w.state.snaps.set(t.token, snap());
+    await w.pass();
+    const lines = () => events(100).filter((e) => e.kind === "holders").map((e) => e.tokens);
+    const hold = (n: number) => { getDb().prepare("DELETE FROM mind_holders WHERE token = ?").run(t.token); for (let i = 0; i < n; i++) getDb().prepare("INSERT INTO mind_holders (token, address, balance) VALUES (?,?,?)").run(t.token, `0x${(i + 1).toString(16).padStart(40, "0")}`, "1000"); };
+    for (const n of [4, 9, 12, 18, 9, 16, 24, 31, 22, 38, 27, 40]) { hold(n); await w.pass(); }
+    expect(lines().reverse()).toEqual([10, 25]);
+    hold(120); await w.pass();
+    expect(lines()[0]).toBe(100);
+    expect(lines()).toHaveLength(3);
   });
 
   it("gives the board a page at a time, and any one token wherever it is", async () => {

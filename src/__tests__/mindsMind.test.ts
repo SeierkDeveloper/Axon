@@ -194,7 +194,8 @@ describe("a mind thinking", () => {
     // it is in the journal and in the terminal's log
     expect(thoughts(t.token)[0]).toMatchObject({ id: h.id, symbol: "LENS", thought: h.thought });
     expect(thoughts(null)[0].id).toBe(h.id);
-    expect(events()[0]).toMatchObject({ kind: "thought", token: t.token });
+    // the log is in order of when things happened; this test's clock is fixed, so the thought is found by its kind
+    expect(events().find((e) => e.kind === "thought")).toMatchObject({ kind: "thought", token: t.token });
   });
 
   it("has a refused proposal written down as refused, with the reason", async () => {
@@ -252,21 +253,21 @@ describe("a mind thinking", () => {
     expect(k.calls[1].prompt).toContain("Noted the launch and the first fees.");
   });
 
-  it("is woken by a real change in holders and by its agent earning, not by every small move", async () => {
+  it("is woken by a holder milestone and by its agent earning, not by every small move", async () => {
     const w = world();
     const t = await w.launch("LENS");
     const kinds = () => events(40).filter((e) => e.token === t.token).map((e) => e.kind);
     expect(kinds()).not.toContain("holders");
     const agentId = board()[0].agentId!;
     getDb().prepare("INSERT INTO transactions (tx_id, task_id, from_agent, to_agent, amount_eth, status, fee_amount, currency, created_at, settled_at) VALUES (?,?,?,?,?,?,0,?,?,?)").run(`tx-${n}`, `task-${n}`, "payer", agentId, 0.0005, "completed", "ETH", new Date(T0).toISOString(), new Date(T0).toISOString());
-    for (let i = 0; i < 3; i++) getDb().prepare("INSERT INTO mind_holders (token, address, balance) VALUES (?,?,?)").run(t.token, addr(), "1000");
+    for (let i = 0; i < 12; i++) getDb().prepare("INSERT INTO mind_holders (token, address, balance) VALUES (?,?,?)").run(t.token, addr(), "1000");
     await refreshStats(w.chain, LIVE);
     expect(kinds()).toEqual(expect.arrayContaining(["holders", "earned"]));
     const before = kinds().length;
     await refreshStats(w.chain, LIVE);
     expect(kinds()).toHaveLength(before);
-    const h = got(await thinkOnce(t.token, { chain: w.chain, thinker: thinker({ thought: "Three holders now, and the agent was hired once.", action: null }).fn, env: LIVE, now: T0, usdPerEth: USD }));
-    expect(h.reasons).toEqual(expect.arrayContaining(["holders now 3", "its agent earning 0.00050 ETH"]));
+    const h = got(await thinkOnce(t.token, { chain: w.chain, thinker: thinker({ thought: "Ten holders passed, and the agent was hired once.", action: null }).fn, env: LIVE, now: T0, usdPerEth: USD }));
+    expect(h.reasons).toEqual(expect.arrayContaining(["holders now 10", "its agent earning 0.00050 ETH"]));
   });
 });
 
