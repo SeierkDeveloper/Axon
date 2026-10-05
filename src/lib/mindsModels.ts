@@ -38,3 +38,10 @@ export const estimateThoughtUsd = (m: MindModel): number => priceUsd(m, THOUGHT_
 export function modelAvailable(m: MindModel, env: Record<string, string | undefined> = process.env): boolean {
   return Boolean((m.via === "anthropic" ? env.ANTHROPIC_API_KEY : env.OPENROUTER_API_KEY)?.trim());
 }
+
+/** A mind that runs on its creator's own server instead of one of the models above. */
+export const OWN_MIND = "own";
+export const OWN_MIND_LABEL = "Its own server";
+
+/** What a token's mind runs on, in words. */
+export const mindLabel = (model: string | null | undefined): string => (model === OWN_MIND ? OWN_MIND_LABEL : mindModel(model).label);

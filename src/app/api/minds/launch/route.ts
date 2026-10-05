@@ -7,6 +7,7 @@ import { ponsLaunchFeeWei } from "@/lib/ponsFee";
 import { launchableAgents } from "@/lib/mindsAgent";
 import { normalizeAddress } from "@/lib/address";
 import { MIND_MODELS, modelAvailable } from "@/lib/mindsModels";
+import { ownMindsOpen } from "@/lib/mindsOwn";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
     if (!agentMindsEnabled()) return apiError("NOT_FOUND", "Not found", 404);
     const wallet = normalizeAddress(req.nextUrl.searchParams.get("wallet") ?? "");
     return NextResponse.json(
-      { launcher: mindLauncherAddress(), launchFeeWei: (await ponsLaunchFeeWei()).toString(), agents: wallet ? launchableAgents(wallet) : [], models: MIND_MODELS.map((m) => ({ id: m.id, label: m.label, maker: m.maker, available: modelAvailable(m) })) },
+      { launcher: mindLauncherAddress(), launchFeeWei: (await ponsLaunchFeeWei()).toString(), agents: wallet ? launchableAgents(wallet) : [], models: MIND_MODELS.map((m) => ({ id: m.id, label: m.label, maker: m.maker, available: modelAvailable(m) })), ownOpen: ownMindsOpen() },
       { headers: { "Cache-Control": "no-store" } },
     );
   });

@@ -8,7 +8,8 @@ import { decodeEventLog, encodeFunctionData, formatEther } from "viem";
 import { useWallet } from "@/components/WalletProvider";
 import { CHAIN_ID_HEX, CHAIN_PARAMS, explorerTxUrl, ponsTokenUrl, provider, readableWalletError } from "@/lib/chain";
 import { CEILINGS, DEFAULT_SETTINGS, MIND_LAUNCH_ABI, checkSettings, creatorBps, launchInput, launchValue, lockedSummary, type LaunchSettings } from "@/lib/mindsLaunch";
-import { DEFAULT_MIND_MODEL, MIND_MODELS, mindModel } from "@/lib/mindsModels";
+import { DEFAULT_MIND_MODEL, MIND_MODELS, OWN_MIND, mindLabel } from "@/lib/mindsModels";
+import { OWN_SERVER_EXAMPLE } from "@/lib/mindsOwnExample";
 
 /**
  * Launching a token with an agent and a mind behind it, on one screen and in one signature.
@@ -20,7 +21,8 @@ import { DEFAULT_MIND_MODEL, MIND_MODELS, mindModel } from "@/lib/mindsModels";
 
 export interface Prefill { name: string; symbol: string; line: string; agentId: string }
 
-interface Info { launcher: string | null; launchFeeWei: string; agents: { agentId: string; name: string }[]; models?: { id: string; label: string; maker: string; available: boolean }[] }
+interface Info { launcher: string | null; launchFeeWei: string; agents: { agentId: string; name: string }[]; models?: { id: string; label: string; maker: string; available: boolean }[]; ownOpen?: boolean }
+type Trial = { ok: true; thought: string; action: { kind: string; eth: number } | null; verdict: string; verdictReason: string | null; ms: number } | { ok: false; error: string };
 interface Done { token: string; txHash: string; pot: string; splitter: string; vault: string; agentId: string | null }
 type Step = "idle" | "picture" | "preparing" | "wallet" | "confirming" | "reading" | "done";
 
@@ -71,6 +73,9 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
   const [settings, setSettings] = useState<Omit<LaunchSettings, "payout">>(DEFAULT_SETTINGS);
   const [payout, setPayout] = useState("");
   const [model, setModel] = useState(DEFAULT_MIND_MODEL);
+  const [mindUrl, setMindUrl] = useState("");
+  const [secret, setSecret] = useState<string | null>(null);
+  const [trial, setTrial] = useState<Trial | "running" | null>(null);
   const [advanced, setAdvanced] = useState(false);
   const [agreed, setAgreed] = useState(false);
 
@@ -94,6 +99,26 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
 
   useEffect(() => () => { if (picture) URL.revokeObjectURL(picture.preview); }, [picture]);
 
+  // the secret Axon signs its requests with, for a creator who runs the mind on their own server
+  useEffect(() => {
+    if (model !== OWN_MIND || !apiKey || secret) return;
+    let alive = true;
+    fetch("/api/minds/own/secret", { headers: { authorization: `Bearer ${apiKey}` } })
+      .then((r) => (r.ok ? (r.json() as Promise<{ secret: string }>) : null))
+      .then((d) => { if (alive && d) setSecret(d.secret); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [model, apiKey, secret]);
+
+  const tryServer = async () => {
+    if (!apiKey || trial === "running") return;
+    setTrial("running");
+    const r = await fetch("/api/minds/own/test", { method: "POST", headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" }, body: JSON.stringify({ url: mindUrl.trim() }) }).catch(() => null);
+    // either the test's own answer, or the API's refusal ({ error }) when it never ran
+    const d = r ? ((await r.json().catch(() => null)) as Partial<Trial> & { error?: string } | null) : null;
+    setTrial(d && typeof d.ok === "boolean" ? (d as Trial) : { ok: false, error: d?.error ?? "The test could not be run." });
+  };
+
   const pick = async (f: File | undefined) => {
     if (!f) return;
     setError(null);
@@ -109,7 +134,9 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
   const chosen = agents.find((a) => a.agentId === agentId) ?? null;
   const feeWei = info ? BigInt(info.launchFeeWei) : null;
   const total = feeWei !== null ? launchValue(feeWei, s) : null;
-  const summary = [...lockedSummary(symbol, s).slice(0, -1), { label: "Its mind runs on", value: mindModel(model).label }, ...lockedSummary(symbol, s).slice(-1)];
+  // a mind on the creator's own server does its thinking there: nothing comes out of the treasury for it
+  const locked = lockedSummary(symbol, s).map((r) => (model === OWN_MIND && r.label === "Its thinking" ? { ...r, value: "on your own server, at no cost to its treasury" } : r));
+  const summary = [...locked.slice(0, -1), { label: "Its mind runs on", value: mindLabel(model) }, ...locked.slice(-1)];
   // a model this server has no key for cannot be picked; the list itself is the same everywhere
   const models = MIND_MODELS.map((m) => ({ ...m, available: info?.models?.find((x) => x.id === m.id)?.available ?? m.id === DEFAULT_MIND_MODEL }));
 
@@ -118,6 +145,7 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
     : !picture ? "Add a picture"
     : own ? (!chosen ? "Pick one of your agents" : null)
     : line.trim().length < 12 ? "Say what the agent does"
+    : model === OWN_MIND && !/^https:\/\/\S+\.\S+/.test(mindUrl.trim()) ? "Give your server's https address"
     : null;
   const bad = address ? checkSettings(s) : null;
 
@@ -162,7 +190,7 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
 
       setStep("preparing");
       const description = own ? "" : line.trim();
-      const pr = await fetch("/api/minds/prepare", { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ name: name.trim(), symbol, logo: logo.url, ...(own ? { agentId } : { line: line.trim() }), description, model }) });
+      const pr = await fetch("/api/minds/prepare", { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ name: name.trim(), symbol, logo: logo.url, ...(own ? { agentId } : { line: line.trim() }), description, model, ...(model === OWN_MIND ? { mindUrl: mindUrl.trim() } : {}) }) });
       const prepared = (await pr.json().catch(() => ({}))) as { ref?: `0x${string}`; launcher?: string; error?: string };
       if (!pr.ok || !prepared.ref || !prepared.launcher) throw new Error(prepared.error ?? "The launch could not be prepared.");
 
@@ -321,8 +349,52 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
                 <span className={`block truncate text-[11px] ${model === m.id ? "text-gray-300 dark:text-gray-500" : "text-gray-400"}`}>{m.available ? m.maker : "Not open yet"}</span>
               </button>
             ))}
+            <button type="button" role="radio" aria-checked={model === OWN_MIND} disabled={info?.ownOpen === false} onClick={() => setModel(OWN_MIND)}
+              className={`rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${model === OWN_MIND ? "border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-gray-900" : "border-dashed border-gray-300 hover:border-gray-900 dark:border-gray-700 dark:hover:border-white"}`}>
+              <span className="block truncate text-sm font-semibold">Your own</span>
+              <span className={`block truncate text-[11px] ${model === OWN_MIND ? "text-gray-300 dark:text-gray-500" : "text-gray-400"}`}>{info?.ownOpen === false ? "Not open yet" : "Your server, any AI"}</span>
+            </button>
           </div>
-          <p className="mt-3 text-xs text-gray-400">The model that thinks for this token. It thinks when something happens, in public, and pays for its own thinking from its treasury at cost. Chosen once.</p>
+          {model !== OWN_MIND ? (
+            <p className="mt-3 text-xs text-gray-400">The model that thinks for this token. It thinks when something happens, in public, and pays for its own thinking from its treasury at cost. Chosen once.</p>
+          ) : (
+            <div className="mt-4 space-y-4">
+              <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                Run the mind on your own server with any AI and your own key. When something happens to your token, Axon sends your server the numbers; it answers with a thought and, if it wants, one proposal, which goes through the same rule check as every mind. Your key stays on your server: Axon never asks for it and never stores one. Its thinking costs your treasury nothing. Chosen once.
+              </p>
+              <div>
+                <label htmlFor="mind-url" className={label}>Your server&apos;s address</label>
+                <div className="flex gap-2">
+                  <input id="mind-url" value={mindUrl} onChange={(e) => { setMindUrl(e.target.value.trim().slice(0, 300)); setTrial(null); }} placeholder="https://…" spellCheck={false} className={`${input} font-mono`} />
+                  <button type="button" onClick={() => void tryServer()} disabled={!apiKey || trial === "running" || !/^https:\/\/\S+\.\S+/.test(mindUrl.trim())}
+                    className="shrink-0 rounded-xl border border-gray-200 px-4 text-sm font-semibold transition hover:bg-gray-50 disabled:opacity-40 dark:border-gray-800 dark:hover:bg-gray-900">
+                    {trial === "running" ? "Asking…" : "Test it"}
+                  </button>
+                </div>
+                {!apiKey && <p className="mt-2 text-xs text-gray-400">Sign in to test it and to see your signing secret.</p>}
+                {trial && trial !== "running" && (trial.ok ? (
+                  <div className="mt-3 rounded-xl bg-gray-50 p-3 text-sm dark:bg-gray-900">
+                    <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-gray-400">It answered in {(trial.ms / 1000).toFixed(1)}s</p>
+                    <p className="mt-1.5 leading-relaxed">{trial.thought}</p>
+                    {trial.action && <p className="mt-1.5 font-mono text-[11px] text-gray-500 dark:text-gray-400">proposed: {trial.action.kind} with {trial.action.eth} ETH · {trial.verdict === "approved" ? "would pass the rule check" : `would be refused: ${trial.verdictReason ?? ""}`}</p>}
+                  </div>
+                ) : (
+                  <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">It did not work: {trial.error}</p>
+                ))}
+              </div>
+              {secret && (
+                <div>
+                  <label htmlFor="mind-secret" className={label}>Your signing secret</label>
+                  <input id="mind-secret" readOnly value={secret} onFocus={(e) => e.currentTarget.select()} className={`${input} font-mono text-xs`} />
+                  <p className="mt-2 text-xs text-gray-400">Axon signs every request with this so your server can refuse anybody else. Put it on your server; do not share it.</p>
+                </div>
+              )}
+              <details className="rounded-xl border border-gray-200 dark:border-gray-800">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-medium">A server you can start from</summary>
+                <pre className="max-h-80 overflow-auto border-t border-gray-200 px-4 py-3 font-mono text-[11px] leading-relaxed text-gray-700 dark:border-gray-800 dark:text-gray-300">{OWN_SERVER_EXAMPLE}</pre>
+              </details>
+            </div>
+          )}
         </section>
 
         <section className="rounded-2xl border border-gray-200 p-5 sm:p-6 dark:border-gray-800">

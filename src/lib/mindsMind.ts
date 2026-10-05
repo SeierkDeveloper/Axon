@@ -12,7 +12,8 @@
 import { getDb } from "./db";
 import { agentMindsEnabled } from "./mindsPolicy";
 import { mindsChain, type MindsChain, type Treasury } from "./mindsChain";
-import { mindModel, modelAvailable, estimateThoughtUsd, type MindModel } from "./mindsModels";
+import { mindModel, mindLabel, modelAvailable, estimateThoughtUsd, OWN_MIND, type MindModel } from "./mindsModels";
+import { ownThinker, ownMindsOpen, type Post } from "./mindsOwn";
 import { thinkingMode, realThinker, standInThinker, type Thinker } from "./mindsThinker";
 import { checkProposal, readProposal, THINKING_RESERVE_ETH, type Proposal, type RuleContext } from "./mindsRules";
 import { CAN } from "./mindsLaunch";
@@ -45,7 +46,7 @@ export interface Thought {
 
 interface Row { id: number; token: string; at: string; model: string; standin: number; status: string; reasons: string; thought: string | null; action: string | null; verdict: string; verdict_reason: string | null; cost_eth: number; cost_usd: number; last_event_id: number }
 const toThought = (r: Row): Thought => ({
-  id: r.id, token: r.token, at: r.at, model: r.model, modelLabel: r.standin ? "Stand-in" : mindModel(r.model).label, standin: r.standin === 1, status: r.status as Thought["status"],
+  id: r.id, token: r.token, at: r.at, model: r.model, modelLabel: r.standin ? "Stand-in" : mindLabel(r.model), standin: r.standin === 1, status: r.status as Thought["status"],
   reasons: JSON.parse(r.reasons) as string[], thought: r.thought, action: r.action ? (JSON.parse(r.action) as Proposal) : null, verdict: r.verdict as Thought["verdict"], verdictReason: r.verdict_reason,
   costEth: r.cost_eth, costUsd: r.cost_usd,
 });
@@ -77,7 +78,7 @@ const REASON: Record<string, (e: { eth: number | null; tokens: number | null }) 
   earned: (e) => `its agent earning ${(e.eth ?? 0).toFixed(5)} ETH`,
 };
 
-interface MindRow { token: string; name: string | null; symbol: string | null; description: string | null; vault: string; model: string | null; agent_id: string | null; launched_at: string; tax_bps: number | null; phase: number; mcap_eth: number | null; curve_bps: number; holders: number; fees_eth: number; burned_tokens: number; treasury_eth: number }
+interface MindRow { token: string; name: string | null; symbol: string | null; description: string | null; vault: string; creator: string; mind_url: string | null; model: string | null; agent_id: string | null; launched_at: string; tax_bps: number | null; phase: number; mcap_eth: number | null; curve_bps: number; holders: number; fees_eth: number; burned_tokens: number; treasury_eth: number }
 
 const SYSTEM = `You are the mind of a token launched on Axon, on Robinhood Chain. The token stands behind an AI agent that people hire for real work. You have a treasury, filled by a share of the token's trading fees that its creator fixed at launch.
 
@@ -125,7 +126,7 @@ function publicText(v: unknown): string | null {
   return validateAgentText(text) ? null : text;
 }
 
-export interface ThinkOptions { chain?: MindsChain; thinker?: Thinker; env?: Record<string, string | undefined>; now?: number; usdPerEth?: number | null }
+export interface ThinkOptions { chain?: MindsChain; thinker?: Thinker; env?: Record<string, string | undefined>; now?: number; usdPerEth?: number | null; /** how a creator's own server is reached; the real way out unless a test says otherwise */ post?: Post }
 
 /**
  * Think once for one token, if it has a reason to and can pay. Returns the thought, or why there was none.
@@ -136,7 +137,7 @@ export async function thinkOnce(token: string, o: ThinkOptions = {}): Promise<Th
   if (!agentMindsEnabled(env) || mode === "off") return { skipped: "thinking is off" };
   const db = getDb();
   const m = db.prepare(
-    `SELECT t.token, t.name, t.symbol, t.description, t.vault, t.model, t.agent_id, t.launched_at, t.tax_bps, COALESCE(s.phase, 0) phase, s.mcap_eth, COALESCE(s.curve_bps, 0) curve_bps, COALESCE(s.holders, 0) holders,
+    `SELECT t.token, t.name, t.symbol, t.description, t.vault, t.creator, t.mind_url, t.model, t.agent_id, t.launched_at, t.tax_bps, COALESCE(s.phase, 0) phase, s.mcap_eth, COALESCE(s.curve_bps, 0) curve_bps, COALESCE(s.holders, 0) holders,
        COALESCE(s.fees_eth, 0) fees_eth, COALESCE(s.burned_tokens, 0) burned_tokens, COALESCE(s.treasury_eth, 0) treasury_eth
      FROM mind_tokens t JOIN mind_stats s ON s.token = t.token WHERE t.token = ? AND s.updated_at IS NOT NULL`,
   ).get(token.toLowerCase()) as MindRow | undefined;
@@ -147,26 +148,34 @@ export async function thinkOnce(token: string, o: ThinkOptions = {}): Promise<Th
   const news = db.prepare("SELECT id, kind, eth, tokens FROM mind_events WHERE token = ? AND id > ? AND kind != 'thought' ORDER BY id ASC LIMIT 20").all(m.token, last?.last_event_id ?? 0) as { id: number; kind: string; eth: number | null; tokens: number | null }[];
   if (!news.length) return { skipped: "nothing has happened since its last thought" };
 
+  // a mind on its creator's own server costs Axon nothing: no key of Axon's is used, so no budget applies to it
+  const own = m.model === OWN_MIND;
+  if (own && (!m.mind_url || !ownMindsOpen(env))) return { skipped: "its own server cannot be reached from here" };
   const model: MindModel = mindModel(m.model);
-  if (mode === "live" && !modelAvailable(model, env)) return { skipped: `${model.label} cannot be reached from here` };
-  const usdPerEth = o.usdPerEth === undefined ? await ethUsd() : o.usdPerEth;
+  if (!own && mode === "live" && !modelAvailable(model, env)) return { skipped: `${model.label} cannot be reached from here` };
+  const usdPerEth = own ? 1 : o.usdPerEth === undefined ? await ethUsd() : o.usdPerEth;
   if (!usdPerEth) return { skipped: "the price of ETH could not be read, so the cost could not be held to its budget" };
-  const estimateEth = estimateThoughtUsd(model) / usdPerEth;
+  const estimateEth = own ? 0 : estimateThoughtUsd(model) / usdPerEth;
 
   const treasury = await chain.treasury(m.vault);
   if (!treasury.active) return { skipped: "the mind is stopped" };
   const owed = owedThinkingEth(m.token);
-  // it pays for its own thinking: no thought starts that the treasury could not cover
-  if (treasury.availableEth - owed < estimateEth) return { skipped: "its treasury cannot pay for a thought yet" };
-  const ceiling = Math.min(MAX_COST_PER_DAY_ETH, treasury.limits.maxCostPerDayEth);
-  if (costToday(m.token, now) + estimateEth > ceiling) return { skipped: "it has reached what its thinking may cost today" };
-  if (mode === "live" && spentTodayUsd(now) + estimateThoughtUsd(model) > dailyBudgetUsd(env)) return { skipped: "all minds together have reached today's budget" };
+  if (!own) {
+    // it pays for its own thinking: no thought starts that the treasury could not cover
+    if (treasury.availableEth - owed < estimateEth) return { skipped: "its treasury cannot pay for a thought yet" };
+    const ceiling = Math.min(MAX_COST_PER_DAY_ETH, treasury.limits.maxCostPerDayEth);
+    if (costToday(m.token, now) + estimateEth > ceiling) return { skipped: "it has reached what its thinking may cost today" };
+    if (mode === "live" && spentTodayUsd(now) + estimateThoughtUsd(model) > dailyBudgetUsd(env)) return { skipped: "all minds together have reached today's budget" };
+  }
 
   const reasons = news.map((e) => (REASON[e.kind] ?? (() => e.kind))(e));
   const earned = m.agent_id ? earnedSince(m.agent_id, m.launched_at) : 0;
   const earlier = thoughts(m.token, 3);
-  const thinker = o.thinker ?? (mode === "live" ? realThinker : standInThinker);
-  const standin = mode === "standin" && !o.thinker ? 1 : 0;
+  const thinker = own
+    ? ownThinker(m.mind_url!, m.creator, { token: m.token, symbol: m.symbol, name: m.name, test: false }, o.post, env)
+    : o.thinker ?? (mode === "live" ? realThinker : standInThinker);
+  const standin = !own && mode === "standin" && !o.thinker ? 1 : 0;
+  const modelId = own ? OWN_MIND : model.id;
   const at = new Date(now).toISOString();
   const lastEvent = news[news.length - 1].id;
   const insert = db.prepare(
@@ -177,8 +186,8 @@ export async function thinkOnce(token: string, o: ThinkOptions = {}): Promise<Th
   try {
     answer = await thinker(model, SYSTEM, promptFor(m, treasury, owed, reasons, earned, earlier));
   } catch (err) {
-    logger.warn("minds.think_failed", "A mind could not think", { err, token: m.token, model: model.id });
-    insert.run(m.token, at, model.id, standin, "failed", JSON.stringify(reasons), null, null, "none", null, 0, 0, 0, 0, last?.last_event_id ?? 0, err instanceof Error ? err.message.slice(0, 300) : "failed");
+    logger.warn("minds.think_failed", "A mind could not think", { err, token: m.token, model: modelId });
+    insert.run(m.token, at, modelId, standin, "failed", JSON.stringify(reasons), null, null, "none", null, 0, 0, 0, 0, last?.last_event_id ?? 0, err instanceof Error ? err.message.slice(0, 300) : "failed");
     return { skipped: "the model could not be reached" };
   }
   const costEth = answer.costUsd / usdPerEth;
@@ -187,7 +196,7 @@ export async function thinkOnce(token: string, o: ThinkOptions = {}): Promise<Th
   const text = publicText(parsed?.thought);
   if (!text) {
     // it was paid for, so it is written down; it is not shown, and the same events may wake the mind again later
-    insert.run(m.token, at, model.id, standin, "failed", JSON.stringify(reasons), null, null, "none", null, answer.inputTokens, answer.outputTokens, answer.costUsd, costEth, last?.last_event_id ?? 0, "the answer could not be read");
+    insert.run(m.token, at, modelId, standin, "failed", JSON.stringify(reasons), null, null, "none", null, answer.inputTokens, answer.outputTokens, answer.costUsd, costEth, last?.last_event_id ?? 0, "the answer could not be read");
     return { skipped: "its answer could not be read" };
   }
 
@@ -203,7 +212,7 @@ export async function thinkOnce(token: string, o: ThinkOptions = {}): Promise<Th
     why = v.ok ? null : v.reason;
   }
   const id = Number(db.transaction(() => {
-    const r = insert.run(m.token, at, model.id, standin, "thought", JSON.stringify(reasons), text, proposal ? JSON.stringify(proposal) : null, verdict, why, answer.inputTokens, answer.outputTokens, answer.costUsd, costEth, lastEvent, null);
+    const r = insert.run(m.token, at, modelId, standin, "thought", JSON.stringify(reasons), text, proposal ? JSON.stringify(proposal) : null, verdict, why, answer.inputTokens, answer.outputTokens, answer.costUsd, costEth, lastEvent, null);
     addEvent(m.token, "thought", { at });
     return r.lastInsertRowid;
   })());
@@ -228,4 +237,29 @@ export async function thinkDue(o: ThinkOptions = {}, limit = MINDS_PER_PASS): Pr
     if ("skipped" in r) skipped++; else thought++;
   }
   return { thought, skipped };
+}
+
+export type OwnTrial = { ok: true; thought: string; action: Proposal | null; verdict: Thought["verdict"]; verdictReason: string | null; ms: number } | { ok: false; error: string };
+
+/**
+ * Try a creator's own server before they launch: send it a wake about a made-up token and read its answer exactly as
+ * a real one would be read. Nothing is written down and nothing can be sent; the request is marked as a test.
+ */
+export async function tryOwn(url: string, wallet: string, post?: Post, env: Record<string, string | undefined> = process.env): Promise<OwnTrial> {
+  const sample: MindRow = { token: "0x0000000000000000000000000000000000000000", name: "Sample Token", symbol: "SAMPLE", description: "Turns long documents into short, clear briefs", vault: "", creator: wallet, mind_url: url, model: OWN_MIND, agent_id: null, launched_at: new Date().toISOString(), tax_bps: 300, phase: 0, mcap_eth: 2.4, curve_bps: 1800, holders: 14, fees_eth: 0.031, burned_tokens: 120000, treasury_eth: 0.0062 };
+  const t: Treasury = { availableEth: 0.0062, reservedEth: 0, boughtBackEth: 0, axonBurnedEth: 0, rewardedEth: 0, claimedEth: 0, thinkingEth: 0, rewards: 0, paused: false, frozen: false, active: true, limits: { allowed: 7, maxPerDayEth: 0.05, maxPerActionEth: 0.01, maxActionsPerDay: 6, maxCostPerDayEth: 0.01 } };
+  const started = Date.now();
+  let answer;
+  try {
+    answer = await ownThinker(url, wallet, { token: null, symbol: sample.symbol, name: sample.name, test: true }, post, env)(mindModel(null), SYSTEM, promptFor(sample, t, 0, ["the launch", "fees paid out (0.03100 ETH)"], 0, []));
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message.slice(0, 200) : "the server could not be reached" };
+  }
+  let parsed: Record<string, unknown> | null = null;
+  try { const j = extractJson(answer.text); parsed = j && typeof j === "object" ? (j as Record<string, unknown>) : null; } catch { parsed = null; }
+  const text = publicText(parsed?.thought);
+  if (!text) return { ok: false, error: "the server answered, but not with a thought Axon can read. It has to answer with JSON holding \"thought\" (a sentence or two) and \"action\" (null, or a kind and an amount of ETH)." };
+  const proposal = readProposal(parsed?.action);
+  const v = proposal ? checkProposal(proposal, { allowed: 7, maxPerDayEth: 0.05, maxPerActionEth: 0.01, maxActionsPerDay: 6, availableEth: t.availableEth, owedThinkingEth: 0, spentTodayEth: 0, actionsToday: 0, active: true, phase: 0, holders: sample.holders }) : null;
+  return { ok: true, thought: text, action: proposal, verdict: !v ? "none" : v.ok ? "approved" : "refused", verdictReason: v && !v.ok ? v.reason : null, ms: Date.now() - started };
 }

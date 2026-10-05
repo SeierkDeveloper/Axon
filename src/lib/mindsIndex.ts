@@ -12,7 +12,7 @@ import { agentMindsEnabled } from "./mindsPolicy";
 import { mindsChain, mindLauncherAddress, mindDeployBlock, type MindsChain, type MindLaunchEvent, type Treasury, type FeeFlow } from "./mindsChain";
 import { cursor, setCursor, upsertToken, getToken, getPrepared, markLaunched, linkAgent, type MindToken } from "./mindsStore";
 import { agentFor } from "./mindsAgent";
-import { DEFAULT_MIND_MODEL } from "./mindsModels";
+import { DEFAULT_MIND_MODEL, OWN_MIND } from "./mindsModels";
 import { addEvent, earnedSince } from "./mindsStats";
 import { sameAddress } from "./address";
 import { logger } from "./logger";
@@ -36,7 +36,7 @@ async function record(ev: MindLaunchEvent, chain: MindsChain): Promise<boolean> 
     const row: MindToken = {
       token: ev.token, creator: ev.creator, agentId: null, agentRef: ev.agentRef, pot: ev.pot, splitter: ev.splitter, vault: ev.vault, payout: ev.payout,
       taxBps: ev.taxBps, creatorBps: ev.creatorBps, burnBps: ev.burnBps, axonBps: ev.axonBps, mindBps: ev.mindBps, attached: ev.kind === "attached",
-      name: meta?.name ?? mine?.name ?? null, symbol: meta?.symbol ?? mine?.symbol ?? null, logo: mine?.logo ?? null, description: mine?.description ?? mine?.line ?? null, model: mine?.model ?? DEFAULT_MIND_MODEL,
+      name: meta?.name ?? mine?.name ?? null, symbol: meta?.symbol ?? mine?.symbol ?? null, logo: mine?.logo ?? null, description: mine?.description ?? mine?.line ?? null, model: mine?.model ?? DEFAULT_MIND_MODEL, mindUrl: mine?.model === OWN_MIND ? mine.mindUrl : null,
       blockNumber: ev.blockNumber, txHash: ev.txHash, launchedAt,
     };
     upsertToken(row);

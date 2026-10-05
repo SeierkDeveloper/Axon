@@ -6,7 +6,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { EXPLORER, explorerTxUrl, ponsTokenUrl } from "@/lib/chain";
 import type { BoardToken, BoardTotals, MindEvent, BoardSort } from "@/lib/mindsStats";
-import { mindModel } from "@/lib/mindsModels";
+import { mindLabel } from "@/lib/mindsModels";
 
 /**
  * The launch terminal: every token launched on Axon, with the numbers its contracts report, and a running log of what
@@ -75,7 +75,7 @@ function Mind({ t }: { t: BoardToken }) {
   }, [t.token]);
   return (
     <div className="border-t border-gray-200 bg-gray-50 px-4 py-5 sm:px-5 dark:border-gray-800 dark:bg-gray-900/40">
-      <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400">Its mind <span className="normal-case tracking-normal text-gray-500 dark:text-gray-400">· runs on {mindModel(t.model).label}</span></p>
+      <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400">Its mind <span className="normal-case tracking-normal text-gray-500 dark:text-gray-400">· runs on {mindLabel(t.model).replace(/^Its/, "its")}</span></p>
       {items === null ? (
         <p className="text-sm text-gray-400">…</p>
       ) : items.length === 0 ? (
