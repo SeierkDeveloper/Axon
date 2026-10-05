@@ -57,7 +57,7 @@ export const DEFAULT_SETTINGS: Omit<LaunchSettings, "payout"> = {
   canBurnAxon: true,
   maxPerDayEth: "0.05",
   maxPerActionEth: "0.01",
-  maxActionsPerDay: 6,
+  maxActionsPerDay: 24,
   maxCostPerDayEth: "0.01",
   openingBuyEth: "",
   twitter: "",
