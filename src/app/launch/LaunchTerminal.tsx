@@ -9,6 +9,7 @@ import { useWallet } from "@/components/WalletProvider";
 import { CHAIN_ID_HEX, CHAIN_PARAMS, EXPLORER, explorerTxUrl, ponsTokenUrl, provider, readableWalletError } from "@/lib/chain";
 import type { BoardToken, BoardTotals, MindEvent, BoardSort } from "@/lib/mindsStats";
 import { mindLabel } from "@/lib/mindsModels";
+import TokenCard, { tokenCardFrame } from "./TokenCard";
 
 /**
  * The launch terminal: every token launched on Axon, with the numbers its contracts report, and a running log of what
@@ -16,7 +17,7 @@ import { mindLabel } from "@/lib/mindsModels";
  * chain. Nothing here is typed in by anybody.
  */
 
-export interface TerminalData { totals: BoardTotals; ethUsd: number | null; tokens: BoardToken[]; events: MindEvent[] }
+export interface TerminalData { totals: BoardTotals; ethUsd: number | null; tokens: BoardToken[]; /** which page of the tokens this is, and how many there are */ page?: number; pages?: number; /** the token that is open, whichever page it is on */ opened?: BoardToken | null; events: MindEvent[] }
 
 const POLL_MS = 6_000;
 
@@ -360,13 +361,15 @@ export default function LaunchTerminal({ initial, openToken = null }: { initial:
   const [data, setData] = useState(initial);
   const [sort, setSort] = useState<BoardSort>("new");
   const [open, setOpen] = useState<string | null>(openToken);
+  const [page, setPage] = useState(1);
+  const panel = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(() => Date.now());
   const [fresh, setFresh] = useState<Set<number>>(new Set());
   const seen = useRef(Math.max(0, ...initial.events.map((e) => e.id)));
 
   useEffect(() => {
     let alive = true;
-    const load = () => fetch(`/api/minds/tokens?sort=${sort}`)
+    const load = () => fetch(`/api/minds/tokens?sort=${sort}&page=${page}${open ? `&open=${open}` : ""}`)
       .then((r) => (r.ok ? (r.json() as Promise<TerminalData>) : null))
       .then((d) => {
         if (!alive || !d) return;
@@ -385,16 +388,25 @@ export default function LaunchTerminal({ initial, openToken = null }: { initial:
     const t = setInterval(load, POLL_MS);
     const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => { alive = false; clearInterval(t); clearInterval(tick); };
-  }, [sort]);
+  }, [sort, page, open]);
 
   const { totals, tokens, events, ethUsd } = data;
+  const pages = Math.max(1, data.pages ?? 1);
+  // the open token: on this page, or sent along because it is on another one
+  const inPage = tokens.some((t) => t.token === open);
+  const opened = open ? tokens.find((t) => t.token === open) ?? (data.opened?.token === open ? data.opened : null) : null;
+  const pick = (token: string) => {
+    const next = open === token ? null : token;
+    setOpen(next);
+    if (next) requestAnimationFrame(() => panel.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  const turn = (to: number) => { setPage(Math.min(pages, Math.max(1, to))); document.getElementById("tokens")?.scrollIntoView({ behavior: "smooth", block: "start" }); };
   const stats = [
     { label: "Tokens launched", value: String(totals.tokens) },
     { label: "Fees paid out", value: ethText(totals.feesEth) },
     { label: "Spent on burns", value: ethText(totals.burnedEth) },
     { label: "Held by minds", value: ethText(totals.treasuryEth) },
   ];
-  const th = "whitespace-nowrap px-3 py-2.5 font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-gray-400";
   const holders = (n: number) => `${n} ${n === 1 ? "holder" : "holders"}`;
 
   return (
@@ -408,14 +420,14 @@ export default function LaunchTerminal({ initial, openToken = null }: { initial:
         ))}
       </dl>
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="mt-8 grid gap-10">
         {/* ── every token ── */}
-        <section aria-label="Tokens" className="min-w-0">
+        <section id="tokens" aria-label="Tokens" className="min-w-0 scroll-mt-24">
           <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold">Tokens</h2>
             <div className="flex rounded-lg border border-gray-200 p-0.5 text-xs dark:border-gray-800">
               {([["new", "Newest"], ["mcap", "Market cap"], ["burned", "Most burned"]] as const).map(([k, t]) => (
-                <button key={k} type="button" onClick={() => setSort(k)} aria-pressed={sort === k} className={`rounded-md px-3 py-1.5 font-medium transition ${sort === k ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900" : "text-gray-500 hover:text-gray-900 dark:hover:text-white"}`}>{t}</button>
+                <button key={k} type="button" onClick={() => { setSort(k); setPage(1); }} aria-pressed={sort === k} className={`rounded-md px-3 py-1.5 font-medium transition ${sort === k ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900" : "text-gray-500 hover:text-gray-900 dark:hover:text-white"}`}>{t}</button>
               ))}
             </div>
           </div>
@@ -428,6 +440,24 @@ export default function LaunchTerminal({ initial, openToken = null }: { initial:
             </div>
           ) : (
             <>
+              {opened && (
+                <div ref={panel} className={`mb-5 scroll-mt-24 overflow-hidden rounded-2xl border border-gray-900 dark:border-white ${inPage ? "hidden md:block" : ""}`}>
+                  <div className="flex items-center gap-3 px-4 py-3.5 sm:px-5">
+                    <Logo src={opened.logo} symbol={opened.symbol} size={40} />
+                    <div className="min-w-0 flex-1">
+                      <p className="flex items-baseline gap-2"><span className="truncate text-lg font-semibold">{opened.name ?? short(opened.token)}</span><span className="shrink-0 font-mono text-xs text-gray-400">${opened.symbol ?? "?"}</span></p>
+                      <p className="truncate text-xs text-gray-500 dark:text-gray-400">{opened.agentName ? `Agent: ${opened.agentName}` : "No agent"}</p>
+                    </div>
+                    <dl className="hidden shrink-0 gap-6 text-right font-mono text-xs tabular-nums sm:flex">
+                      {([["Market cap", money(opened.mcapEth, ethUsd)], ["Holders", opened.attached ? "…" : String(opened.holders)], ["Burned", opened.burnedTokens > 0 ? compact(opened.burnedTokens) : "0"], ["Mind holds", ethText(opened.treasuryEth)]] as const).map(([k, v]) => (
+                        <div key={k}><dt className="text-[10px] uppercase tracking-[0.12em] text-gray-400">{k}</dt><dd className="mt-0.5 text-sm font-semibold">{v}</dd></div>
+                      ))}
+                    </dl>
+                    <button type="button" onClick={() => setOpen(null)} aria-label="Close" className="ml-2 grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-gray-200 text-lg leading-none text-gray-500 transition hover:bg-gray-50 hover:text-gray-900 dark:border-gray-800 dark:hover:bg-gray-900 dark:hover:text-white">×</button>
+                  </div>
+                  <div className="border-t border-gray-200 dark:border-gray-800"><Detail t={opened} /></div>
+                </div>
+              )}
               {/* a phone gets one card a token: a table squeezed to that width reads as nothing */}
               <ul className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 md:hidden dark:divide-gray-800/70 dark:border-gray-800">
                 {tokens.map((t) => (
@@ -452,52 +482,27 @@ export default function LaunchTerminal({ initial, openToken = null }: { initial:
                 ))}
               </ul>
 
-              <div className="hidden overflow-hidden rounded-2xl border border-gray-200 md:block dark:border-gray-800">
-                <table className="w-full table-fixed border-collapse text-sm">
-                  <thead className="border-b border-gray-200 dark:border-gray-800">
-                    <tr>
-                      <th scope="col" className={`${th} w-[31%] pl-5 text-left`}>Token</th>
-                      <th scope="col" className={`${th} w-[7%] text-right`}>Age</th>
-                      <th scope="col" className={`${th} w-[12%] text-right`}>Market cap</th>
-                      <th scope="col" className={`${th} w-[17%] text-left`}>Curve</th>
-                      <th scope="col" className={`${th} w-[9%] text-right`}>Holders</th>
-                      <th scope="col" className={`${th} w-[9%] text-right`}>Burned</th>
-                      <th scope="col" className={`${th} w-[15%] pr-5 text-right`}>Mind holds</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tokens.map((t) => (
-                      <Fragment key={t.token}>
-                        <tr onClick={() => setOpen(open === t.token ? null : t.token)} className="cursor-pointer border-b border-gray-100 transition last:border-b-0 hover:bg-gray-50 dark:border-gray-800/70 dark:hover:bg-gray-900/50">
-                          <td className="py-3 pl-5 pr-3">
-                            <button type="button" aria-expanded={open === t.token} className="flex w-full min-w-0 items-center gap-3 text-left">
-                              <Logo src={t.logo} symbol={t.symbol} size={36} />
-                              <span className="min-w-0 flex-1">
-                                <span className="flex items-baseline gap-2">
-                                  <span className="truncate font-semibold">{t.name ?? short(t.token)}</span>
-                                  <span className="shrink-0 font-mono text-xs text-gray-400">${t.symbol ?? "?"}</span>
-                                </span>
-                                <span className="block truncate text-xs text-gray-500 dark:text-gray-400">{t.agentName ? `Agent: ${t.agentName}` : "No agent"}</span>
-                              </span>
-                            </button>
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-xs tabular-nums text-gray-500 dark:text-gray-400" suppressHydrationWarning>{ago(t.launchedAt, now)}</td>
-                          <td className="whitespace-nowrap px-3 py-3 text-right font-mono tabular-nums">{money(t.mcapEth, ethUsd)}</td>
-                          <td className="px-3 py-3"><Curve t={t} /></td>
-                          <td className="whitespace-nowrap px-3 py-3 text-right font-mono tabular-nums">{t.attached ? "…" : t.holders}</td>
-                          <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-xs tabular-nums">{t.burnedTokens > 0 ? compact(t.burnedTokens) : "0"}</td>
-                          <td className="whitespace-nowrap py-3 pl-3 pr-5 text-right font-mono text-xs tabular-nums">{ethText(t.treasuryEth)}</td>
-                        </tr>
-                        {open === t.token && (
-                          <tr className="border-b border-gray-100 last:border-b-0 dark:border-gray-800/70">
-                            <td colSpan={7} className="p-0"><Detail t={t} /></td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    ))}
-                  </tbody>
-                </table>
+              {/* a wide screen gets large cards, five across; the open one's numbers show in the panel above them */}
+              <div className="hidden gap-4 md:grid md:grid-cols-3 lg:grid-cols-5">
+                {tokens.map((t) => (
+                  <button key={t.token} type="button" onClick={() => pick(t.token)} aria-expanded={open === t.token} className={`${tokenCardFrame} ${open === t.token ? "border-gray-900 dark:border-white" : "border-gray-200 hover:border-gray-900 dark:border-gray-800 dark:hover:border-white"}`}>
+                    <TokenCard t={t} usd={ethUsd} age={ago(t.launchedAt, now)} />
+                  </button>
+                ))}
               </div>
+
+              {pages > 1 && (
+                <nav aria-label="Pages" className="mt-6 flex items-center justify-center gap-1.5 text-sm">
+                  <button type="button" onClick={() => turn(page - 1)} disabled={page <= 1} className="rounded-lg border border-gray-200 px-3 py-2 font-medium transition hover:bg-gray-50 disabled:opacity-40 dark:border-gray-800 dark:hover:bg-gray-900">Previous</button>
+                  {Array.from({ length: pages }, (_, i) => i + 1).filter((n) => n === 1 || n === pages || Math.abs(n - page) <= 1).map((n, i, shown) => (
+                    <Fragment key={n}>
+                      {i > 0 && n - shown[i - 1] > 1 && <span className="px-1 text-gray-400">…</span>}
+                      <button type="button" onClick={() => turn(n)} aria-current={n === page ? "page" : undefined} className={`min-w-9 rounded-lg px-3 py-2 font-mono tabular-nums transition ${n === page ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900" : "border border-gray-200 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900"}`}>{n}</button>
+                    </Fragment>
+                  ))}
+                  <button type="button" onClick={() => turn(page + 1)} disabled={page >= pages} className="rounded-lg border border-gray-200 px-3 py-2 font-medium transition hover:bg-gray-50 disabled:opacity-40 dark:border-gray-800 dark:hover:bg-gray-900">Next</button>
+                </nav>
+              )}
             </>
           )}
         </section>
@@ -515,9 +520,9 @@ export default function LaunchTerminal({ initial, openToken = null }: { initial:
             {events.length === 0 ? (
               <p className="px-4 py-10 text-center text-sm text-gray-400">Launches, fees paid out and burns show here as they happen.</p>
             ) : (
-              <ol className="max-h-[560px] divide-y divide-gray-100 overflow-y-auto font-mono text-xs dark:divide-gray-800/70">
+              <ol className="max-h-[560px] overflow-y-auto font-mono text-xs md:grid md:max-h-none md:grid-cols-2 lg:grid-cols-3">
                 {events.map((e) => (
-                  <li key={e.id} className={`flex items-center gap-3 px-4 py-2.5 transition-colors duration-1000 ${fresh.has(e.id) ? "bg-emerald-50 dark:bg-emerald-950/40" : ""}`}>
+                  <li key={e.id} className={`flex items-center gap-3 border-b border-gray-100 px-4 py-2.5 transition-colors duration-1000 md:[&:nth-child(n+19)]:hidden dark:border-gray-800/70 ${fresh.has(e.id) ? "bg-emerald-50 dark:bg-emerald-950/40" : ""}`}>
                     <Logo src={e.logo} symbol={e.symbol} size={22} />
                     <span className="min-w-0 flex-1 truncate"><span className="font-semibold">${e.symbol ?? "?"}</span> <span className="text-gray-500 dark:text-gray-400">{eventText(e)}</span></span>
                     <time dateTime={e.at} className="shrink-0 tabular-nums text-gray-400" suppressHydrationWarning>{ago(e.at, now)}</time>

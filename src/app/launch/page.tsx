@@ -4,7 +4,7 @@ import Link from "next/link";
 import MindLaunch from "./MindLaunch";
 import LaunchTerminal from "./LaunchTerminal";
 import GiveMind from "./GiveMind";
-import { board, boardTotals, events } from "@/lib/mindsStats";
+import { board, boardToken, boardTotals, events, PAGE_SIZE } from "@/lib/mindsStats";
 import { ethUsd } from "@/lib/ethPrice";
 import { launchFactoryAddress } from "@/lib/agentLaunch";
 import { agentMindsEnabled } from "@/lib/mindsPolicy";
@@ -68,11 +68,13 @@ export default async function LaunchIndexPage({ searchParams }: { searchParams: 
     }
 
     // otherwise the terminal: every token launched here, live
-    const initial = { totals: boardTotals(), ethUsd: await ethUsd(), tokens: board("new", 60), events: events(40) };
+    const openToken = typeof sp.token === "string" && /^0x[0-9a-fA-F]{40}$/.test(sp.token) ? sp.token.toLowerCase() : null;
+    const totals = boardTotals();
+    const initial = { totals, ethUsd: await ethUsd(), tokens: board("new", PAGE_SIZE), page: 1, pages: Math.max(1, Math.ceil(totals.tokens / PAGE_SIZE)), opened: openToken ? boardToken(openToken) : null, events: events(40) };
     return (
       <div className="bg-white dark:bg-[#0a0a0a] min-h-screen text-[#0a0a0a] dark:text-white">
         <SiteNav />
-        <main className="mx-auto max-w-6xl px-4 pt-28 pb-24 sm:px-6">
+        <main className="mx-auto max-w-7xl px-4 pt-28 pb-24 sm:px-6">
           <div className="mb-8 flex flex-wrap items-end justify-between gap-6">
             <div className="max-w-2xl">
               <p className="mb-3 font-mono text-xs uppercase tracking-[0.25em] text-gray-400">Launch</p>
@@ -81,7 +83,7 @@ export default async function LaunchIndexPage({ searchParams }: { searchParams: 
             </div>
             <Link href="/launch?new=1" className="rounded-xl bg-gray-900 px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">Launch a token</Link>
           </div>
-          <LaunchTerminal initial={initial} openToken={typeof sp.token === "string" ? sp.token.toLowerCase() : null} />
+          <LaunchTerminal initial={initial} openToken={openToken} />
         </main>
       </div>
     );

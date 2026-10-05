@@ -8,7 +8,7 @@ import { getDb } from "@/lib/db";
 import { curveProgressBps, type MindsChain, type MindLaunchEvent, type Snapshot, type TransferEvent } from "@/lib/mindsChain";
 import { prepare } from "@/lib/mindsAgent";
 import { indexMinds } from "@/lib/mindsIndex";
-import { refreshStats, board, boardTotals, events } from "@/lib/mindsStats";
+import { refreshStats, board, boardToken, boardTotals, events, PAGE_SIZE } from "@/lib/mindsStats";
 import { unreadChain } from "./helpers/unreadChain";
 
 let n = 0;
@@ -84,6 +84,21 @@ describe("the numbers a token shows", () => {
     expect(row).toMatchObject({ token: t.token, name: "Ledger Lens", symbol: "LENS", agentName: "Ledger Lens", phase: 0, priceEth: 2e-9, curveBps: 1234, feesEth: 0.05, toMindEth: 0.01, treasuryEth: 0.008, burnedTokens: 250_000, burnedEth: 0.004, burns: 2, taxBps: 300, mindBps: 2000, attached: false });
     expect(row.mcapEth).toBeCloseTo(2, 9);
     expect(boardTotals()).toMatchObject({ tokens: 1, feesEth: 0.05, burnedEth: 0.004, toMindEth: 0.01, treasuryEth: 0.008 });
+  });
+
+  it("gives the board a page at a time, and any one token wherever it is", async () => {
+    const w = world();
+    const a = w.launch("Ledger Lens", "LENS", 1100), b = w.launch("Tide Clock", "TIDE", 1101), c = w.launch("Copper Fox", "CFOX", 1102);
+    for (const t of [a, b, c]) w.state.snaps.set(t.token, snap());
+    await w.pass();
+    expect(PAGE_SIZE).toBe(15);
+    const all = board("new", 10).map((t) => t.token);
+    expect(all).toHaveLength(3);
+    expect(board("new", 2, 0).map((t) => t.token)).toEqual(all.slice(0, 2));
+    expect(board("new", 2, 2).map((t) => t.token)).toEqual(all.slice(2));
+    expect(board("new", 2, 4)).toEqual([]);
+    expect(boardToken(b.token.toUpperCase().replace("0X", "0x"))).toMatchObject({ token: b.token, symbol: "TIDE" });
+    expect(boardToken("0x00000000000000000000000000000000000000aa")).toBeNull();
   });
 
   it("shows no price rather than a wrong one while a token is between its curve and its pool", async () => {

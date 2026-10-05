@@ -4,6 +4,7 @@ import FadeIn from "@/components/FadeIn";
 import { agentMindsEnabled } from "@/lib/mindsPolicy";
 import { board, boardTotals, type BoardToken } from "@/lib/mindsStats";
 import { ethUsd } from "@/lib/ethPrice";
+import TokenCard, { tokenCardFrame } from "./launch/TokenCard";
 
 /**
  * "Launched on Axon", on the homepage: the newest tokens launched here, each with the agent behind it. Behind the
@@ -45,7 +46,7 @@ export default async function MindsBoard() {
   if (!agentMindsEnabled()) return null;
   let tokens: BoardToken[], total: number, usd: number | null;
   try {
-    tokens = board("new", 6);
+    tokens = board("new", 10);
     total = boardTotals().tokens;
     usd = await ethUsd();
   } catch {
@@ -54,7 +55,7 @@ export default async function MindsBoard() {
   return (
     <section className="px-6 pb-16">
       <FadeIn>
-        <div className="mx-auto max-w-5xl">
+        <div className="mx-auto max-w-6xl">
           <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="mb-2 font-mono text-xs uppercase tracking-[0.25em] text-gray-400">Launched on Axon</p>
@@ -66,9 +67,19 @@ export default async function MindsBoard() {
             </div>
           </div>
           {tokens.length ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {tokens.map((t) => <Card key={t.token} t={t} usd={usd} />)}
-            </div>
+            <>
+              {/* a phone keeps the compact cards, the newest six; a wide screen shows large ones, five across */}
+              <div className="grid gap-4 md:hidden">
+                {tokens.slice(0, 6).map((t) => <Card key={t.token} t={t} usd={usd} />)}
+              </div>
+              <div className="hidden gap-4 md:grid md:grid-cols-3 lg:grid-cols-5">
+                {tokens.map((t) => (
+                  <Link key={t.token} href={`/launch?token=${t.token}`} className={`${tokenCardFrame} border-gray-200 hover:border-gray-900 dark:border-gray-800 dark:hover:border-white`}>
+                    <TokenCard t={t} usd={usd} />
+                  </Link>
+                ))}
+              </div>
+            </>
           ) : (
             <div className="rounded-2xl border border-dashed border-gray-300 px-6 py-12 text-center dark:border-gray-700">
               <p className="font-semibold">Nothing has launched here yet.</p>
