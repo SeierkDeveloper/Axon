@@ -222,6 +222,11 @@ describe("a mind thinking", () => {
     const later = thinker({ thought: "Fees came in again. Holding for now.", action: null });
     got(await thinkOnce(t.token, { chain: w.chain, thinker: later.fn, env: LIVE, now: T0 + 3 * 3_600_000 + 12 * 60_000, usdPerEth: USD }));
     expect(later.calls[0].prompt).toMatch(/- \(3 h 12 min ago\) A first small step for holders\. \[proposed buyback 0\.001 ETH: approved\]/);
+    // and what it saw then, what it last did, and where today's limits stand
+    expect(later.calls[0].prompt).toMatch(/at_your_last_thought \(3 h 12 min ago\): market cap was [0-9.e-]+ ETH \([+-][0-9.]+% since\); holders were \d+ \([+-]?\d+ since\)/);
+    expect(later.calls[0].prompt).toContain("your_last_action: buyback with 0.001 ETH, 3 h 12 min ago");
+    expect(later.calls[0].prompt).toMatch(/actions_today: 0\nspent_today_eth: 0/);
+    expect(later.calls[0].prompt).toMatch(/eth_per_holder_if_rewarded_now: /);
   });
 
   it("shows a thought with plain punctuation and never cut off in the middle of a sentence", async () => {

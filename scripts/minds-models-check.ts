@@ -1,9 +1,9 @@
 // Agent Minds: every model on the list, asked for real.
 //
-// Each model is given the same three situations through the same code a live mind runs (thinkOnce): one where its
-// treasury can afford to act, one where it cannot, and one where it is full. What comes back is read, priced and rule-checked exactly as it
+// Each model is given the same four situations through the same code a live mind runs (thinkOnce): one where its
+// treasury can afford to act, one where it cannot, and one where it is full, and one where it acted a while ago and things have moved since. What comes back is read, priced and rule-checked exactly as it
 // would be on the site. It uses a throwaway database and a made-up chain, so nothing is sent and nothing real is
-// touched; the only thing spent is the model calls themselves (fifteen in all, a few cents).
+// touched; the only thing spent is the model calls themselves (twenty in all, a few cents).
 //
 //   railway run --service <service> npx tsx scripts/minds-models-check.ts        (the keys come from the service)
 //
@@ -46,6 +46,8 @@ async function main() {
     // a full treasury on a busy token: here a model is expected to propose something, which is what shows its
     // proposal comes back in the form the rule check reads (holding again is allowed, and is said)
     { key: "a full treasury", freeEth: 0.46, holders: 310, feesEth: 1.9, events: [["fees", 0.52, null], ["holders", null, 310], ["burn", 0.2, 41_000_000], ["fees", 0.38, null]] as const },
+    // it acted 25 minutes ago, and since then the price has fallen and holders have grown: what it does with that
+    { key: "acted 25 minutes ago", freeEth: 0.38, holders: 310, feesEth: 2.4, prior: { kind: "buyback", eth: 0.01, mcapEth: 2.6, holders: 240, minutes: 25 }, events: [["fees", 0.21, null], ["holders", null, 250]] as const },
   ].filter((x) => !process.argv[2] || x.key.includes(process.argv[2]));
 
   let n = 0, bad = 0, spent = 0;
@@ -60,6 +62,9 @@ async function main() {
       const burned = s.events.reduce((sum, e) => sum + (e[0] === "burn" ? e[2] ?? 0 : 0), 0);
       db.prepare("INSERT INTO mind_stats (token, phase, price_eth, mcap_eth, curve_bps, holders, fees_eth, to_mind_eth, burned_tokens, treasury_eth, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
         .run(token, 0, 2e-9, 2, 1200, s.holders, s.feesEth, s.freeEth, burned, s.freeEth, at(10_000));
+      const prior = (s as { prior?: { kind: string; eth: number; mcapEth: number; holders: number; minutes: number } }).prior;
+      if (prior) db.prepare("INSERT INTO mind_thoughts (token, at, model, standin, status, reasons, thought, action, verdict, last_event_id, mcap_eth, holders) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
+        .run(token, at(prior.minutes * 60_000), model.id, 0, "thought", "[]", `A first measured step: a ${prior.kind} of ${prior.eth} ETH, keeping the rest for later.`, JSON.stringify({ kind: prior.kind, eth: prior.eth }), "approved", 0, prior.mcapEth, prior.holders);
       for (const [kind, eth, tokens] of s.events) db.prepare("INSERT INTO mind_events (token, kind, eth, tokens, at) VALUES (?,?,?,?,?)").run(token, kind, eth, tokens, at(60_000));
       treasuries.set(vault, { availableEth: s.freeEth, reservedEth: 0, boughtBackEth: 0, axonBurnedEth: 0, rewardedEth: 0, claimedEth: 0, thinkingEth: 0, rewards: 0, paused: false, frozen: false, active: true, limits });
 

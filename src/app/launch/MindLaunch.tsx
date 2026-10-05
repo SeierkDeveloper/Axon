@@ -446,8 +446,8 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
                     </div>
                   ))}
                 </div>
-                {slider("burnBps", `Burn $${symbol || "TOKEN"}`, "Buys the token back and burns it.")}
-                {slider("axonBps", "Burn $AXON", "Optional. Buys $AXON and burns it.")}
+                {slider("burnBps", `Burn $${symbol || "TOKEN"}`, "Buys the token back and sends it to the dead address: out of circulation for good.")}
+                {slider("axonBps", "Burn $AXON", "Optional. Buys $AXON and sends it to the dead address.")}
                 {slider("mindBps", "The mind", "Fills the mind's treasury. Its thinking is paid from here.")}
                 <p className="text-xs text-gray-400">You keep what is left: <b className="font-mono text-gray-900 dark:text-white">{pct(you)}</b>.</p>
               </div>

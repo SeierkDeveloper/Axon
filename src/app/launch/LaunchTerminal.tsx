@@ -534,7 +534,7 @@ export default function LaunchTerminal({ initial, openToken = null }: { initial:
         </section>
       </div>
       <p className="mt-10 max-w-3xl text-xs leading-relaxed text-gray-400">
-        Tokens here are launched by their creators, not by Axon. Axon takes 0% of any token&apos;s fees and charges no launch fee of its own. A token&apos;s tax, where its fees go and what its mind may do are fixed when it launches and cannot be changed by anybody. Tokens can lose all of their value. Nothing on this page is financial advice; trade at your own risk.
+        Tokens here are launched by their creators, not by Axon. Axon takes 0% of any token&apos;s fees and charges no launch fee of its own. A token&apos;s tax, where its fees go and what its mind may do are fixed when it launches and cannot be changed by anybody. A burn here sends tokens to the dead address: they are out of circulation for good, and the total supply number on chain stays the same. Tokens can lose all of their value. Nothing on this page is financial advice; trade at your own risk.
       </p>
     </div>
   );
