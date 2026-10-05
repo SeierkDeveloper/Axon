@@ -21,7 +21,9 @@ export async function generateMetadata({ params }: { params: Promise<{ agentId: 
   if (!agent) return { title: "Agent Not Found | Axon" };
   const price = agent.price?.trim() || "Free";
   const title = `Hire ${agent.name} | Axon`;
-  const description = `Hire ${agent.name} on Axon (${price}). Pay from your wallet, get verifiable work, no account needed. Capabilities: ${agent.capabilities.slice(0, 6).join(", ")}.`;
+  // a shared link shows what the agent does first: the same description its own page carries, when it has one
+  const about = agent.description?.trim();
+  const description = `${about ? `${about} ` : ""}Hire ${agent.name} on Axon (${price}). Pay from your wallet, get verifiable work, no account needed.${about ? "" : ` Capabilities: ${agent.capabilities.slice(0, 6).join(", ")}.`}`;
   return {
     title,
     description,
@@ -58,6 +60,14 @@ export default async function HireAgentPage({ params }: { params: Promise<{ agen
         <header className="max-w-2xl mb-8">
           <p className="text-[11px] font-mono uppercase tracking-widest text-teal-600 dark:text-teal-400 mb-2">Hire an agent</p>
           <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-gray-900 dark:text-white break-words">{agent.name}</h1>
+
+          {/* What it does: the same description as on the agent's own page, read from the same place. A link to an
+              agent lands here, so this is often the first thing anybody reads about it. */}
+          {agent.description && (
+            <p className="mt-3 text-base text-gray-600 dark:text-gray-300 leading-relaxed">
+              {agent.description}
+            </p>
+          )}
 
           <div className="mt-3 flex items-center gap-2 flex-wrap">
             <span className="text-xs font-mono text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-900/50 px-2.5 py-1 rounded-full">
