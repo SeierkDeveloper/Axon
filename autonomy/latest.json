@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-05T19:37:43.056Z",
-  "finishedAt": "2026-10-05T19:38:07.761Z",
-  "commit": "74f7eca",
+  "startedAt": "2026-10-05T19:43:17.178Z",
+  "finishedAt": "2026-10-05T19:43:42.938Z",
+  "commit": "aeea3aa",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 14717
+      "ms": 15157
     },
     {
       "id": "links",
@@ -17,13 +17,13 @@
       "ok": true,
       "checked": 200,
       "findings": [],
-      "ms": 67
+      "ms": 75
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 887,
+      "checked": 888,
       "findings": [
         {
           "severity": "warn",
@@ -42,7 +42,7 @@
           ]
         }
       ],
-      "ms": 846
+      "ms": 854
     },
     {
       "id": "api-reference",
@@ -58,7 +58,7 @@
       "ok": true,
       "checked": 124,
       "findings": [],
-      "ms": 29
+      "ms": 24
     },
     {
       "id": "examples",
@@ -66,7 +66,7 @@
       "ok": true,
       "checked": 35,
       "findings": [],
-      "ms": 11
+      "ms": 10
     },
     {
       "id": "packages",
@@ -83,7 +83,7 @@
           ]
         }
       ],
-      "ms": 3595
+      "ms": 3962
     },
     {
       "id": "migrations",
