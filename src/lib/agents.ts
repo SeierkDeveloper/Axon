@@ -117,7 +117,8 @@ export function isContractTestAgent(agentId: string): boolean {
   return CONTRACT_TEST_AGENT_ID.test(agentId);
 }
 
-export function createAgent(agent: Agent): Agent {
+/** `describe: false` is for an agent that arrives with its own description: no model is asked to write one. */
+export function createAgent(agent: Agent, opts: { describe?: boolean } = {}): Agent {
   const db = getDb();
 
   const insertAgent = db.prepare(`
@@ -153,7 +154,7 @@ export function createAgent(agent: Agent): Agent {
   })();
   void syncToTurso();
 
-  scheduleAgentDescription(agent);
+  if (opts.describe !== false) scheduleAgentDescription(agent);
   scheduleAgentEmbedding(agent);
   return agent;
 }

@@ -28,6 +28,7 @@ import { deliverRetainerWebhooks } from "../lib/retainerWebhooks";
 import { launch, drain, inFlightCount } from "./inflight";
 import { runMyloPass } from "../lib/myloPass";
 import { advanceRunningCrews } from "../lib/myloActions";
+import { indexMinds } from "../lib/mindsIndex";
 
 // Agents that append live market prices to their task message
 const PRICE_AGENTS = new Set(["crypto-agent", "trading-agent"]);
@@ -43,6 +44,7 @@ const ALLOWANCE_INTERVAL_MS = 60 * 1000;
 const RETAINER_INTERVAL_MS = 60 * 1000;
 /** Mylo looks at what happened on Axon (for its public feed and people's inboxes) every few minutes. */
 const MYLO_PASS_INTERVAL_MS = 5 * 60 * 1000;
+const MINDS_INDEX_INTERVAL_MS = 20 * 1000;
 const SHUTDOWN_TIMEOUT_MS = Number.parseInt(process.env.AXON_WORKER_SHUTDOWN_TIMEOUT_MS ?? "25000", 10);
 // 10 min. Sized for a single inference (up to 3 retries × 120 s provider
 // timeout); a tool-granted agent spends it across several model calls plus the
@@ -110,6 +112,8 @@ let allowanceTimer: NodeJS.Timeout | null = null;
 let allowanceRunning = false;
 let retainerTimer: NodeJS.Timeout | null = null;
 let myloTimer: NodeJS.Timeout | null = null;
+let mindsTimer: NodeJS.Timeout | null = null;
+let mindsRunning = false;
 let retainerRunning = false;
 let activePoll: Promise<void> | null = null;
 let activeHealthCheck: Promise<void> | null = null;
@@ -466,6 +470,10 @@ function clearTimers(): void {
     clearInterval(myloTimer);
     myloTimer = null;
   }
+  if (mindsTimer) {
+    clearInterval(mindsTimer);
+    mindsTimer = null;
+  }
   if (retainerTimer) {
     clearInterval(retainerTimer);
     retainerTimer = null;
@@ -669,6 +677,17 @@ export async function startWorkerLoops(): Promise<void> {
   };
   myloPass();
   myloTimer = setInterval(myloPass, MYLO_PASS_INTERVAL_MS);
+
+  // Agent Minds: read the launcher's events. Does nothing until the switch is on and a launcher is set; skips a tick
+  // rather than overlap one.
+  mindsTimer = setInterval(() => {
+    if (mindsRunning || shutdownRequested) return;
+    mindsRunning = true;
+    indexMinds()
+      .then((r) => { if (r?.added) logger.info("minds.index", "Tokens with a mind read from the chain", { ...r }); })
+      .catch((err) => logger.warn("minds.index_failed", "Reading the launcher's events failed", { err }))
+      .finally(() => { mindsRunning = false; });
+  }, MINDS_INDEX_INTERVAL_MS);
 }
 
 // Run the full standalone worker (own signal + crash handling) only when launched
