@@ -228,9 +228,11 @@ function Rewards({ t }: { t: BoardToken }) {
       <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400">Rewards for holders</p>
       {!address ? (
         <button type="button" onClick={() => void connect()} disabled={busy} className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold transition hover:bg-white disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900">Connect your wallet to see your share</button>
+      ) : shares === null ? (
+        <p className="text-sm text-gray-400">…</p>
       ) : (
         <ul className="space-y-2">
-          {(shares ?? []).map((sh) => {
+          {shares.map((sh) => {
             const key = `${sh.rewardId}:${sh.index}`, opens = sh.startAt * 1000 - now;
             return (
               <li key={key} className="flex flex-wrap items-center justify-between gap-3 text-sm">

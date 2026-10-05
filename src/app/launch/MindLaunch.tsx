@@ -286,9 +286,9 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
   );
 
   return (
-    <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
+    <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
       {/* ── what is asked for ── */}
-      <div className="space-y-8">
+      <div className="min-w-0 space-y-8">
         <section className="rounded-2xl border border-gray-200 p-5 sm:p-6 dark:border-gray-800">
           <p className={label}>The token</p>
           <div className="flex gap-4">
@@ -496,7 +496,7 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
       </div>
 
       {/* ── what it becomes, and the signature ── */}
-      <aside className="lg:sticky lg:top-24 lg:self-start">
+      <aside className="min-w-0 lg:sticky lg:top-24 lg:self-start">
         <div className="rounded-2xl border border-gray-200 p-5 sm:p-6 dark:border-gray-800">
           <div className="flex items-center gap-4">
             <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-900">
