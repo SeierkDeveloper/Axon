@@ -69,21 +69,74 @@ function eventText(e: MindEvent): string {
 interface ThoughtView { id: number; at: string; modelLabel: string; thought: string | null; action: { kind: string; eth: number } | null; verdict: "none" | "approved" | "refused"; verdictReason: string | null; sent: { status: string; txHash: string | null; error: string | null } | null }
 const ACTION: Record<string, string> = { buyback: "buy back and burn", reward: "reward holders", burn_axon: "burn $AXON" };
 
+interface ChainState { paused: boolean; frozen: boolean; active: boolean }
+const PAUSE_ABI = parseAbi(["function setPaused(bool paused)"]);
+
+/** The creator's own switch. The treasury takes it from that one wallet and from nobody else, Axon included. */
+function CreatorSwitch({ t, paused, onSent }: { t: BoardToken; paused: boolean; onSent: (paused: boolean) => void }) {
+  const { address } = useWallet();
+  const [sending, setSending] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  if (!address || address.toLowerCase() !== t.creator.toLowerCase()) return null;
+  const send = async () => {
+    const p = provider();
+    if (!p) return;
+    setSending(true); setNote(null);
+    try {
+      const chain = (await p.request({ method: "eth_chainId" })) as string;
+      if (chain?.toLowerCase() !== CHAIN_ID_HEX) {
+        try { await p.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN_ID_HEX }] }); }
+        catch (e) { if ((e as { code?: number }).code === 4902) await p.request({ method: "wallet_addEthereumChain", params: [CHAIN_PARAMS] }); else throw e; }
+      }
+      const data = encodeFunctionData({ abi: PAUSE_ABI, functionName: "setPaused", args: [!paused] });
+      const hash = (await p.request({ method: "eth_sendTransaction", params: [{ from: address, to: t.vault, data }] })) as string;
+      for (let i = 0; i < 80; i++) {
+        const r = (await p.request({ method: "eth_getTransactionReceipt", params: [hash] })) as { status: string } | null;
+        if (r) { if (r.status !== "0x1") throw new Error("The chain refused it."); break; }
+        await new Promise((ok) => setTimeout(ok, 1500));
+      }
+      onSent(!paused);
+    } catch (e) {
+      setNote(e instanceof Error && !("code" in e) ? e.message : readableWalletError(e));
+    } finally {
+      setSending(false);
+    }
+  };
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+      <button type="button" onClick={() => void send()} disabled={sending} className="rounded-xl border border-gray-300 px-3.5 py-1.5 text-sm font-semibold transition hover:bg-white disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900">{sending ? "Confirm in your wallet…" : paused ? "Resume this mind" : "Pause this mind"}</button>
+      <span className="text-xs text-gray-400">Only your wallet can. Paused, nothing leaves its treasury; holders can still claim.</span>
+      {note && <p role="alert" className="w-full text-sm text-gray-600 dark:text-gray-300">{note}</p>}
+    </div>
+  );
+}
+
 /** What a token's mind has been thinking, newest first. Loaded when the token is opened. */
 function Mind({ t }: { t: BoardToken }) {
   const [items, setItems] = useState<ThoughtView[] | null>(null);
+  const [chain, setChain] = useState<ChainState | null>(null);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     let alive = true;
-    const load = () => fetch(`/api/minds/thoughts?token=${t.token}&limit=3`).then((r) => (r.ok ? (r.json() as Promise<{ thoughts: ThoughtView[] }>) : null)).then((d) => { if (alive && d) { setItems(d.thoughts); setNow(Date.now()); } }).catch(() => {});
-    void load();
+    const load = () => {
+      void fetch(`/api/minds/thoughts?token=${t.token}&limit=3`).then((r) => (r.ok ? (r.json() as Promise<{ thoughts: ThoughtView[] }>) : null)).then((d) => { if (alive && d) { setItems(d.thoughts); setNow(Date.now()); } }).catch(() => {});
+      // whether its treasury is running is the chain's to say, so it is read from there rather than kept
+      void fetch(`/api/minds/tokens/${t.token}`).then((r) => (r.ok ? (r.json() as Promise<{ treasury: ChainState | null }>) : null)).then((d) => { if (alive && d?.treasury) setChain({ paused: d.treasury.paused, frozen: d.treasury.frozen, active: d.treasury.active }); }).catch(() => {});
+    };
+    load();
     const timer = setInterval(load, 15_000);
     return () => { alive = false; clearInterval(timer); };
   }, [t.token]);
+  const halted = t.stopped ? null : !chain || chain.active ? null
+    : chain.frozen ? "This mind's treasury is frozen. Nothing is sent from it; holders can still claim what was already set aside."
+    : chain.paused ? "Its creator has paused this mind. It does not think and nothing leaves its treasury; holders can still claim what was already set aside."
+    : "Minds are paused right now. Nothing is sent from any treasury; holders can still claim what was already set aside.";
   return (
     <div className="border-t border-gray-200 bg-gray-50 px-4 py-5 sm:px-5 dark:border-gray-800 dark:bg-gray-900/40">
       <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400">Its mind <span className="normal-case tracking-normal text-gray-500 dark:text-gray-400">· runs on {mindLabel(t.model).replace(/^Its/, "its")}</span></p>
       {t.stopped && <p className="mb-3 rounded-lg bg-gray-200 px-3 py-2 text-sm text-gray-700 dark:bg-gray-800 dark:text-gray-200">This mind is stopped. It does not think and nothing is sent for it; its treasury is untouched.</p>}
+      {halted && <p className="mb-3 rounded-lg bg-gray-200 px-3 py-2 text-sm text-gray-700 dark:bg-gray-800 dark:text-gray-200">{halted}</p>}
+      {chain && <CreatorSwitch t={t} paused={chain.paused} onSent={(paused) => setChain({ ...chain, paused, active: !paused && !chain.frozen })} />}
       <dl className="mb-4 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-4">
         {([["Thoughts", String(t.thoughts)], ["Sent to buybacks", ethText(t.boughtEth)], [t.attached ? "Sent to burn $AXON" : "Set aside for holders", ethText(t.attached ? t.axonEth : t.rewardsEth)], ["Paid for its thinking", ethText(t.thinkingPaidEth)]] as const).map(([k, v]) => (
           <div key={k}>
