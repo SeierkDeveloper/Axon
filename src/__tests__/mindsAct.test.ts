@@ -13,7 +13,7 @@ import { indexMinds } from "@/lib/mindsIndex";
 import { refreshStats, events } from "@/lib/mindsStats";
 import { thinkOnce, thoughts, owedThinkingEth, type Thought } from "@/lib/mindsMind";
 import type { Thinker } from "@/lib/mindsThinker";
-import { actDue, settleSent, payThinkingDue, keepUp, actingEnabled, sharesOf, STALE_MS, MIN_SHARE_WEI, MIN_THINKING_PAYMENT_ETH, MIN_SWEEP_ETH, minThinkingPaymentEth, minSweepEth, type MindSender } from "@/lib/mindsAct";
+import { actDue, settleSent, payThinkingDue, keepUp, actingEnabled, sharesOf, STALE_MS, MIN_SHARE_WEI, MIN_THINKING_PAYMENT_ETH, MIN_SWEEP_ETH, minThinkingPaymentEth, minSweepEth, sendInTurn, type MindSender } from "@/lib/mindsAct";
 import { merkle, verify, divide, leafOf, type Share } from "@/lib/mindsMerkle";
 import { unreadChain } from "./helpers/unreadChain";
 
@@ -422,5 +422,20 @@ describe("the floors for paying thinking back and sweeping fees", () => {
       expect(minThinkingPaymentEth({ MINDS_MIN_THINKING_PAYMENT_ETH: bad })).toBe(MIN_THINKING_PAYMENT_ETH);
       expect(minSweepEth({ MINDS_MIN_SWEEP_ETH: bad })).toBe(MIN_SWEEP_ETH);
     }
+  });
+});
+
+describe("a wallet shared with another sender", () => {
+  it("sends again when the wallet's turn was taken, and gives up on anything else at once", async () => {
+    let calls = 0;
+    const taken = async () => { if (++calls < 3) throw new Error("nonce too low: next nonce 9, tx nonce 8"); return "0xabc"; };
+    expect(await sendInTurn(taken, 1)).toBe("0xabc");
+    expect(calls).toBe(3);
+    calls = 0;
+    await expect(sendInTurn(async () => { calls++; throw new Error("execution reverted: OverDay"); }, 1)).rejects.toThrow(/OverDay/);
+    expect(calls).toBe(1);
+    calls = 0;
+    await expect(sendInTurn(async () => { calls++; throw new Error("replacement transaction underpriced"); }, 1, 3)).rejects.toThrow(/underpriced/);
+    expect(calls).toBe(3);
   });
 });

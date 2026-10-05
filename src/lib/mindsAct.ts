@@ -52,13 +52,26 @@ export interface MindSender {
   wait(hash: string): Promise<{ ok: boolean; logs: { address: string; topics: Hex[]; data: Hex }[] }>;
 }
 
+// The signer's wallet may also be the one another job sends from (the burn bot). When both reach for the wallet's
+// next turn in the same moment the chain refuses one of them outright: nothing was sent, so sending it again is safe.
+const TURN_TAKEN = /nonce too low|nonce has already been used|replacement transaction underpriced/i;
+export async function sendInTurn<T>(send: () => Promise<T>, pauseMs = 1_500, tries = 4): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try { return await send(); }
+    catch (err) {
+      if (attempt >= tries || !TURN_TAKEN.test(err instanceof Error ? `${(err as { shortMessage?: string }).shortMessage ?? ""} ${err.message}` : String(err))) throw err;
+      await new Promise((r) => setTimeout(r, pauseMs * attempt));
+    }
+  }
+}
+
 export function realSender(env: Record<string, string | undefined> = process.env): MindSender {
   const { account, client } = walletClientFor(env.MIND_SIGNER_KEY ?? "");
   const reader = publicClient();
   return {
     address: () => account.address.toLowerCase(),
     simulate: async (to, abi, functionName, args) => (await reader.simulateContract({ address: to as Hex, abi, functionName, args, account })).result,
-    send: (to, abi, functionName, args) => client.writeContract({ address: to as Hex, abi, functionName, args }),
+    send: (to, abi, functionName, args) => sendInTurn(() => client.writeContract({ address: to as Hex, abi, functionName, args })),
     wait: async (hash) => {
       const r = await reader.waitForTransactionReceipt({ hash: hash as Hex, timeout: 120_000, pollingInterval: 1_500 });
       return { ok: r.status === "success", logs: r.logs as unknown as { address: string; topics: Hex[]; data: Hex }[] };
