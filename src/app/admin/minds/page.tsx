@@ -26,8 +26,8 @@ const eth = (v: number) => (v === 0 ? "0" : v >= 0.001 ? v.toFixed(4) : v.toPrec
 const ago = (iso: string | null) => { if (!iso) return "never"; const m = Math.floor((Date.now() - Date.parse(iso)) / 60000); return m < 1 ? "just now" : m < 60 ? `${m}m ago` : m < 2880 ? `${Math.floor(m / 60)}h ago` : `${Math.floor(m / 1440)}d ago`; };
 const card = "rounded-lg border border-gray-200 dark:border-gray-800";
 const head = "text-sm font-semibold text-gray-900 dark:text-white mb-3 mt-10";
-const th = "px-3 py-2 text-left font-mono text-[10px] font-normal uppercase tracking-wider text-gray-400 whitespace-nowrap";
-const td = "px-3 py-2 font-mono text-xs tabular-nums whitespace-nowrap";
+const th = "px-2 py-2 text-left font-mono text-[10px] font-normal uppercase tracking-wider text-gray-400 whitespace-nowrap";
+const td = "px-2 py-2 font-mono text-xs tabular-nums whitespace-nowrap";
 
 /** The signer's address and what it holds for gas, read from the chain. Null when no key is set or it cannot be read. */
 async function signer(): Promise<{ address: string; eth: number } | null> {
@@ -71,7 +71,7 @@ export default async function AdminMindsPage({ searchParams }: { searchParams: P
   return (
     <div className="bg-white dark:bg-[#0a0a0a] min-h-screen text-gray-900 dark:text-white">
       <SiteNav />
-      <main className="mx-auto max-w-6xl px-6 pt-28 pb-24">
+      <main className="mx-auto max-w-7xl px-6 pt-28 pb-24">
         <h1 className="text-2xl font-bold">Minds</h1>
         <p className="mt-2 max-w-2xl text-sm text-gray-500 dark:text-gray-400">What minds cost and paid back, what they sent, and the switches. Nothing here can move a treasury&apos;s ETH.</p>
 
@@ -103,10 +103,10 @@ export default async function AdminMindsPage({ searchParams }: { searchParams: P
         <div className={`${card} overflow-x-auto`}>
           <table className="w-full border-collapse">
             <thead className="border-b border-gray-200 dark:border-gray-800">
-              <tr>{["Token", "Mind", "Treasury", "Fees in", "Thoughts", "Last", "Cost $", "Cost ETH", "Paid back", "Owed", "Bought back", "$AXON", "Rewards", "Not sent", ""].map((h) => <th key={h} className={th}>{h}</th>)}</tr>
+              <tr>{["Token", "Mind", "Treasury", "Fees in", "Thoughts", "Last", "Cost", "Paid back", "Owed", "Bought back", "$AXON", "Rewards", "Not sent", ""].map((h) => <th key={h} className={th}>{h}</th>)}</tr>
             </thead>
             <tbody>
-              {o.minds.length === 0 && <tr><td colSpan={15} className="px-3 py-6 text-center text-sm text-gray-400">No tokens yet.</td></tr>}
+              {o.minds.length === 0 && <tr><td colSpan={14} className="px-3 py-6 text-center text-sm text-gray-400">No tokens yet.</td></tr>}
               {o.minds.map((m) => (
                 <tr key={m.token} className="border-b border-gray-100 last:border-b-0 dark:border-gray-800/70">
                   <td className={`${td} font-sans`}><a href={`/launch?token=${m.token}`} className="font-semibold underline-offset-2 hover:underline">${m.symbol ?? "?"}</a>{m.attached && <span className="ml-1 text-gray-400">earlier</span>}{m.stoppedAt && <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-950 dark:text-red-300">stopped</span>}</td>
@@ -115,8 +115,7 @@ export default async function AdminMindsPage({ searchParams }: { searchParams: P
                   <td className={td}>{eth(m.paidInEth)}</td>
                   <td className={td}>{m.thoughts}{m.failedThoughts ? <span className="text-gray-400"> +{m.failedThoughts} failed</span> : null}</td>
                   <td className={td}>{ago(m.lastThoughtAt)}</td>
-                  <td className={td}>{m.thinkingUsd.toFixed(4)}</td>
-                  <td className={td}>{eth(m.thinkingEth)}</td>
+                  <td className={td}>${m.thinkingUsd.toFixed(4)} <span className="text-gray-400">({eth(m.thinkingEth)})</span></td>
                   <td className={td}>{eth(m.paidBackEth)}</td>
                   <td className={td}>{eth(m.owedEth)}</td>
                   <td className={td}>{eth(m.boughtBackEth)}</td>
