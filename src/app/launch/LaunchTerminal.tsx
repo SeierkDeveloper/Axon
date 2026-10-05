@@ -106,6 +106,7 @@ function CreatorSwitch({ t, paused, onSent }: { t: BoardToken; paused: boolean; 
     <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
       <button type="button" onClick={() => void send()} disabled={sending} className="rounded-xl border border-gray-300 px-3.5 py-1.5 text-sm font-semibold transition hover:bg-white disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900">{sending ? "Confirm in your wallet…" : paused ? "Resume this mind" : "Pause this mind"}</button>
       <span className="text-xs text-gray-400">Only your wallet can. Paused, nothing leaves its treasury; holders can still claim.</span>
+      {t.agentId && <Link href="/studio" className="w-full text-xs text-gray-500 underline decoration-gray-300 underline-offset-2 hover:text-gray-800 dark:text-gray-400 dark:decoration-gray-700 dark:hover:text-gray-200">What your agent earns from work is yours to take out, under Your earnings in Studio.</Link>}
       {note && <p role="alert" className="w-full text-sm text-gray-600 dark:text-gray-300">{note}</p>}
     </div>
   );

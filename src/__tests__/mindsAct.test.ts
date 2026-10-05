@@ -13,7 +13,7 @@ import { indexMinds } from "@/lib/mindsIndex";
 import { refreshStats, events } from "@/lib/mindsStats";
 import { thinkOnce, thoughts, owedThinkingEth, type Thought } from "@/lib/mindsMind";
 import type { Thinker } from "@/lib/mindsThinker";
-import { actDue, settleSent, payThinkingDue, keepUp, actingEnabled, sharesOf, STALE_MS, MIN_SHARE_WEI, type MindSender } from "@/lib/mindsAct";
+import { actDue, settleSent, payThinkingDue, keepUp, actingEnabled, sharesOf, STALE_MS, MIN_SHARE_WEI, MIN_THINKING_PAYMENT_ETH, MIN_SWEEP_ETH, minThinkingPaymentEth, minSweepEth, type MindSender } from "@/lib/mindsAct";
 import { merkle, verify, divide, leafOf, type Share } from "@/lib/mindsMerkle";
 import { unreadChain } from "./helpers/unreadChain";
 
@@ -408,6 +408,19 @@ describe("what the signer can ever be asked to do", () => {
       expect(own.has(x.to)).toBe(true);
       // no argument of any call is an address: where the ETH goes is fixed in the contracts
       for (const arg of x.args) expect(typeof arg === "string" && /^0x[0-9a-fA-F]{40}$/.test(arg)).toBe(false);
+    }
+  });
+});
+
+describe("the floors for paying thinking back and sweeping fees", () => {
+  it("are fixed unless a service sets a lower one, and ignore anything that is not a positive number", () => {
+    expect(minThinkingPaymentEth({})).toBe(MIN_THINKING_PAYMENT_ETH);
+    expect(minSweepEth({})).toBe(MIN_SWEEP_ETH);
+    expect(minThinkingPaymentEth({ MINDS_MIN_THINKING_PAYMENT_ETH: "0.000001" })).toBe(0.000001);
+    expect(minSweepEth({ MINDS_MIN_SWEEP_ETH: "0.00002" })).toBe(0.00002);
+    for (const bad of ["", "0", "-1", "abc"]) {
+      expect(minThinkingPaymentEth({ MINDS_MIN_THINKING_PAYMENT_ETH: bad })).toBe(MIN_THINKING_PAYMENT_ETH);
+      expect(minSweepEth({ MINDS_MIN_SWEEP_ETH: bad })).toBe(MIN_SWEEP_ETH);
     }
   });
 });

@@ -57,6 +57,19 @@ describe("taking earnings out", () => {
     expect(sentTo).toHaveLength(0);
   });
 
+  it("pays out the starter agent a token was launched with, the same way", async () => {
+    const me = newWallet();
+    const a = studioAgent(me, 0.01, false);
+    getDb().prepare("UPDATE agents SET public_key = ? WHERE agent_id = ?").run(`minds:0x${"ab".repeat(32)}`, a);
+    expect(earningsOf(me)).toEqual([expect.objectContaining({ agentId: a, earnedEth: 0.01, availableEth: 0.01, token: null })]);
+    const w = await withdraw(a, me, 0.004, okSend);
+    expect((w as { status: string }).status).toBe("sent");
+    expect(sentTo).toEqual([{ to: expect.stringMatching(new RegExp(me.slice(2), "i")), amount: "0.004" }]);
+    expect(earningsOf(me)[0]).toMatchObject({ withdrawnEth: 0.004, availableEth: 0.006 });
+    // somebody else's wallet still gets nothing from it
+    expect(await withdraw(a, newWallet(), 0.001, okSend)).toMatch(/No such agent/);
+  });
+
   it("keeps to the floor, to what was earned, and to the daily ceiling across a wallet's agents", async () => {
     const me = newWallet();
     const a = studioAgent(me, 5), b = studioAgent(me, 5);

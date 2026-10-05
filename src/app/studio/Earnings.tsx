@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 // What a creator's Studio agents have earned, and the button that sends it to their wallet. Withdrawals go to the
 // wallet that owns the agent and nowhere else; each one shows with its transaction.
 
-interface Earning { agentId: string; name: string; earnedEth: number; withdrawnEth: number; availableEth: number }
+interface Earning { agentId: string; name: string; earnedEth: number; withdrawnEth: number; availableEth: number; token?: string | null }
 interface Withdrawal { id: string; agentId: string; amountEth: string; status: "pending" | "sent" | "failed"; txHash: string | null; createdAt: string }
 interface Proposal { id: string; agentId: string; weakJobs: number; fromScore: number | null; toScore: number | null }
 interface Data { agents: Earning[]; withdrawals: Withdrawal[]; proposals: Proposal[]; rules: { minEth: number; maxPerDayEth: number }; open: boolean }
@@ -59,7 +59,7 @@ export default function Earnings({ apiKey, refreshKey }: { apiKey: string; refre
               <a href={`/agents/${a.agentId}`} className="truncate text-sm font-medium text-gray-900 hover:underline dark:text-white">{a.name}</a>
               <span className="shrink-0 font-mono text-sm text-gray-900 dark:text-white">{eth(a.availableEth)} ETH</span>
             </div>
-            <p className="mt-0.5 font-mono text-[11px] text-gray-400">earned {eth(a.earnedEth)} · taken out {eth(a.withdrawnEth)} · <a href={`/launch/${a.agentId}`} className="underline hover:text-gray-900 dark:hover:text-white">launch its token</a></p>
+            <p className="mt-0.5 font-mono text-[11px] text-gray-400">earned {eth(a.earnedEth)} · taken out {eth(a.withdrawnEth)} · {a.token ? <a href={`/launch?token=${a.token}`} className="underline hover:text-gray-900 dark:hover:text-white">its token</a> : <a href={`/launch/${a.agentId}`} className="underline hover:text-gray-900 dark:hover:text-white">launch its token</a>}</p>
             {data.proposals.filter((p) => p.agentId === a.agentId).map((p) => (
               <div key={p.id} className="mt-2 rounded-lg bg-gray-50 p-2.5 dark:bg-gray-900/60">
                 <p className="text-xs text-gray-700 dark:text-gray-300">Axon found a better version: <b className="font-mono">{p.fromScore?.toFixed(1)} → {p.toScore?.toFixed(1)}</b>, from {p.weakJobs} jobs it got wrong, tested on the same tasks.</p>

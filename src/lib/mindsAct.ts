@@ -32,6 +32,11 @@ export const MIN_SHARE_WEI = 1_000_000_000_000n; // 0.000001 ETH
 export const MIN_THINKING_PAYMENT_ETH = 0.0002;
 /** Fees are swept to a token's splitter once this much is waiting. */
 export const MIN_SWEEP_ETH = 0.0003;
+// Both floors can be lowered for a service through its settings (a private site testing with small amounts); a value
+// that is not a positive number is ignored.
+const floorOf = (env: Record<string, string | undefined>, key: string, fallback: number): number => { const n = Number(env[key]); return Number.isFinite(n) && n > 0 ? n : fallback; };
+export const minThinkingPaymentEth = (env: Record<string, string | undefined> = process.env): number => floorOf(env, "MINDS_MIN_THINKING_PAYMENT_ETH", MIN_THINKING_PAYMENT_ETH);
+export const minSweepEth = (env: Record<string, string | undefined> = process.env): number => floorOf(env, "MINDS_MIN_SWEEP_ETH", MIN_SWEEP_ETH);
 const NOBODY = ["0x0000000000000000000000000000000000000000", "0x000000000000000000000000000000000000dead"];
 
 export function actingEnabled(env: Record<string, string | undefined> = process.env): boolean {
@@ -216,7 +221,7 @@ export async function payThinkingDue(o: ActOptions = {}, limit = 5): Promise<num
         AND (SELECT COALESCE(SUM(cost_eth), 0) FROM mind_thoughts h WHERE h.token = t.token AND h.standin = 0)
           - (SELECT COALESCE(SUM(eth), 0) FROM mind_actions a WHERE a.token = t.token AND a.kind = 'thinking' AND a.status IN ('pending', 'sent', 'done')) >= ?
       LIMIT ?`,
-  ).all(MIN_THINKING_PAYMENT_ETH, limit) as { token: string; vault: string }[];
+  ).all(minThinkingPaymentEth(env), limit) as { token: string; vault: string }[];
   let paid = 0;
   for (const r of rows) {
     try {
@@ -225,7 +230,7 @@ export async function payThinkingDue(o: ActOptions = {}, limit = 5): Promise<num
       const owed = owedThinkingEth(r.token);
       const room = treasury.limits.maxCostPerDayEth - day.costTodayEth;
       const amount = Math.min(owed, room, treasury.availableEth);
-      if (amount < MIN_THINKING_PAYMENT_ETH) continue;
+      if (amount < minThinkingPaymentEth(env)) continue;
       const wei = parseEther((Math.floor(amount * 1e9) / 1e9).toFixed(9));
       await sender.simulate(r.vault, VAULT_WRITE_ABI, "payThinking", [wei]);
       const id = begin(null, r.token, "thinking", wei);
@@ -258,7 +263,7 @@ export async function keepUp(o: ActOptions = {}, limit = 20): Promise<{ swept: n
     try {
       if (r.splitter) {
         const waiting = (await sender.simulate(r.splitter, KEEPER_ABI, "sweep", []).catch(() => 0n)) as bigint;
-        if (ethOf(waiting) >= MIN_SWEEP_ETH) { const h = await sender.send(r.splitter, KEEPER_ABI, "sweep", []); if ((await sender.wait(h)).ok) out.swept++; }
+        if (ethOf(waiting) >= minSweepEth(env)) { const h = await sender.send(r.splitter, KEEPER_ABI, "sweep", []); if ((await sender.wait(h)).ok) out.swept++; }
       }
       const [, , ready] = (await sender.simulate(r.pot, KEEPER_ABI, "preview", []).catch(() => [0n, 0n, false])) as [bigint, bigint, boolean];
       if (ready) {

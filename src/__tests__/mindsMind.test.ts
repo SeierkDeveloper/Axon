@@ -213,6 +213,17 @@ describe("a mind thinking", () => {
     expect(h).toMatchObject({ verdict: "none", action: null });
   });
 
+  it("shows a thought with plain punctuation and never cut off in the middle of a sentence", async () => {
+    const w = world();
+    const t = await w.launch("DASH");
+    const long = `First wake-up \u2014 fees came in. ${"The treasury is small and I am keeping it whole for now. ".repeat(14)}`;
+    const h = got(await thinkOnce(t.token, { chain: w.chain, thinker: thinker({ thought: long, action: null }).fn, env: LIVE, now: T0, usdPerEth: USD }));
+    expect(h.thought).toMatch(/^First wake-up, fees came in\. /);
+    expect(h.thought).not.toMatch(/[\u2014\u2013]/);
+    expect(h.thought!.length).toBeLessThanOrEqual(600);
+    expect(h.thought!.endsWith("for now.")).toBe(true);
+  });
+
   it("does not think again until something new happens, and never twice inside ten minutes", async () => {
     const w = world();
     const t = await w.launch("LENS");

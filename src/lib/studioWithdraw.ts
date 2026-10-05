@@ -21,7 +21,6 @@ import { getAgentById } from "./agents";
 import { sendNative, payoutWalletBalance } from "./evm";
 import { toWei, weiToEth } from "./money";
 import { sameAddress, normalizeAddress } from "./address";
-import { studioInfo } from "./studioPublish";
 import { withdrawAllowed, withdrawalsEnabled } from "./studioPolicy";
 import { logger } from "./logger";
 
@@ -62,14 +61,19 @@ export function withdrawalsOf(wallet: string, limit = 50): Withdrawal[] {
   ).all(wallet.toLowerCase(), limit) as Withdrawal[];
 }
 
-export interface Earning { agentId: string; name: string; earnedEth: number; withdrawnEth: number; availableEth: number }
+export interface Earning { agentId: string; name: string; earnedEth: number; withdrawnEth: number; availableEth: number; /** the token that stands behind it, if one was launched */ token: string | null }
 
-/** A wallet's Studio agents and what each can take out. */
+// The agents Axon runs for their owners and so holds the earnings of: the ones built in Studio, and the starter agent a
+// token was launched with. An agent on its owner's own server is paid another way and is not one of these.
+const HOSTED = "(studio_build IS NOT NULL OR public_key LIKE 'minds:%')";
+const hosted = (agentId: string): boolean => Boolean(getDb().prepare(`SELECT 1 FROM agents WHERE agent_id = ? AND ${HOSTED}`).get(agentId));
+
+/** A wallet's hosted agents and what each can take out. */
 export function earningsOf(wallet: string): Earning[] {
-  const rows = getDb().prepare("SELECT agent_id FROM agents WHERE LOWER(wallet_address) = ? AND studio_build IS NOT NULL ORDER BY created_at DESC").all(wallet.toLowerCase()) as { agent_id: string }[];
-  return rows.map(({ agent_id }) => {
+  const rows = getDb().prepare(`SELECT a.agent_id, (SELECT t.token FROM mind_tokens t WHERE t.agent_id = a.agent_id LIMIT 1) token FROM agents a WHERE LOWER(a.wallet_address) = ? AND ${HOSTED} ORDER BY a.created_at DESC`).all(wallet.toLowerCase()) as { agent_id: string; token: string | null }[];
+  return rows.map(({ agent_id, token }) => {
     const earned = sumWei("SELECT amount_eth v FROM transactions WHERE to_agent = ? AND status = 'completed' AND COALESCE(currency, 'ETH') = 'ETH'", agent_id);
-    return { agentId: agent_id, name: getAgentById(agent_id)?.name ?? agent_id, earnedEth: weiToEth(earned), withdrawnEth: weiToEth(withdrawnWei(agent_id)), availableEth: weiToEth(withdrawableWei(agent_id)) };
+    return { agentId: agent_id, name: getAgentById(agent_id)?.name ?? agent_id, earnedEth: weiToEth(earned), withdrawnEth: weiToEth(withdrawnWei(agent_id)), availableEth: weiToEth(withdrawableWei(agent_id)), token };
   });
 }
 
@@ -79,7 +83,7 @@ export async function withdraw(agentId: string, wallet: string, amountEth: numbe
   const me = wallet.toLowerCase();
   const agent = getAgentById(agentId);
   if (!agent || !sameAddress(agent.walletAddress, me)) return "No such agent of yours.";
-  if (!studioInfo(agentId)) return "Withdrawals are open for agents built in Agent Studio.";
+  if (!hosted(agentId)) return "Withdrawals are open for agents built in Agent Studio or launched with a token.";
   const to = normalizeAddress(agent.walletAddress ?? "");
   if (!to) return "This agent has no owner wallet to pay.";
   const want = toWei(amountEth);
