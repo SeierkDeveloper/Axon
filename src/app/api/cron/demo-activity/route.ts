@@ -1,4 +1,5 @@
 import { MODEL_LOOKS_USABLE } from "@/lib/modelHealth";
+import { planBatch, activityToday } from "@/lib/activityPlan";
 import { NextRequest, NextResponse } from "next/server";
 import { getAllAgents } from "@/lib/agents";
 import type { Agent } from "@/sdk/types";
@@ -162,9 +163,13 @@ export async function POST(req: NextRequest) {
     poolByAgent.set(t.toAgent, list);
   }
 
-  // 2 to 4 real inferences per run, about half of what it once ran, and bounded so the whole batch finishes
-  // well inside the route budget even when the models are slow.
-  const batchSize = Math.floor(Math.random() * 3) + 2;
+  // How many real inferences this run starts comes from the schedule (lib/activityPlan), bounded per run so the
+  // whole batch finishes well inside the route budget even when the models are slow.
+  const now = new Date();
+  const batchSize = planBatch(now, activityToday(now));
+  if (batchSize === 0) {
+    return NextResponse.json({ ok: true, created: 0, failed: 0 });
+  }
   const batch: { toAgent: string; task: string; output: string }[] = [];
   for (let i = 0; i < batchSize; i++) {
     const agent = pickRandom(generalAgents);
