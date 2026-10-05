@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-04T17:03:55.131Z",
-  "finishedAt": "2026-10-04T17:06:16.466Z",
-  "commit": "74b83d4",
+  "startedAt": "2026-10-05T17:06:19.104Z",
+  "finishedAt": "2026-10-05T17:08:43.786Z",
+  "commit": "3b7da2d",
   "checks": [
     {
       "id": "install-commands",
@@ -9,22 +9,30 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 13115
+      "ms": 12521
     },
     {
       "id": "links",
       "title": "Internal links point at real pages",
       "ok": true,
-      "checked": 196,
+      "checked": 200,
       "findings": [],
-      "ms": 65
+      "ms": 77
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 802,
+      "checked": 887,
       "findings": [
+        {
+          "severity": "warn",
+          "what": "paidThinkingEth() is exported and never used",
+          "why": "dead code reads exactly like live code",
+          "where": [
+            "src/lib/mindsAct.ts"
+          ]
+        },
         {
           "severity": "warn",
           "what": "setTitle() is exported and never used",
@@ -34,15 +42,15 @@
           ]
         }
       ],
-      "ms": 673
+      "ms": 805
     },
     {
       "id": "api-reference",
       "title": "The API reference matches the routes",
       "ok": true,
-      "checked": 307,
+      "checked": 332,
       "findings": [],
-      "ms": 44
+      "ms": 49
     },
     {
       "id": "sdk-routes",
@@ -50,7 +58,7 @@
       "ok": true,
       "checked": 124,
       "findings": [],
-      "ms": 21
+      "ms": 23
     },
     {
       "id": "examples",
@@ -58,7 +66,7 @@
       "ok": true,
       "checked": 35,
       "findings": [],
-      "ms": 9
+      "ms": 8
     },
     {
       "id": "packages",
@@ -75,31 +83,31 @@
           ]
         }
       ],
-      "ms": 1949
+      "ms": 2075
     },
     {
       "id": "migrations",
       "title": "Migrations are complete and in order",
       "ok": true,
-      "checked": 93,
+      "checked": 101,
       "findings": [],
       "ms": 0
     }
   ],
   "errors": 0,
-  "warnings": 2,
+  "warnings": 3,
   "changed": true,
   "changes": [
     {
-      "what": "dropped the export from summaryOf()",
-      "where": "src/lib/myloActions.ts",
+      "what": "dropped the export from realSender()",
+      "where": "src/lib/mindsAct.ts",
       "files": [
-        "src/lib/myloActions.ts"
+        "src/lib/mindsAct.ts"
       ],
       "status": "applied"
     },
     {
-      "what": "added 9 public routes to the API reference, written from their route files",
+      "what": "added 12 public routes to the API reference, written from their route files",
       "where": "src/app/api/openapi/route.ts",
       "files": [
         "src/app/api/openapi/route.ts"
