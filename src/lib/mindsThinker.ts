@@ -55,12 +55,18 @@ export const standInThinker: Thinker = async (model, system, prompt) => {
   const woke = /woke_by: (.*)/.exec(prompt)?.[1] ?? "something moved";
   const can = /may: (.*)/.exec(prompt)?.[1] ?? "";
   const size = Math.min(perAction, Math.floor((free / 4) * 1e6) / 1e6);
-  const act = size >= 0.0001 && /buy back/.test(can);
+  // it takes turns between what it may do, so that every kind of action gets exercised: after a buyback a reward,
+  // after a reward a $AXON burn, then round again
+  const last = /\[proposed (buyback|reward|burn_axon)/.exec(prompt)?.[1];
+  const turns = [/buy back/.test(can) && "buyback", /reward holders/.test(can) && holders >= 2 && "reward", /burn \$AXON/.test(can) && "burn_axon"].filter(Boolean) as string[];
+  const kind = turns.length ? turns[(turns.indexOf(last ?? "") + 1) % turns.length] : null;
+  const act = size >= 0.0001 && kind !== null;
+  const doing = kind === "reward" ? "is set aside for holders" : kind === "burn_axon" ? "goes to burning $AXON" : "goes to a buyback and burn";
   const out = {
     thought: act
-      ? `Woke on ${woke}. The treasury has ${free.toFixed(5)} ETH free with ${holders} holders. A quarter of that goes to a buyback and burn now; the rest stays for later.`
+      ? `Woke on ${woke}. The treasury has ${free.toFixed(5)} ETH free with ${holders} holders. A quarter of that ${doing} now; the rest stays for later.`
       : `Woke on ${woke}. ${holders} holders. The treasury has ${free.toFixed(5)} ETH free, which is not enough to act on. Holding.`,
-    action: act ? { kind: "buyback", eth: size } : null,
+    action: act ? { kind, eth: size } : null,
   };
   const text = JSON.stringify(out);
   const inputTokens = Math.ceil((system.length + prompt.length) / 4), outputTokens = Math.ceil(text.length / 4);

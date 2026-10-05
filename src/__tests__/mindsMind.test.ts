@@ -39,6 +39,7 @@ function world() {
     feeFlow: async () => { throw new Error("unused"); },
     snapshot: async (t) => state.snaps.get(t.token)!,
     transfers: async () => [],
+    vaultDay: async () => ({ spentTodayEth: 0, actionsToday: 0, costTodayEth: 0 }),
   };
   const launch = async (symbol: string, model?: string) => {
     const me = addr();
@@ -368,6 +369,17 @@ describe("the free stand-in", () => {
     expect(h.thought).toMatch(/Woke on the launch/);
     expect(h.action!.eth).toBeLessThanOrEqual(0.01);
     expect(owedThinkingEth(t.token)).toBe(0);
+  });
+
+  it("takes turns between what it may do, and skips what it may not", async () => {
+    const ask = async (extra: string) => (JSON.parse((await standInThinker(mindModel(null), "s", `woke_by: fees\nholders: 4\nfree_to_spend_eth: 0.004\nmax_per_action_eth: 0.01\n${extra}`)).text) as { action: { kind: string } | null }).action?.kind;
+    const all = "may: buy back and burn, reward holders, burn $AXON";
+    expect(await ask(all)).toBe("buyback");
+    expect(await ask(`${all}\nyour_last_thoughts (newest first):\n- x [proposed buyback 0.001 ETH: approved]`)).toBe("reward");
+    expect(await ask(`${all}\nyour_last_thoughts (newest first):\n- x [proposed reward 0.001 ETH: approved]`)).toBe("burn_axon");
+    expect(await ask(`${all}\nyour_last_thoughts (newest first):\n- x [proposed burn_axon 0.001 ETH: approved]`)).toBe("buyback");
+    expect(await ask(`may: burn $AXON\nyour_last_thoughts (newest first):\n- x [proposed burn_axon 0.001 ETH: approved]`)).toBe("burn_axon");
+    expect(await ask("may: nothing: you can only think")).toBeUndefined();
   });
 
   it("proposes nothing when there is nothing to spend", async () => {

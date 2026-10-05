@@ -31,6 +31,7 @@ import { advanceRunningCrews } from "../lib/myloActions";
 import { indexMinds } from "../lib/mindsIndex";
 import { refreshStats } from "../lib/mindsStats";
 import { thinkDue } from "../lib/mindsMind";
+import { actDue, settleSent, payThinkingDue, keepUp } from "../lib/mindsAct";
 
 // Agents that append live market prices to their task message
 const PRICE_AGENTS = new Set(["crypto-agent", "trading-agent"]);
@@ -116,6 +117,7 @@ let retainerTimer: NodeJS.Timeout | null = null;
 let myloTimer: NodeJS.Timeout | null = null;
 let mindsTimer: NodeJS.Timeout | null = null;
 let mindsRunning = false;
+let mindsTicks = 0;
 let retainerRunning = false;
 let activePoll: Promise<void> | null = null;
 let activeHealthCheck: Promise<void> | null = null;
@@ -692,6 +694,15 @@ export async function startWorkerLoops(): Promise<void> {
       // and the minds with something to think about think (only when thinking is switched on)
       .then(() => thinkDue())
       .then((r) => { if (r?.thought) logger.info("minds.thought", "Minds thought", { ...r }); })
+      // then the signer: close what was sent, send what the rule check passed, let minds pay for their thinking.
+      // All of it does nothing unless acting is switched on and the signer's key is set.
+      .then(() => settleSent())
+      .then(() => actDue())
+      .then((r) => { if (r && (r.done || r.failed || r.dropped)) logger.info("minds.act", "Minds acted", { ...r }); })
+      .then(() => payThinkingDue())
+      // every few minutes: move fees to their splitters and let ready pots burn
+      .then(() => (++mindsTicks % 15 === 0 ? keepUp() : null))
+      .then((r) => { if (r && (r.swept || r.burned)) logger.info("minds.keep", "Housekeeping for tokens", { ...r }); })
       .catch((err) => logger.warn("minds.index_failed", "Reading the launcher's events failed", { err }))
       .finally(() => { mindsRunning = false; });
   }, MINDS_INDEX_INTERVAL_MS);

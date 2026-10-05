@@ -42,27 +42,34 @@ export interface Thought {
   id: number; token: string; at: string; model: string; modelLabel: string; standin: boolean; status: "thought" | "failed";
   reasons: string[]; thought: string | null; action: Proposal | null; verdict: "none" | "approved" | "refused"; verdictReason: string | null;
   costEth: number; costUsd: number;
+  /** what became of its proposal once acting is on: sent, done, or why it was not sent */
+  sent: { status: string; txHash: string | null; error: string | null } | null;
 }
 
-interface Row { id: number; token: string; at: string; model: string; standin: number; status: string; reasons: string; thought: string | null; action: string | null; verdict: string; verdict_reason: string | null; cost_eth: number; cost_usd: number; last_event_id: number }
+interface Row { id: number; token: string; at: string; model: string; standin: number; status: string; reasons: string; thought: string | null; action: string | null; verdict: string; verdict_reason: string | null; cost_eth: number; cost_usd: number; last_event_id: number; sent_status?: string | null; sent_tx?: string | null; sent_error?: string | null }
 const toThought = (r: Row): Thought => ({
   id: r.id, token: r.token, at: r.at, model: r.model, modelLabel: r.standin ? "Stand-in" : mindLabel(r.model), standin: r.standin === 1, status: r.status as Thought["status"],
   reasons: JSON.parse(r.reasons) as string[], thought: r.thought, action: r.action ? (JSON.parse(r.action) as Proposal) : null, verdict: r.verdict as Thought["verdict"], verdictReason: r.verdict_reason,
   costEth: r.cost_eth, costUsd: r.cost_usd,
+  sent: r.sent_status ? { status: r.sent_status, txHash: r.sent_tx ?? null, error: r.sent_error ?? null } : null,
 });
 
 /** A mind's journal, newest first; or every mind's, when no token is named. Thoughts that failed are not shown. */
 export function thoughts(token: string | null, limit = 10): (Thought & { name: string | null; symbol: string | null; logo: string | null })[] {
   const n = Math.min(50, Math.max(1, limit));
   const rows = (token
-    ? getDb().prepare("SELECT h.*, t.name, t.symbol, t.logo FROM mind_thoughts h JOIN mind_tokens t ON t.token = h.token WHERE h.token = ? AND h.status = 'thought' ORDER BY h.id DESC LIMIT ?").all(token.toLowerCase(), n)
-    : getDb().prepare("SELECT h.*, t.name, t.symbol, t.logo FROM mind_thoughts h JOIN mind_tokens t ON t.token = h.token WHERE h.status = 'thought' ORDER BY h.id DESC LIMIT ?").all(n)) as (Row & { name: string | null; symbol: string | null; logo: string | null })[];
+    ? getDb().prepare("SELECT h.*, t.name, t.symbol, t.logo, a.status sent_status, a.tx_hash sent_tx, a.error sent_error FROM mind_thoughts h JOIN mind_tokens t ON t.token = h.token LEFT JOIN mind_actions a ON a.thought_id = h.id WHERE h.token = ? AND h.status = 'thought' ORDER BY h.id DESC LIMIT ?").all(token.toLowerCase(), n)
+    : getDb().prepare("SELECT h.*, t.name, t.symbol, t.logo, a.status sent_status, a.tx_hash sent_tx, a.error sent_error FROM mind_thoughts h JOIN mind_tokens t ON t.token = h.token LEFT JOIN mind_actions a ON a.thought_id = h.id WHERE h.status = 'thought' ORDER BY h.id DESC LIMIT ?").all(n)) as (Row & { name: string | null; symbol: string | null; logo: string | null })[];
   return rows.map((r) => ({ ...toThought(r), name: r.name, symbol: r.symbol, logo: r.logo }));
 }
 
 /** What a mind has thought for and not paid yet, in ETH. Stand-in thoughts are free and never owed. */
 export function owedThinkingEth(token: string): number {
-  return (getDb().prepare("SELECT COALESCE(SUM(cost_eth), 0) v FROM mind_thoughts WHERE token = ? AND standin = 0").get(token.toLowerCase()) as { v: number }).v;
+  const db = getDb(), t = token.toLowerCase();
+  const cost = (db.prepare("SELECT COALESCE(SUM(cost_eth), 0) v FROM mind_thoughts WHERE token = ? AND standin = 0").get(t) as { v: number }).v;
+  // what its treasury has already paid back (anything sent counts: it may be on its way)
+  const paid = (db.prepare("SELECT COALESCE(SUM(eth), 0) v FROM mind_actions WHERE token = ? AND kind = 'thinking' AND status IN ('pending', 'sent', 'done')").get(t) as { v: number }).v;
+  return Math.max(0, cost - paid);
 }
 
 const dayStart = (now: number) => new Date(Math.floor(now / 86_400_000) * 86_400_000).toISOString();
@@ -145,7 +152,7 @@ export async function thinkOnce(token: string, o: ThinkOptions = {}): Promise<Th
 
   const last = db.prepare("SELECT at, status, last_event_id FROM mind_thoughts WHERE token = ? ORDER BY id DESC LIMIT 1").get(m.token) as { at: string; status: string; last_event_id: number } | undefined;
   if (last && now - Date.parse(last.at) < (last.status === "failed" ? FAILED_GAP_MS : MIN_GAP_MS)) return { skipped: "it thought a moment ago" };
-  const news = db.prepare("SELECT id, kind, eth, tokens FROM mind_events WHERE token = ? AND id > ? AND kind != 'thought' ORDER BY id ASC LIMIT 20").all(m.token, last?.last_event_id ?? 0) as { id: number; kind: string; eth: number | null; tokens: number | null }[];
+  const news = db.prepare("SELECT id, kind, eth, tokens FROM mind_events WHERE token = ? AND id > ? AND kind NOT IN ('thought', 'bought', 'axon', 'rewarded') ORDER BY id ASC LIMIT 20").all(m.token, last?.last_event_id ?? 0) as { id: number; kind: string; eth: number | null; tokens: number | null }[];
   if (!news.length) return { skipped: "nothing has happened since its last thought" };
 
   // a mind on its creator's own server costs Axon nothing: no key of Axon's is used, so no budget applies to it
@@ -227,7 +234,7 @@ export async function thinkDue(o: ThinkOptions = {}, limit = MINDS_PER_PASS): Pr
   // minds with an event newer than their last thought, and no thought in the last ten minutes
   const due = getDb().prepare(
     `SELECT t.token FROM mind_tokens t
-      WHERE EXISTS (SELECT 1 FROM mind_events e WHERE e.token = t.token AND e.kind != 'thought' AND e.id > COALESCE((SELECT MAX(last_event_id) FROM mind_thoughts h WHERE h.token = t.token), 0))
+      WHERE EXISTS (SELECT 1 FROM mind_events e WHERE e.token = t.token AND e.kind NOT IN ('thought', 'bought', 'axon', 'rewarded') AND e.id > COALESCE((SELECT MAX(last_event_id) FROM mind_thoughts h WHERE h.token = t.token), 0))
         AND COALESCE((SELECT MAX(at) FROM mind_thoughts h WHERE h.token = t.token), '') < ?
       ORDER BY COALESCE((SELECT MAX(at) FROM mind_thoughts h WHERE h.token = t.token), '') ASC LIMIT ?`,
   ).all(new Date(now - MIN_GAP_MS).toISOString(), limit) as { token: string }[];

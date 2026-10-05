@@ -43,6 +43,7 @@ function fakeChain(events: MindLaunchEvent[], head = 2000n) {
     feeFlow: async () => FEES,
     snapshot: async () => { throw new Error("not read in these tests"); },
     transfers: async () => [],
+    vaultDay: async () => ({ spentTodayEth: 0, actionsToday: 0, costTodayEth: 0 }),
   };
   return { chain, asked };
 }

@@ -32,7 +32,7 @@ async function launchOwn(url: string | undefined, vaultTreasury = treasury()) {
   const ev: MindLaunchEvent = { kind: "launched", token: addr(), creator: me, agentRef: p.ref, pot: addr(), splitter: addr(), vault: addr(), payout: me, taxBps: 300, creatorBps: 5000, burnBps: 2000, axonBps: 1000, mindBps: 2000, blockNumber: 1100 + n, txHash: `0x${String(n).padStart(64, "0")}` };
   const chain: MindsChain = {
     head: async () => 2000n, launches: async () => [ev], blockTime: async () => new Date(T0 - 3_600_000).toISOString(), tokenMeta: async () => { throw new Error("none"); },
-    treasury: async () => vaultTreasury, feeFlow: async () => { throw new Error("unused"); }, snapshot: async () => snap(), transfers: async () => [],
+    treasury: async () => vaultTreasury, feeFlow: async () => { throw new Error("unused"); }, snapshot: async () => snap(), transfers: async () => [], vaultDay: async () => ({ spentTodayEth: 0, actionsToday: 0, costTodayEth: 0 }),
   };
   getDb().exec("DELETE FROM mind_cursor"); // every launch in these tests is read fresh
   await indexMinds(chain, ENV);

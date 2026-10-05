@@ -30,6 +30,7 @@ function world() {
     treasury: async () => { throw new Error("unused"); },
     feeFlow: async () => { throw new Error("unused"); },
     snapshot: async (t) => { const s = state.snaps.get(t.token); if (!s) throw new Error("unreadable"); return s; },
+    vaultDay: async () => ({ spentTodayEth: 0, actionsToday: 0, costTodayEth: 0 }),
     transfers: async (tokens, from, to) => { state.asked.push({ tokens, from, to }); return state.transfers.filter((x) => tokens.includes(x.token) && BigInt(x.blockNumber) >= from && BigInt(x.blockNumber) <= to); },
   };
   const launch = (name: string, symbol: string, block: number) => {

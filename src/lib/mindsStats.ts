@@ -18,7 +18,7 @@ const TOKENS_PER_PASS = 40;
 const MAX_HOLDER_BLOCKS = 2_000_000n;
 const NOBODY = ["0x0000000000000000000000000000000000000000", "0x000000000000000000000000000000000000dead"];
 
-export type MindEventKind = "launch" | "fees" | "burn" | "graduated" | "holders" | "earned" | "thought";
+export type MindEventKind = "launch" | "fees" | "burn" | "graduated" | "holders" | "earned" | "thought" | "bought" | "axon" | "rewarded";
 
 interface StatsRow { token: string; phase: number; fees_eth: number; burns: number; burned_tokens: number; burned_eth: number; holders_block: number | null; holders_mark: number; earned_mark: number }
 interface TokenRow { token: string; pot: string; splitter: string | null; vault: string; curve: string | null; block_number: number; agent_id: string | null; launched_at: string }
@@ -158,6 +158,8 @@ export interface BoardToken {
   taxBps: number | null; creatorBps: number | null; burnBps: number | null; axonBps: number | null; mindBps: number | null; model: string | null;
   phase: number; priceEth: number | null; mcapEth: number | null; curveBps: number; holders: number;
   feesEth: number; toMindEth: number; burnedTokens: number; burnedEth: number; burns: number; treasuryEth: number;
+  /** ETH this token's mind has set aside for holders so far */
+  rewardsEth: number;
 }
 
 export type BoardSort = "new" | "mcap" | "burned";
@@ -168,7 +170,8 @@ export function board(sort: BoardSort = "new", limit = 60): BoardToken[] {
     `SELECT t.token, t.name, t.symbol, t.logo, t.creator, t.launched_at launchedAt, t.tx_hash txHash, t.agent_id agentId, a.name agentName,
        t.pot, t.splitter, t.vault, t.payout, t.attached, t.tax_bps taxBps, t.creator_bps creatorBps, t.burn_bps burnBps, t.axon_bps axonBps, t.mind_bps mindBps, t.model,
        COALESCE(s.phase, 0) phase, s.price_eth priceEth, s.mcap_eth mcapEth, COALESCE(s.curve_bps, 0) curveBps, COALESCE(s.holders, 0) holders,
-       COALESCE(s.fees_eth, 0) feesEth, COALESCE(s.to_mind_eth, 0) toMindEth, COALESCE(s.burned_tokens, 0) burnedTokens, COALESCE(s.burned_eth, 0) burnedEth, COALESCE(s.burns, 0) burns, COALESCE(s.treasury_eth, 0) treasuryEth
+       COALESCE(s.fees_eth, 0) feesEth, COALESCE(s.to_mind_eth, 0) toMindEth, COALESCE(s.burned_tokens, 0) burnedTokens, COALESCE(s.burned_eth, 0) burnedEth, COALESCE(s.burns, 0) burns, COALESCE(s.treasury_eth, 0) treasuryEth,
+       COALESCE((SELECT SUM(a.eth) FROM mind_actions a WHERE a.token = t.token AND a.kind = 'reward' AND a.status = 'done'), 0) rewardsEth
      FROM mind_tokens t LEFT JOIN mind_stats s ON s.token = t.token LEFT JOIN agents a ON a.agent_id = t.agent_id
      ORDER BY ${ORDER[sort] ?? ORDER.new} LIMIT ?`,
   ).all(Math.min(200, Math.max(1, limit))) as (Omit<BoardToken, "attached"> & { attached: number })[];

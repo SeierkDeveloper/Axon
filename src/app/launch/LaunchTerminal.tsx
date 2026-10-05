@@ -4,7 +4,9 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { EXPLORER, explorerTxUrl, ponsTokenUrl } from "@/lib/chain";
+import { encodeFunctionData, parseAbi } from "viem";
+import { useWallet } from "@/components/WalletProvider";
+import { CHAIN_ID_HEX, CHAIN_PARAMS, EXPLORER, explorerTxUrl, ponsTokenUrl, provider, readableWalletError } from "@/lib/chain";
 import type { BoardToken, BoardTotals, MindEvent, BoardSort } from "@/lib/mindsStats";
 import { mindLabel } from "@/lib/mindsModels";
 
@@ -56,10 +58,13 @@ function eventText(e: MindEvent): string {
     case "holders": return `now has ${Math.round(e.tokens ?? 0)} holders`;
     case "earned": return `agent earned ${ethText(e.eth ?? 0)}`;
     case "thought": return "mind wrote a thought";
+    case "bought": return `mind sent ${ethText(e.eth ?? 0)} to buy back and burn`;
+    case "axon": return `mind sent ${ethText(e.eth ?? 0)} to burn $AXON`;
+    case "rewarded": return `mind set ${ethText(e.eth ?? 0)} aside for holders`;
   }
 }
 
-interface ThoughtView { id: number; at: string; modelLabel: string; thought: string | null; action: { kind: string; eth: number } | null; verdict: "none" | "approved" | "refused"; verdictReason: string | null }
+interface ThoughtView { id: number; at: string; modelLabel: string; thought: string | null; action: { kind: string; eth: number } | null; verdict: "none" | "approved" | "refused"; verdictReason: string | null; sent: { status: string; txHash: string | null; error: string | null } | null }
 const ACTION: Record<string, string> = { buyback: "buy back and burn", reward: "reward holders", burn_axon: "burn $AXON" };
 
 /** What a token's mind has been thinking, newest first. Loaded when the token is opened. */
@@ -93,11 +98,90 @@ function Mind({ t }: { t: BoardToken }) {
                   </span>
                 )}
                 {h.verdict === "refused" && h.verdictReason && <span className="font-sans">{h.verdictReason}</span>}
+                {h.sent?.status === "done" && h.sent.txHash && <a href={explorerTxUrl(h.sent.txHash)} target="_blank" rel="noopener noreferrer" className="underline decoration-gray-300 underline-offset-2 hover:text-gray-700 dark:decoration-gray-700 dark:hover:text-gray-200">sent on chain</a>}
+                {h.sent?.status === "sent" && <span>sending…</span>}
+                {h.sent && (h.sent.status === "dropped" || h.sent.status === "failed") && <span className="font-sans">Not sent. {h.sent.error}</span>}
               </p>
             </li>
           ))}
         </ol>
       )}
+    </div>
+  );
+}
+
+interface ShareView { token: string; vault: string; rewardId: number; index: number; amountWei: string; amountEth: number; proof: string[]; startAt: number; endAt: number }
+const CLAIM_ABI = parseAbi(["function claim(uint256 id, uint256 index, address account, uint256 amount, bytes32[] proof)"]);
+
+/** A holder's own share of the rewards this token's mind has set aside, with the button that claims it. */
+function Rewards({ t }: { t: BoardToken }) {
+  const { address, connect, busy } = useWallet();
+  const [shares, setShares] = useState<ShareView[] | null>(null);
+  const [claiming, setClaiming] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!address) return;
+    let alive = true;
+    const load = () => fetch(`/api/minds/rewards?account=${address}`).then((r) => (r.ok ? (r.json() as Promise<{ shares: ShareView[] }>) : null)).then((d) => { if (alive && d) { setShares(d.shares.filter((x) => x.token === t.token)); setNow(Date.now()); } }).catch(() => {});
+    void load();
+    const timer = setInterval(load, 20_000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [address, t.token]);
+
+  const claim = async (sh: ShareView) => {
+    const p = provider();
+    if (!p || !address) return;
+    const key = `${sh.rewardId}:${sh.index}`;
+    setClaiming(key); setNote(null);
+    try {
+      const chain = (await p.request({ method: "eth_chainId" })) as string;
+      if (chain?.toLowerCase() !== CHAIN_ID_HEX) {
+        try { await p.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN_ID_HEX }] }); }
+        catch (e) { if ((e as { code?: number }).code === 4902) await p.request({ method: "wallet_addEthereumChain", params: [CHAIN_PARAMS] }); else throw e; }
+      }
+      const data = encodeFunctionData({ abi: CLAIM_ABI, functionName: "claim", args: [BigInt(sh.rewardId), BigInt(sh.index), address as `0x${string}`, BigInt(sh.amountWei), sh.proof as `0x${string}`[]] });
+      const hash = (await p.request({ method: "eth_sendTransaction", params: [{ from: address, to: sh.vault, data }] })) as string;
+      for (let i = 0; i < 80; i++) {
+        const r = (await p.request({ method: "eth_getTransactionReceipt", params: [hash] })) as { status: string } | null;
+        if (r) { if (r.status !== "0x1") throw new Error("The claim was refused by the chain."); break; }
+        await new Promise((ok) => setTimeout(ok, 1500));
+      }
+      setShares((list) => (list ?? []).filter((x) => `${x.rewardId}:${x.index}` !== key));
+      setNote(`Claimed ${ethText(sh.amountEth)}.`);
+    } catch (e) {
+      setNote(e instanceof Error && !("code" in e) ? e.message : readableWalletError(e));
+    } finally {
+      setClaiming(null);
+    }
+  };
+
+  // nothing to say to a wallet with no share here, and nothing at all until a mind has rewarded anybody
+  if (address && shares !== null && shares.length === 0 && !note) return null;
+  if (!address && !(t.rewardsEth > 0)) return null;
+  return (
+    <div className="border-t border-gray-200 bg-gray-50 px-4 py-5 sm:px-5 dark:border-gray-800 dark:bg-gray-900/40">
+      <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400">Rewards for holders</p>
+      {!address ? (
+        <button type="button" onClick={() => void connect()} disabled={busy} className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold transition hover:bg-white disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900">Connect your wallet to see your share</button>
+      ) : (
+        <ul className="space-y-2">
+          {(shares ?? []).map((sh) => {
+            const key = `${sh.rewardId}:${sh.index}`, opens = sh.startAt * 1000 - now;
+            return (
+              <li key={key} className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                <span><span className="font-mono font-semibold tabular-nums">{ethText(sh.amountEth)}</span> <span className="text-gray-500 dark:text-gray-400">is yours from this token&apos;s mind</span></span>
+                {opens > 0 ? (
+                  <span className="font-mono text-xs text-gray-400" suppressHydrationWarning>opens in {Math.ceil(opens / 60_000)} min</span>
+                ) : (
+                  <button type="button" onClick={() => void claim(sh)} disabled={claiming !== null} className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">{claiming === key ? "Confirm in your wallet…" : "Claim"}</button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {note && <p role="status" className="mt-3 text-sm text-gray-600 dark:text-gray-300">{note}</p>}
     </div>
   );
 }
@@ -157,6 +241,7 @@ function Detail({ t }: { t: BoardToken }) {
       </div>
     </div>
     <Mind t={t} />
+    <Rewards t={t} />
     </>
   );
 }

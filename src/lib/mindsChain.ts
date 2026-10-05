@@ -49,6 +49,29 @@ export const VAULT_ABI = parseAbi([
   "function rewardCount() view returns (uint256)",
 ]);
 
+/** What the signer may call, and nothing else: the treasury's four actions, a splitter's sweep, a pot's burn. */
+export const VAULT_WRITE_ABI = parseAbi([
+  "function buyback(uint256 amount)",
+  "function burnAxon(uint256 amount)",
+  "function startReward(bytes32 root, uint256 total) returns (uint256 id)",
+  "function payThinking(uint256 amount)",
+  "function claim(uint256 id, uint256 index, address account, uint256 amount, bytes32[] proof)",
+  "function isClaimed(uint256 id, uint256 index) view returns (bool)",
+  "function today() view returns (uint256)",
+  "function spentOn(uint256 day) view returns (uint256)",
+  "function actionsOn(uint256 day) view returns (uint256)",
+  "function costOn(uint256 day) view returns (uint256)",
+  "event RewardStarted(uint256 indexed id, bytes32 root, uint256 total, uint256 startAt, uint256 endAt)",
+]);
+export const KEEPER_ABI = parseAbi([
+  "function sweep() returns (uint256 amount)",
+  "function burn(uint256 minTokensOut) returns (uint256 ethIn, uint256 tokensOut)",
+  "function preview() view returns (uint256 amount, uint256 nextAt, bool ready)",
+]);
+
+/** What a treasury has done so far today, by its own count. */
+export interface VaultDay { spentTodayEth: number; actionsToday: number; costTodayEth: number }
+
 export const SPLITTER_ABI = parseAbi([
   "function totalSplit() view returns (uint256)",
   "function totalToCreator() view returns (uint256)",
@@ -299,6 +322,19 @@ export const mindsChain = {
       .map((l) => ({ token: lower(l.address), from: `0x${l.topics[1].slice(-40)}`, to: `0x${l.topics[2].slice(-40)}`, value: BigInt(l.data === "0x" ? "0x0" : l.data), blockNumber: Number(BigInt(l.blockNumber)), i: Number(BigInt(l.logIndex ?? "0x0")) }))
       .sort((a, b) => a.blockNumber - b.blockNumber || a.i - b.i)
       .map(({ i: _i, ...t }) => t);
+  },
+
+  /** The treasury's own count of today: what its actions spent, how many there were, what its thinking was paid. */
+  async vaultDay(vault: string): Promise<VaultDay> {
+    const c = publicClient();
+    const address = vault as `0x${string}`;
+    const day = await c.readContract({ address, abi: VAULT_WRITE_ABI, functionName: "today" });
+    const [spent, actions, cost] = await Promise.all([
+      c.readContract({ address, abi: VAULT_WRITE_ABI, functionName: "spentOn", args: [day] }),
+      c.readContract({ address, abi: VAULT_WRITE_ABI, functionName: "actionsOn", args: [day] }),
+      c.readContract({ address, abi: VAULT_WRITE_ABI, functionName: "costOn", args: [day] }),
+    ]);
+    return { spentTodayEth: eth(spent), actionsToday: Number(actions), costTodayEth: eth(cost) };
   },
 
   async feeFlow(splitter: string | null, pot: string): Promise<FeeFlow> {

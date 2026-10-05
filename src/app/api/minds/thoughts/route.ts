@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     const token = raw ? normalizeAddress(raw) : null;
     if (raw && !token) return apiError("VALIDATION_ERROR", "That is not a token address", 400);
     const list = thoughts(token, Number(q.get("limit")) || 10).map((t) => ({
-      id: t.id, token: t.token, name: t.name, symbol: t.symbol, logo: t.logo, at: t.at, modelLabel: t.modelLabel, thought: t.thought, action: t.action, verdict: t.verdict, verdictReason: t.verdictReason,
+      id: t.id, token: t.token, name: t.name, symbol: t.symbol, logo: t.logo, at: t.at, modelLabel: t.modelLabel, thought: t.thought, action: t.action, verdict: t.verdict, verdictReason: t.verdictReason, sent: t.sent,
     }));
     return NextResponse.json({ thoughts: list }, { headers: { "Cache-Control": "public, max-age=5" } });
   });
