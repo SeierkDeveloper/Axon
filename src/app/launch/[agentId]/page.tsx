@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import SiteNav from "@/components/SiteNav";
 import LaunchClient from "./LaunchClient";
 import { getAgentById } from "@/lib/agents";
+import { agentMindsEnabled } from "@/lib/mindsPolicy";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +23,13 @@ export default async function LaunchPage({ params, searchParams }: { params: Pro
   const one = (k: string, n: number) => (typeof sp[k] === "string" ? (sp[k] as string).slice(0, n) : "");
   const prefill = { name: one("name", 40), symbol: one("symbol", 10).replace(/[^A-Za-z0-9]/g, "").toUpperCase(), description: one("description", 200) };
   const agent = getAgentById(agentId);
+  // with Agent Minds on, an agent's token is launched from the one launch screen, with this agent picked
+  if (agentMindsEnabled()) {
+    const q = new URLSearchParams({ agent: agentId });
+    if (prefill.name) q.set("name", prefill.name);
+    if (prefill.symbol) q.set("ticker", prefill.symbol);
+    redirect(`/launch?${q}`);
+  }
 
   return (
     <div className="bg-white dark:bg-[#0a0a0a] min-h-screen text-[#0a0a0a] dark:text-white">

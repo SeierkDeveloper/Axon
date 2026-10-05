@@ -16,7 +16,8 @@ import { logger } from "./logger";
 import { messagesAllowed, modelFor, myloEnabled, myloModels, MAX_REPLYING_TOTAL, MEMORY, TURN_BUDGET, type Speaker, type Usage } from "./myloPolicy";
 import { addMessage, getConversation, historyOf, memoryOf, sentFromAddress, sentToday, startConversation } from "./myloStore";
 import { budgetShare, reserveCall, settleCall, type Hold } from "./myloBudget";
-import { MYLO_TOOL_DEFS, runTool, forModel, type Card } from "./myloTools";
+import { MYLO_TOOL_DEFS, myloToolDefs, runTool, forModel, type Card } from "./myloTools";
+import { agentMindsEnabled } from "./mindsPolicy";
 import { actionsOf, getAction, viewOf, type Action, type BuildDetail, type CrewDetail, type ImproveDetail, type PublishDetail, type ScheduleDetail, type WithdrawDetail } from "./myloActions";
 
 /** What the page is told while a turn runs, in order. */
@@ -53,6 +54,23 @@ export function fitHistory(turns: Turn[]): Turn[] {
   while (kept.length > 1 && kept[0].role !== "user") kept.shift();
   return kept;
 }
+
+/**
+ * Agent Minds, added to the instructions only while its switch is on. It follows the fixed instructions rather than
+ * sitting in them, so with the switch off Mylo reads exactly what it always read.
+ */
+export const MINDS_NOTE = `
+
+Launching a token (this replaces what is said above about launching):
+- Anyone can launch a token on /launch in one transaction: a name, a ticker, a picture and one line about what its
+  agent does. Axon makes the agent from that line; or they pick an agent they already own. The token launches on Pons.
+- Every token gets its own burn pot and a mind with its own treasury. The creator sets the tax (0 to 10%) and where the
+  fees go (to them, burning the token, burning $AXON, the mind's treasury) once, on that screen, and it is locked: nobody
+  can change it afterwards. Axon takes nothing from the token.
+- When they want to launch, call launch_token with your best name, a short ticker and what_the_agent_does (or agent_id
+  for one of their own agents). The page then shows a card with a button to the launch screen: point to the card, don't
+  write the link out. They add the picture and sign there. Never say it is launched, and never promise a price or returns.
+`;
 
 export const MYLO_SYSTEM = `You are Mylo, Axon's own AI. On axon-agents.com you are the small black robot head with two
 glowing eyes that follows the visitor's cursor. People come to you to understand Axon and to get things done on it.
@@ -269,7 +287,7 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
   // what the first call will read, so its cost can be held before anything is saved or started
   const model = modelFor(input.speaker, budgetShare());
   const past = conv ? historyOf(conv.id, TURN_BUDGET.historyMessages - 1) : [];
-  const system = withMemory(MYLO_SYSTEM, input.wallet) + contextOf(past, conv ? actionsOf(conv.id, input.owner) : []);
+  const system = withMemory(MYLO_SYSTEM, input.wallet) + (agentMindsEnabled() ? MINDS_NOTE : "") + contextOf(past, conv ? actionsOf(conv.id, input.owner) : []);
   const earlier = past.map((m) => ({ role: m.role, content: m.content }));
   const messages: ModelMessage[] = fitHistory(toTurns([...earlier, { role: "user", content: text }])).map((t) => ({ role: t.role, content: t.content }));
   let hold: Hold | null = reserveCall(model, requestBytes(system, messages), TURN_BUDGET.answerTokens);
@@ -396,7 +414,7 @@ const realStreamer: Streamer = async ({ model: chosen, system, messages, tools, 
     const stream = client.messages.stream({
       model, system: blocks, max_tokens: maxTokens,
       messages: messages as Anthropic.MessageParam[],
-      tools: MYLO_TOOL_DEFS as unknown as Anthropic.Tool[],
+      tools: myloToolDefs() as unknown as Anthropic.Tool[],
       tool_choice: tools ? { type: "auto" } : { type: "none" },
     }, { signal });
     stream.on("text", (d) => onText(d));

@@ -1,6 +1,8 @@
 import SiteNav from "@/components/SiteNav";
 import LaunchPicker from "./LaunchPicker";
+import MindLaunch from "./MindLaunch";
 import { launchFactoryAddress } from "@/lib/agentLaunch";
+import { agentMindsEnabled } from "@/lib/mindsPolicy";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +12,30 @@ export const metadata = {
     "An agent launches its own token on Pons, and a share of what it earns buys that token back and burns it.",
 };
 
-export default function LaunchIndexPage() {
+export default async function LaunchIndexPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  // Agent Minds: one screen, one signature. Behind its switch; with the switch off this page is what it always was.
+  if (agentMindsEnabled()) {
+    // a link from Mylo, or from an agent's own page, can arrive with the form filled in; the creator still reads it
+    const sp = await searchParams;
+    const one = (k: string, n: number) => (typeof sp[k] === "string" ? (sp[k] as string).slice(0, n) : "");
+    const prefill = { name: one("name", 32), symbol: (one("ticker", 10) || one("symbol", 10)).replace(/[^A-Za-z0-9]/g, "").toUpperCase(), line: one("line", 180), agentId: one("agent", 80) };
+    return (
+      <div className="bg-white dark:bg-[#0a0a0a] min-h-screen text-[#0a0a0a] dark:text-white">
+        <SiteNav />
+        <main className="mx-auto max-w-6xl px-4 pt-28 pb-24 sm:px-6">
+          <div className="mb-10 max-w-2xl">
+            <p className="mb-3 font-mono text-xs uppercase tracking-[0.25em] text-gray-400">Launch</p>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">A token, an agent that works for it, and a mind behind both.</h1>
+            <p className="mt-4 leading-relaxed text-gray-500 dark:text-gray-400">
+              Name it, give it a picture and say what its agent does. One transaction launches the token on Pons with its own burn pot and a treasury its mind runs in the open. You set the tax and where the fees go, once.
+            </p>
+          </div>
+          <MindLaunch prefill={prefill} />
+        </main>
+      </div>
+    );
+  }
+
   const live = Boolean(launchFactoryAddress());
 
   return (

@@ -64,7 +64,9 @@ export function prepare(wallet: string, req: LaunchRequest): PreparedLaunch | st
   if (name.length < 2) return "Give the token a name.";
   if (!/^[A-Z0-9]{2,10}$/.test(symbol)) return "A ticker is 2 to 10 letters or numbers.";
   const logo = text(req.logo, LAUNCH_LIMITS.logoChars) || null;
-  if (logo && !/^(https:\/\/|ipfs:\/\/)/.test(logo)) return "The picture has to be an https or ipfs link.";
+  // a picture uploaded to a server on this machine is linked over http; nowhere else is
+  const localLogo = process.env.NODE_ENV !== "production" && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(logo ?? "");
+  if (logo && !localLogo && !/^(https:\/\/|ipfs:\/\/)/.test(logo)) return "The picture has to be an https or ipfs link.";
   const description = text(req.description, LAUNCH_LIMITS.descriptionChars) || null;
   if (preparedToday(me) >= LAUNCH_LIMITS.preparesPerDay) return "That is a lot of launches prepared today. Try again tomorrow.";
 
@@ -121,4 +123,11 @@ export function agentFor(p: PreparedLaunch): string | null {
   getDb().prepare("UPDATE agents SET description = ?, described_from = ?, described_at = ? WHERE agent_id = ?").run(p.line, describedFrom(agent), now, agent.agentId);
   consumeHandle(agent.agentId, p.wallet);
   return agent.agentId;
+}
+
+/** A wallet's own agents that can still get a token: the ones no token stands behind yet. */
+export function launchableAgents(wallet: string): { agentId: string; name: string }[] {
+  return getDb().prepare(
+    "SELECT a.agent_id agentId, a.name FROM agents a WHERE LOWER(a.wallet_address) = ? AND NOT EXISTS (SELECT 1 FROM mind_tokens t WHERE t.agent_id = a.agent_id) ORDER BY a.created_at DESC LIMIT 100",
+  ).all(wallet.toLowerCase()) as { agentId: string; name: string }[];
 }

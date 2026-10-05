@@ -16,7 +16,7 @@ export interface AgentCardData { agentId: string; name: string; description: str
 export type CardData =
   | { kind: "agents"; title: string; agents: AgentCardData[] }
   | { kind: "compare"; agents: AgentCardData[] }
-  | { kind: "launch"; agentId: string; agentName: string; name: string | null; ticker: string | null; description: string | null; page: string }
+  | { kind: "launch"; agentId: string | null; agentName: string; name: string | null; ticker: string | null; description: string | null; page: string }
   | { kind: "earnings"; agents: { agentId: string; name: string; earnedEth: number; availableEth: number }[]; availableEth: number }
   | { kind: "pulse"; agents: number; activeAgents: number; tasksToday: number; successRate: number; burned: number | null; burns: number | null; lastCheck: { at: string; checks: number | null } | null };
 
@@ -48,7 +48,7 @@ export function Card({ card }: { card: CardData }) {
     return (
       <div className="mt-3 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-950">
         <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-gray-400">Token launch, ready</p>
-        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">For <Link href={`/agents/${card.agentId}`} className="font-semibold text-gray-900 hover:underline dark:text-white">{card.agentName}</Link></p>
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">For {card.agentId ? <Link href={`/agents/${card.agentId}`} className="font-semibold text-gray-900 hover:underline dark:text-white">{card.agentName}</Link> : <span className="font-semibold text-gray-900 dark:text-white">{card.agentName}</span>}</p>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <div className="rounded-xl bg-gray-50 px-3 py-2 dark:bg-gray-900"><p className="text-[11px] text-gray-400">Name</p><p className="truncate text-sm font-semibold text-gray-900 dark:text-white">{card.name ?? "Your choice"}</p></div>
           <div className="rounded-xl bg-gray-50 px-3 py-2 dark:bg-gray-900"><p className="text-[11px] text-gray-400">Ticker</p><p className="truncate font-mono text-sm font-semibold text-gray-900 dark:text-white">{card.ticker ? `$${card.ticker}` : "Your choice"}</p></div>

@@ -27,6 +27,10 @@ import { CREWS_BY_TIER, CREW_SIZE, HOLDS_AXON, MESSAGES_PER_DAY, myloModels } fr
 import { earningsOf, withdrawalsOf } from "./studioWithdraw";
 import { proposalsOf } from "./studioImprove";
 import { checkEligibility } from "./agentLaunch";
+import { agentMindsEnabled } from "./mindsPolicy";
+import { tokenOfAgent } from "./mindsStore";
+import { LAUNCH_LIMITS } from "./mindsAgent";
+import { sameAddress } from "./address";
 import { WITHDRAW, withdrawalsEnabled } from "./studioPolicy";
 import { explorerTxUrl } from "./chain";
 import { buildsOf, getBuild } from "./studioDraft";
@@ -183,7 +187,7 @@ export interface AgentCard { agentId: string; name: string; description: string 
 export type Card =
   | { kind: "agents"; title: string; agents: AgentCard[] }
   | { kind: "compare"; agents: AgentCard[] }
-  | { kind: "launch"; agentId: string; agentName: string; name: string | null; ticker: string | null; description: string | null; page: string }
+  | { kind: "launch"; agentId: string | null; agentName: string; name: string | null; ticker: string | null; description: string | null; page: string }
   | { kind: "earnings"; agents: { agentId: string; name: string; earnedEth: number; availableEth: number }[]; availableEth: number }
   | { kind: "pulse"; agents: number; activeAgents: number; tasksToday: number; successRate: number; burned: number | null; burns: number | null; lastCheck: { at: string; checks: number | null } | null };
 
@@ -453,7 +457,7 @@ function myAgents(ctx: ToolContext): Omit<ToolOutcome, "label"> {
       built_in_studio: c.studioScore !== null, earned_eth: e?.earnedEth ?? null, can_withdraw_eth: e?.availableEth ?? null,
       remixes: remixes.map((r) => ({ agent_id: r.agent_id, name: r.name })),
       better_version_waiting: proposals.filter((p) => p.agentId === a.agentId).map((p) => ({ improvement_id: p.id, tested_before: p.fromScore, tested_now: p.toScore, from_weak_jobs: p.weakJobs })),
-      token_launch: launch.eligible ? { can_launch: true, page: `/launch/${a.agentId}` } : { can_launch: false, why_not: launch.reason },
+      token_launch: agentMindsEnabled() ? (tokenOfAgent(a.agentId) ? { can_launch: false, why_not: "This agent already has a token." } : { can_launch: true, page: `/launch?agent=${encodeURIComponent(a.agentId)}` }) : launch.eligible ? { can_launch: true, page: `/launch/${a.agentId}` } : { can_launch: false, why_not: launch.reason },
     };
   });
   return {
@@ -506,6 +510,7 @@ async function saveCrewTool(ctx: ToolContext, input: Record<string, unknown>): P
 /** Get a launch ready: the agent can launch, and the page opens with what Mylo suggests filled in. */
 function launchTool(ctx: ToolContext, input: Record<string, unknown>): Omit<ToolOutcome, "label"> {
   if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." } };
+  if (agentMindsEnabled()) return mindLaunchTool(ctx.wallet, input);
   const agentId = String(input.agent_id ?? "");
   const e = checkEligibility(agentId, ctx.wallet.toLowerCase());
   if (!e.eligible) return { result: { can_launch: false, why_not: e.reason } };
@@ -519,6 +524,50 @@ function launchTool(ctx: ToolContext, input: Record<string, unknown>): Omit<Tool
     result: { can_launch: true, filled_in: { name: name || null, ticker: ticker || null, description: about || null }, still_needed: "an image, then they launch from their own wallet on that page", record: e.record, note: "The page shows a card with these filled in and a button to the launch page. Point to the card; don't write out the link." },
     card: { kind: "launch", agentId, agentName: e.agent?.name ?? agentId, name: name || null, ticker: ticker || null, description: about || null, page },
   };
+}
+
+/**
+ * Agent Minds: get a launch ready on the one launch screen. A new token with a new agent made from one line, or a
+ * token for an agent the wallet already owns. Nothing is prepared or launched here; the screen opens filled in.
+ */
+function mindLaunchTool(wallet: string, input: Record<string, unknown>): Omit<ToolOutcome, "label"> {
+  const name = String(input.name ?? "").replace(/\s+/g, " ").trim().slice(0, LAUNCH_LIMITS.nameChars);
+  const ticker = String(input.ticker ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, LAUNCH_LIMITS.symbolChars);
+  const line = String(input.what_the_agent_does ?? input.description ?? "").replace(/\s+/g, " ").trim().slice(0, LAUNCH_LIMITS.lineChars);
+  const agentId = String(input.agent_id ?? "").trim();
+  const q = new URLSearchParams();
+  let agentName = "a new agent";
+  if (agentId) {
+    const agent = getAgentById(agentId);
+    if (!agent || !sameAddress(agent.walletAddress, wallet)) return { result: { can_launch: false, why_not: "That is not one of their agents. my_agents lists them; or launch with a new agent by saying what it does." } };
+    if (tokenOfAgent(agent.agentId)) return { result: { can_launch: false, why_not: "That agent already has a token." } };
+    q.set("agent", agent.agentId);
+    agentName = agent.name;
+  } else if (line.length < LAUNCH_LIMITS.lineMin) {
+    return { result: { can_launch: false, why_not: "Ask them in one line what the agent behind the token should do, then call this again with what_the_agent_does." } };
+  }
+  if (name) q.set("name", name);
+  if (ticker) q.set("ticker", ticker);
+  if (!agentId) q.set("line", line);
+  const page = `/launch?${q}`;
+  return {
+    result: {
+      can_launch: true, filled_in: { name: name || null, ticker: ticker || null, agent: agentId ? agentName : "a new agent made from their line", what_the_agent_does: agentId ? null : line },
+      still_needed: "a picture, then they check what gets locked (tax and where the fees go) and sign one transaction from their own wallet on that screen",
+      note: "The page shows a card with these filled in and a button to the launch screen. Point to the card; don't write out the link. Never say it is launched.",
+    },
+    card: { kind: "launch", agentId: agentId || null, agentName, name: name || null, ticker: ticker || null, description: agentId ? null : line, page },
+  };
+}
+
+/** The tools as the model sees them right now. With Agent Minds on, launching no longer needs an agent of their own. */
+export function myloToolDefs(): typeof MYLO_TOOL_DEFS {
+  if (!agentMindsEnabled()) return MYLO_TOOL_DEFS;
+  return MYLO_TOOL_DEFS.map((t) => (t.name !== "launch_token" ? t : {
+    name: "launch_token",
+    description: "Get a token launch ready on the launch screen. Either a new token with a new agent (give what_the_agent_does: one line; Axon makes the agent from it) or a token for one of the person's own agents (give agent_id). Give your best name and a short ticker. The person adds a picture, checks what gets locked and signs from their own wallet there; Mylo never launches it.",
+    input_schema: { type: "object", properties: { name: { type: "string" }, ticker: { type: "string" }, what_the_agent_does: { type: "string" }, agent_id: { type: "string" } }, required: [] },
+  })) as unknown as typeof MYLO_TOOL_DEFS;
 }
 
 /** What each tier gives, from the rules the rest of Axon actually enforces. */
