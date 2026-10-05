@@ -7,7 +7,7 @@ import Link from "next/link";
 import { decodeEventLog, encodeFunctionData, formatEther } from "viem";
 import { useWallet } from "@/components/WalletProvider";
 import { CHAIN_ID_HEX, CHAIN_PARAMS, explorerTxUrl, ponsTokenUrl, provider, readableWalletError } from "@/lib/chain";
-import { CEILINGS, DEFAULT_SETTINGS, MIND_LAUNCH_ABI, checkSettings, creatorBps, launchInput, launchValue, lockedSummary, type LaunchSettings } from "@/lib/mindsLaunch";
+import { CEILINGS, DEFAULT_SETTINGS, MIND_LAUNCH_ABI, checkSettings, creatorBps, launchInput, launchValue, lockedSummary, type LaunchSettings, tokenDescription } from "@/lib/mindsLaunch";
 import { DEFAULT_MIND_MODEL, MIND_MODELS, OWN_MIND, mindLabel } from "@/lib/mindsModels";
 import { OWN_SERVER_EXAMPLE } from "@/lib/mindsOwnExample";
 
@@ -195,7 +195,7 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
       if (!pr.ok || !prepared.ref || !prepared.launcher) throw new Error(prepared.error ?? "The launch could not be prepared.");
 
       setStep("wallet");
-      const data = encodeFunctionData({ abi: MIND_LAUNCH_ABI, functionName: "launch", args: [launchInput({ name: name.trim(), symbol, logo: logo.url, description: description || `${name.trim()}, an agent on Axon` }, prepared.ref, s)] });
+      const data = encodeFunctionData({ abi: MIND_LAUNCH_ABI, functionName: "launch", args: [launchInput({ name: name.trim(), symbol, logo: logo.url, description: tokenDescription(description, name) }, prepared.ref, s)] });
       const hash = await send(prepared.launcher, data, launchValue(feeWei, s));
 
       setStep("confirming");

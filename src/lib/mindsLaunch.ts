@@ -142,6 +142,18 @@ export function mindLimits(s: MindLimits) {
   } as const;
 }
 
+/** What every token launched here says about where it came from, at the end of its description. */
+export const LAUNCHED_ON = "Launched on Axon.";
+
+/**
+ * The description a token carries on chain: the creator's own line about its agent, then where it was launched. A
+ * token launched for an agent that already exists has no line, so its name stands in for one.
+ */
+export function tokenDescription(line: string, name: string): string {
+  const said = line.replace(/\s+/g, " ").trim() || name.trim();
+  return `${said}${/[.!?]$/.test(said) ? "" : "."} ${LAUNCHED_ON}`;
+}
+
 /** What the launch transaction carries: the launch factory's own fee, plus the creator's first buy. */
 export function launchValue(feeWei: bigint, s: Pick<LaunchSettings, "openingBuyEth">): bigint {
   return feeWei + (eth(s.openingBuyEth) ?? 0n);

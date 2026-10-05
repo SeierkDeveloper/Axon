@@ -17,7 +17,7 @@ import { randomUUID } from "crypto";
 import { decodeFunctionData, encodeFunctionData, parseEther } from "viem";
 import { getDb } from "@/lib/db";
 import { createAgent } from "@/lib/agents";
-import { CAN, CEILINGS, DEFAULT_SETTINGS, MIND_LAUNCH_ABI, checkSettings, creatorBps, launchInput, launchValue, lockedSummary, type LaunchSettings } from "@/lib/mindsLaunch";
+import { CAN, CEILINGS, DEFAULT_SETTINGS, MIND_LAUNCH_ABI, checkSettings, creatorBps, launchInput, launchValue, lockedSummary, type LaunchSettings, tokenDescription, LAUNCHED_ON } from "@/lib/mindsLaunch";
 import { imageKind, saveLogo, getLogo, LOGO_LIMITS } from "@/lib/mindsLogo";
 import { prepare, launchableAgents } from "@/lib/mindsAgent";
 import { upsertToken } from "@/lib/mindsStore";
@@ -247,5 +247,16 @@ describe("the tables", () => {
   it("keeps pictures where the migration put them", () => {
     const cols = (getDb().prepare("PRAGMA table_info(mind_logos)").all() as { name: string }[]).map((c) => c.name);
     expect(cols).toEqual(["id", "wallet", "mime", "bytes", "size", "created_at"]);
+  });
+});
+
+describe("what a token says about itself on chain", () => {
+  it("is the creator's line, then where it was launched", () => {
+    expect(LAUNCHED_ON).toBe("Launched on Axon.");
+    expect(tokenDescription("Reads a smart contract and lists what it can do to holders, in plain words", "Custos")).toBe("Reads a smart contract and lists what it can do to holders, in plain words. Launched on Axon.");
+    expect(tokenDescription("  Explains company   filings in plain words.  ", "Ledger Lens")).toBe("Explains company filings in plain words. Launched on Axon.");
+    expect(tokenDescription("Is this contract safe?", "Custos")).toBe("Is this contract safe? Launched on Axon.");
+    // a token for an agent that already exists has no line of its own
+    expect(tokenDescription("", "Ledger Lens")).toBe("Ledger Lens. Launched on Axon.");
   });
 });
