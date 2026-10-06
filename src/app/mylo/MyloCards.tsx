@@ -13,7 +13,9 @@ import { provider } from "@/lib/chain";
 // it runs, and its result arrives in the conversation the same way.
 
 export interface AgentCardData { agentId: string; name: string; description: string | null; category: string | null; price: string | null; priceEth: number | null; proofScore: number | null; studioScore: number | null; tasksCompleted: number | null }
+export interface TokenCardData { token: string; name: string | null; symbol: string | null; logo: string | null; mcapEth: number | null; holders: number | null; curvePercent: number; graduated: boolean; burnedEth: number; agentName: string | null; page: string }
 export type CardData =
+  | { kind: "tokens"; title: string; usdPerEth: number | null; tokens: TokenCardData[] }
   | { kind: "agents"; title: string; agents: AgentCardData[] }
   | { kind: "compare"; agents: AgentCardData[] }
   | { kind: "launch"; agentId: string | null; agentName: string; name: string | null; ticker: string | null; description: string | null; page: string }
@@ -56,6 +58,28 @@ export function Card({ card }: { card: CardData }) {
         {card.description && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{card.description}</p>}
         <Link href={card.page} className="mt-4 inline-flex rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">Open the launch page</Link>
         <p className="mt-3 text-[11px] text-gray-400">Filled in for you to check. Add an image there and launch from your own wallet.</p>
+      </div>
+    );
+  }
+  if (card.kind === "tokens") {
+    const cap = (t: TokenCardData) => (t.mcapEth === null ? "…" : card.usdPerEth ? `$${compact(t.mcapEth * card.usdPerEth)}` : `${+t.mcapEth.toPrecision(3)} ETH`);
+    return (
+      <div className="mt-3 overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+        <p className="border-b border-gray-100 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.2em] text-gray-400 dark:border-gray-800">{card.title}</p>
+        {card.tokens.map((t, i) => (
+          <Link key={t.token} href={t.page} className={`flex items-center gap-3 px-4 py-3 transition hover:bg-gray-50 dark:hover:bg-gray-900 ${i ? "border-t border-gray-100 dark:border-gray-800" : ""}`}>
+            {/* eslint-disable-next-line @next/next/no-img-element -- token pictures come from wherever their creators put them */}
+            {t.logo ? <img src={t.logo} alt="" loading="lazy" className="h-10 w-10 shrink-0 rounded-lg object-cover" /> : <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-gray-100 font-mono text-[11px] font-semibold text-gray-400 dark:bg-gray-800">{(t.symbol ?? "?").slice(0, 4)}</span>}
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">{t.name ?? "Token"}</p>
+              <p className="truncate text-xs text-gray-500 dark:text-gray-400"><span className="font-mono">${t.symbol ?? "?"}</span> · {t.graduated ? "Graduated" : `Curve ${t.curvePercent}%`}</p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="font-mono text-xs font-semibold tabular-nums text-gray-900 dark:text-white">{cap(t)}</p>
+              {t.holders !== null && <p className="font-mono text-[11px] tabular-nums text-gray-400">{t.holders} {t.holders === 1 ? "holder" : "holders"}</p>}
+            </div>
+          </Link>
+        ))}
       </div>
     );
   }

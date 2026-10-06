@@ -197,6 +197,19 @@ export function boardToken(token: string): BoardToken | null {
   return r ? asToken(r) : null;
 }
 
+/** Tokens found by name or ticker, or the one at an address: an exact ticker or name first, then the biggest. */
+export function findTokens(query: string, limit = 8): BoardToken[] {
+  const q = query.trim().replace(/^\$/, "").toLowerCase();
+  if (!q) return [];
+  if (/^0x[0-9a-f]{40}$/.test(q)) { const t = boardToken(q); return t ? [t] : []; }
+  const like = `%${q.replace(/[\\%_]/g, "\\$&")}%`;
+  const rows = getDb().prepare(
+    `${BOARD_SELECT} WHERE LOWER(t.symbol) LIKE ? ESCAPE '\\' OR LOWER(t.name) LIKE ? ESCAPE '\\'
+     ORDER BY LOWER(t.symbol) = ? DESC, LOWER(t.name) = ? DESC, COALESCE(s.mcap_eth, 0) DESC, t.launched_at DESC LIMIT ?`,
+  ).all(like, like, q, q, Math.min(50, Math.max(1, limit))) as BoardRow[];
+  return rows.map(asToken);
+}
+
 const BOARD_SELECT =
     `SELECT t.token, t.name, t.symbol, t.logo, t.creator, t.launched_at launchedAt, t.tx_hash txHash, t.agent_id agentId, a.name agentName,
        t.pot, t.splitter, t.vault, t.payout, t.attached, t.tax_bps taxBps, t.creator_bps creatorBps, t.burn_bps burnBps, t.axon_bps axonBps, t.mind_bps mindBps, t.model,

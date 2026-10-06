@@ -21,7 +21,7 @@ import { CAN, CEILINGS, DEFAULT_SETTINGS, MIND_LAUNCH_ABI, checkSettings, creato
 import { imageKind, saveLogo, getLogo, LOGO_LIMITS } from "@/lib/mindsLogo";
 import { prepare, launchableAgents } from "@/lib/mindsAgent";
 import { upsertToken } from "@/lib/mindsStore";
-import { runTool, myloToolDefs, MYLO_TOOL_DEFS } from "@/lib/myloTools";
+import { runTool, myloToolDefs, MYLO_TOOL_DEFS, MINDS_TOOL_DEFS } from "@/lib/myloTools";
 import { startConversation } from "@/lib/myloStore";
 import type { Agent } from "@/sdk/types";
 
@@ -215,7 +215,7 @@ describe("Mylo getting a launch ready", () => {
     vi.stubEnv("AGENT_MINDS", "on");
     const def = myloToolDefs().find((t) => t.name === "launch_token")!;
     expect(def.description).toMatch(/new agent/);
-    expect(myloToolDefs().length).toBe(MYLO_TOOL_DEFS.length);
+    expect(myloToolDefs().length).toBe(MYLO_TOOL_DEFS.length + MINDS_TOOL_DEFS.length);
     const out = await runTool("launch_token", { name: "Ledger Lens", ticker: "$lens", what_the_agent_does: "Reads a company's filings and explains what changed" }, ctx(wallet()));
     expect(out.result).toMatchObject({ can_launch: true, filled_in: { name: "Ledger Lens", ticker: "LENS" } });
     expect(out.card).toMatchObject({ kind: "launch", agentId: null, name: "Ledger Lens", ticker: "LENS" });

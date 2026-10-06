@@ -29,6 +29,9 @@ import { proposalsOf } from "./studioImprove";
 import { checkEligibility } from "./agentLaunch";
 import { agentMindsEnabled } from "./mindsPolicy";
 import { tokenOfAgent } from "./mindsStore";
+import { board, boardTotals, findTokens, type BoardSort, type BoardToken } from "./mindsStats";
+import { mindLabel } from "./mindsModels";
+import { ethUsd } from "./ethPrice";
 import { LAUNCH_LIMITS } from "./mindsAgent";
 import { sameAddress } from "./address";
 import { WITHDRAW, withdrawalsEnabled } from "./studioPolicy";
@@ -181,10 +184,27 @@ export const MYLO_TOOL_DEFS = [
   },
 ] as const;
 
+/** The tools that exist only with Agent Minds on: reading the tokens launched here and their minds. */
+export const MINDS_TOOL_DEFS = [
+  {
+    name: "token_board",
+    description: "The tokens launched on Axon, each with an agent and a mind. Without search: the newest, the biggest by market cap, or the most burned. With search: find one by its name, its ticker or its address. Returns each token's market cap, holders, how far along its curve it is, what its fees burned, its mind's treasury and its page. These are facts from the chain: report them, and never say whether a token is worth buying or where its price will go.",
+    input_schema: { type: "object", properties: {
+      sort: { type: "string", enum: ["new", "biggest", "most_burned"], description: "The order when not searching (default new)" },
+      search: { type: "string", description: "A name, a ticker or a token address to find" },
+      limit: { type: "integer", description: "How many to return, 1 to 8 (default 5)" },
+    } },
+  },
+] as const;
+
 /** One agent as Mylo shows it: public facts only. */
 export interface AgentCard { agentId: string; name: string; description: string | null; category: string | null; price: string | null; priceEth: number | null; proofScore: number | null; studioScore: number | null; tasksCompleted: number | null; tools: string[] | null }
 
+/** One token as Mylo shows it: what the launch page shows anyone. */
+export interface TokenCardData { token: string; name: string | null; symbol: string | null; logo: string | null; mcapEth: number | null; holders: number | null; curvePercent: number; graduated: boolean; burnedEth: number; agentName: string | null; page: string }
+
 export type Card =
+  | { kind: "tokens"; title: string; usdPerEth: number | null; tokens: TokenCardData[] }
   | { kind: "agents"; title: string; agents: AgentCard[] }
   | { kind: "compare"; agents: AgentCard[] }
   | { kind: "launch"; agentId: string | null; agentName: string; name: string | null; ticker: string | null; description: string | null; page: string }
@@ -210,7 +230,7 @@ export function agentCard(a: Agent): AgentCard {
 export const TOOL_LABELS: Record<string, string> = {
   search_agents: "Searching the network", agent_details: "Reading the agent's record", compare_agents: "Comparing agents",
   network_pulse: "Checking the network", public_feed: "Reading the latest on Axon", hire_agent: "Preparing the hire", second_opinion: "Preparing a second opinion",
-  save_crew: "Saving the crew", my_crews: "Looking at your crews", run_crew: "Preparing the crew", schedule_job: "Preparing the autopilot", my_schedules: "Looking at your autopilot", manage_schedule: "Updating your autopilot", launch_token: "Preparing the launch", my_tier: "Checking your $AXON tier",
+  save_crew: "Saving the crew", my_crews: "Looking at your crews", run_crew: "Preparing the crew", schedule_job: "Preparing the autopilot", my_schedules: "Looking at your autopilot", manage_schedule: "Updating your autopilot", launch_token: "Preparing the launch", token_board: "Looking at the tokens", my_tier: "Checking your $AXON tier",
   remember: "Remembering that", forget: "Forgetting that", my_inbox: "Reading what's new for you", my_agents: "Looking at your agents", my_earnings: "Checking your earnings", withdraw_earnings: "Preparing the withdrawal", apply_improvement: "Preparing the update",
   build_agent: "Preparing the build", change_build: "Making the change", build_report: "Reading your build", pricing_advice: "Looking at what similar agents charge", publish_build: "Preparing to publish",
 };
@@ -286,6 +306,7 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
         }
       }
       case "launch_token": return { ...launchTool(ctx, input), label };
+      case "token_board": return { ...(await boardTool(input)), label };
       case "my_tier": return { ...(await tierTool(ctx)), label };
       case "remember": {
         if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." }, label };
@@ -507,6 +528,50 @@ async function saveCrewTool(ctx: ToolContext, input: Record<string, unknown>): P
   return { result: { saved: crewView(c.name, c.members), note: "Saved. Running it is proposed separately and paid on their OK." } };
 }
 
+const SORTS: Record<string, BoardSort> = { new: "new", biggest: "mcap", most_burned: "burned" };
+const TITLES: Record<BoardSort, string> = { new: "Newest tokens", mcap: "Biggest tokens", burned: "Most burned" };
+const amount = (v: number) => +v.toPrecision(6);
+
+/** A token as the model reads it. Amounts in ETH as the chain has them; dollars only where the price could be read. */
+function tokenForModel(t: BoardToken, usd: number | null) {
+  const graduated = t.phase >= 2;
+  return {
+    token: t.token, name: t.name, ticker: t.symbol ? `$${t.symbol}` : null, page: `/launch?token=${t.token}`,
+    market_cap_eth: t.mcapEth === null ? null : amount(t.mcapEth), market_cap_usd: t.mcapEth !== null && usd ? Math.round(t.mcapEth * usd) : null,
+    // a mind given to an earlier token has no holder count of its own here
+    holders: t.attached ? null : t.holders,
+    stage: graduated ? "graduated: it trades in its pool on Pons" : `on its curve, ${Math.floor(t.curveBps / 100)}% of the way to graduating`,
+    trading_fees_eth: amount(t.feesEth), burned: { times: t.burns, tokens: Math.round(t.burnedTokens), bought_with_eth: amount(t.burnedEth) },
+    mind: t.stopped ? { stopped: true } : { runs_on: mindLabel(t.model), treasury_eth: amount(t.treasuryEth), thoughts: t.thoughts },
+    agent: t.agentName, launched_at: t.launchedAt,
+  };
+}
+
+const tokenCard = (t: BoardToken): TokenCardData => ({
+  token: t.token, name: t.name, symbol: t.symbol, logo: t.logo, mcapEth: t.mcapEth, holders: t.attached ? null : t.holders, curvePercent: t.phase >= 2 ? 100 : Math.floor(t.curveBps / 100),
+  graduated: t.phase >= 2, burnedEth: t.burnedEth, agentName: t.agentName, page: `/launch?token=${t.token}`,
+});
+
+/** The board as the launch page shows it, in the order asked for; or the tokens a name, ticker or address finds. */
+async function boardTool(input: Record<string, unknown>): Promise<Omit<ToolOutcome, "label">> {
+  if (!agentMindsEnabled()) return { result: { error: "Tokens with minds aren't on here yet." } };
+  const limit = Math.min(Math.max(Math.floor(Number(input.limit)) || 5, 1), 8);
+  const search = String(input.search ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+  const sort = SORTS[String(input.sort ?? "new")] ?? "new";
+  const found = search ? findTokens(search, limit) : board(sort, limit);
+  const usd = await ethUsd().catch(() => null);
+  const total = boardTotals().tokens;
+  return {
+    result: {
+      tokens: found.map((t) => tokenForModel(t, usd)), tokens_on_axon: total, order: search ? undefined : TITLES[sort].toLowerCase(),
+      note: found.length
+        ? "The page shows these as a card that opens each token's page. Give the numbers as they are; say nothing about whether to buy."
+        : search ? `No token on Axon matches "${search}". ${total ? "Without search this lists what is here." : "None have been launched yet."}` : "No tokens have been launched on Axon yet. Anyone can launch the first on /launch.",
+    },
+    card: found.length ? { kind: "tokens", title: search ? `Tokens matching "${search}"` : TITLES[sort], usdPerEth: usd, tokens: found.map(tokenCard) } : undefined,
+  };
+}
+
 /** Get a launch ready: the agent can launch, and the page opens with what Mylo suggests filled in. */
 function launchTool(ctx: ToolContext, input: Record<string, unknown>): Omit<ToolOutcome, "label"> {
   if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." } };
@@ -560,14 +625,15 @@ function mindLaunchTool(wallet: string, input: Record<string, unknown>): Omit<To
   };
 }
 
-/** The tools as the model sees them right now. With Agent Minds on, launching no longer needs an agent of their own. */
+/** The tools as the model sees them right now. With Agent Minds on, launching no longer needs an agent of their own,
+ *  and the tools that read tokens and their minds are there. */
 export function myloToolDefs(): typeof MYLO_TOOL_DEFS {
   if (!agentMindsEnabled()) return MYLO_TOOL_DEFS;
-  return MYLO_TOOL_DEFS.map((t) => (t.name !== "launch_token" ? t : {
+  return [...MYLO_TOOL_DEFS.map((t) => (t.name !== "launch_token" ? t : {
     name: "launch_token",
     description: "Get a token launch ready on the launch screen. Either a new token with a new agent (give what_the_agent_does: one line; Axon makes the agent from it) or a token for one of the person's own agents (give agent_id). Give your best name and a short ticker. The person adds a picture, checks what gets locked and signs from their own wallet there; Mylo never launches it.",
     input_schema: { type: "object", properties: { name: { type: "string" }, ticker: { type: "string" }, what_the_agent_does: { type: "string" }, agent_id: { type: "string" } }, required: [] },
-  })) as unknown as typeof MYLO_TOOL_DEFS;
+  })), ...MINDS_TOOL_DEFS] as unknown as typeof MYLO_TOOL_DEFS;
 }
 
 /** What each tier gives, from the rules the rest of Axon actually enforces. */
