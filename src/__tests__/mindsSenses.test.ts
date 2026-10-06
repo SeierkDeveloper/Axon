@@ -8,7 +8,7 @@ import { upsertToken } from "@/lib/mindsStore";
 let n = 0;
 const addr = () => `0x${(++n + 3_300_000).toString(16).padStart(40, "0")}`;
 const NOW = Date.UTC(2026, 9, 6, 12, 0, 0);
-const MIN = 60_000, HOUR = 60 * MIN;
+const MIN = 60_000;
 const E18 = 10n ** 18n;
 
 function token(symbol: string, mcapEth: number, holders: number, feesEth = 0): string {
