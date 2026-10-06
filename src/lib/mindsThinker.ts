@@ -78,6 +78,17 @@ export const standInThinker: Thinker = async (model, system, prompt) => {
       thesis: "Buy back when the market cap falls, reward when holders grow, and never spend below the reserve.",
     } } : {}),
   };
+  // with no order armed it arms one, so standing orders can be exercised without a model: a buyback if the market
+  // cap falls, or failing that a reward at the next round number of holders
+  const cap = num("market_cap_eth"), order = Math.min(perAction, Math.max(0.0001, Math.floor((free / 5) * 1e6) / 1e6));
+  if (/your_standing_orders: none armed/.test(prompt) && order <= perAction) {
+    const orders = /buy back/.test(can) && cap > 0
+      ? [{ when: { kind: "market_cap_drops_pct", value: 15 }, then: { kind: "buyback", eth: order }, hours: 24, say: "If the market cap falls 15% from here I buy back and burn, without waiting to be woken." }]
+      : /reward holders/.test(can) && holders >= 2
+        ? [{ when: { kind: "holders_reach", value: [10, 25, 50, 100, 250, 500, 1000].find((v) => v > holders) ?? holders * 2 }, then: { kind: "reward", eth: order }, hours: 72, say: "When holders reach the next round number I set a reward aside for them." }]
+        : [];
+    if (orders.length) Object.assign(out, { orders });
+  }
   const text = JSON.stringify(out);
   const inputTokens = Math.ceil((system.length + prompt.length) / 4), outputTokens = Math.ceil(text.length / 4);
   return { text, inputTokens, outputTokens, costUsd: priceUsd(model, inputTokens, outputTokens) };

@@ -31,6 +31,7 @@ import { advanceRunningCrews } from "../lib/myloActions";
 import { indexMinds } from "../lib/mindsIndex";
 import { refreshStats } from "../lib/mindsStats";
 import { thinkDue } from "../lib/mindsMind";
+import { fireDue, settleOrders } from "../lib/mindsOrders";
 import { actDue, settleSent, payThinkingDue, keepUp } from "../lib/mindsAct";
 
 // Agents that append live market prices to their task message
@@ -691,6 +692,9 @@ export async function startWorkerLoops(): Promise<void> {
       .then((r) => { if (r?.added) logger.info("minds.index", "Tokens with a mind read from the chain", { ...r }); })
       // then the numbers the board shows: price, holders, fees, burns, treasuries
       .then(() => refreshStats())
+      // standing orders: the ones whose condition is met fire, with no model called; the rest wait or lapse
+      .then(() => fireDue())
+      .then((r) => { if (r && (r.fired || r.lapsed)) logger.info("minds.orders", "Standing orders looked at", { ...r }); })
       // and the minds with something to think about think (only when thinking is switched on)
       .then(() => thinkDue())
       .then((r) => { if (r?.thought) logger.info("minds.thought", "Minds thought", { ...r }); })
@@ -699,6 +703,7 @@ export async function startWorkerLoops(): Promise<void> {
       .then(() => settleSent())
       .then(() => actDue())
       .then((r) => { if (r && (r.done || r.failed || r.dropped)) logger.info("minds.act", "Minds acted", { ...r }); })
+      .then(() => { settleOrders(); })
       .then(() => payThinkingDue())
       // every few minutes: move fees to their splitters and let ready pots burn
       .then(() => (++mindsTicks % 15 === 0 ? keepUp() : null))
