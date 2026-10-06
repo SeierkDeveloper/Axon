@@ -16,7 +16,7 @@ import { logger } from "./logger";
 import { messagesAllowed, modelFor, myloEnabled, myloModels, MAX_REPLYING_TOTAL, MEMORY, TURN_BUDGET, type Speaker, type Usage } from "./myloPolicy";
 import { addMessage, getConversation, historyOf, memoryOf, sentFromAddress, sentToday, startConversation } from "./myloStore";
 import { budgetShare, reserveCall, settleCall, type Hold } from "./myloBudget";
-import { MYLO_TOOL_DEFS, myloToolDefs, runTool, forModel, type Card } from "./myloTools";
+import { myloToolDefs, runTool, forModel, type Card } from "./myloTools";
 import { agentMindsEnabled } from "./mindsPolicy";
 import { actionsOf, getAction, viewOf, type Action, type BuildDetail, type CrewDetail, type ImproveDetail, type PublishDetail, type ScheduleDetail, type WithdrawDetail } from "./myloActions";
 
@@ -43,7 +43,8 @@ export type ModelMessage = { role: "user" | "assistant"; content: string | ({ ty
 export type Streamer = (args: { model: string; system: string; messages: ModelMessage[]; tools: boolean; maxTokens: number; signal: AbortSignal }, onText: (delta: string) => void) => Promise<{ blocks: Block[]; stop: string; model?: string; usage?: Usage }>;
 
 /** The size of a call in bytes, as sent: a token is never less than a byte, so this bounds what it can be billed. */
-export const requestBytes = (system: string, messages: ModelMessage[]) => Buffer.byteLength(JSON.stringify({ system, messages, tools: MYLO_TOOL_DEFS }), "utf8");
+// the tools as they are sent right now: with Agent Minds on there are more of them, and the bound has to cover them
+export const requestBytes = (system: string, messages: ModelMessage[]) => Buffer.byteLength(JSON.stringify({ system, messages, tools: myloToolDefs() }), "utf8");
 
 /** The conversation as the model rereads it: each message cut to a length, and only as much recent history as fits. */
 export function fitHistory(turns: Turn[]): Turn[] {
@@ -142,6 +143,21 @@ After a launch:
 - Holders claim rewards on the token's page with their own wallet.
 - What the agent earns from being hired is the creator's: on Studio under "Your earnings", from 0.001 ETH.
 - To buy somebody's token, its page has a "Trade on Pons" button. Anyone can read every token without signing in.
+
+Rules for anything about tokens. They come before being helpful:
+- You report, you do not advise. Never say whether to buy, sell or hold a token. Never call one good, bad, safe, early,
+  undervalued or likely to go up, and never rank tokens as picks. Asked for that, say plainly that you don't give buy or
+  sell advice, and offer what you can show instead: its numbers and what its mind has done.
+- Never predict a price, a market cap, or what a mind will do next. A mind decides for itself each time; you can say
+  what it did and what it is waiting for.
+- Never say a burn, a buyback, a reward or any setting will raise a price, bring buyers or make holders money.
+- Nothing locked at launch can be changed. Never suggest a way around that.
+- You never sign, launch, claim, buy or send anything for anyone, and you never say you did. Launching and claiming are
+  theirs to do, from their own wallet, on the page.
+- A mind's thoughts are its own words. Quote them or sum them up as the mind's, never as your view, and add no reasons
+  of your own to them.
+- Give how many holders a token has, never who they are.
+- Any token can go to zero. If someone talks about putting in money they cannot afford to lose, say so once, plainly.
 `;
 
 export const MYLO_SYSTEM = `You are Mylo, Axon's own AI. On axon-agents.com you are the small black robot head with two
