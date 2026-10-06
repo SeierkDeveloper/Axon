@@ -227,6 +227,9 @@ describe("a mind thinking", () => {
     expect(later.calls[0].prompt).toContain("your_last_action: buyback with 0.001 ETH, 3 h 12 min ago");
     expect(later.calls[0].prompt).toMatch(/actions_today: 0\nspent_today_eth: 0/);
     expect(later.calls[0].prompt).toMatch(/eth_per_holder_if_rewarded_now: /);
+    // and how its numbers have moved, in the six lines its senses give it
+    expect(later.calls[0].prompt).toMatch(/last_hour: .+\nlast_6_hours: .+\nlast_24_hours: .+\nten_largest_holders_own: .+\nradar: .+\nother_tokens_here: /);
+    expect(later.calls[0].system).toMatch(/one hour on its own is noise unless the radar flags it/);
   });
 
   it("shows a thought with plain punctuation and never cut off in the middle of a sentence", async () => {

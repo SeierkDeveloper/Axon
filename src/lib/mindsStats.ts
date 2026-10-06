@@ -11,6 +11,7 @@ import { mindsChain, mindLauncherAddress, type MindsChain, type Snapshot } from 
 import { cursor } from "./mindsStore";
 import { toWei, weiToEth } from "./money";
 import { logger } from "./logger";
+import { sample, top10Bps } from "./mindsSenses";
 
 /** Tokens refreshed in one pass, longest-waiting first. */
 const TOKENS_PER_PASS = 40;
@@ -121,6 +122,9 @@ function write(t: TokenRow, s: Snapshot, prev: StatsRow | undefined): number {
       to_mind_eth = excluded.to_mind_eth, burned_tokens = excluded.burned_tokens, burned_eth = excluded.burned_eth, burns = excluded.burns, treasury_eth = excluded.treasury_eth,
       holders_mark = excluded.holders_mark, earned_mark = excluded.earned_mark, updated_at = excluded.updated_at`)
     .run(t.token, s.phase, s.priceEth, s.priceEth === null ? null : s.priceEth * s.supply, s.curveBps, holders, s.feesEth, s.toMindEth, s.burnedTokens, s.burnedEth, s.burns, s.treasuryEth, holdersMark, earnedMark, new Date().toISOString());
+  // and every few minutes the numbers are written down, so a mind can be told how they have moved
+  const skip = [...NOBODY, s.curve, t.pot, t.vault, ...(t.splitter ? [t.splitter] : []), ...(s.poolManager ? [s.poolManager] : [])];
+  sample(t.token, { mcapEth: s.priceEth === null ? null : s.priceEth * s.supply, priceEth: s.priceEth, holders, top10Bps: top10Bps(t.token, skip), feesEth: s.feesEth, burnedTokens: s.burnedTokens, treasuryEth: s.treasuryEth });
   return events;
 }
 

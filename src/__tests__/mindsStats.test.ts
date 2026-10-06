@@ -86,6 +86,15 @@ describe("the numbers a token shows", () => {
     expect(boardTotals()).toMatchObject({ tokens: 1, feesEth: 0.05, burnedEth: 0.004, toMindEth: 0.01, treasuryEth: 0.008 });
   });
 
+  it("writes the numbers down as it goes, for a mind to see change in, and not on every pass", async () => {
+    const w = world();
+    const t = w.launch("Ledger Lens", "LENS", 1100);
+    w.state.snaps.set(t.token, snap({ priceEth: 2e-9, feesEth: 0.05, burnedTokens: 250_000, treasuryEth: 0.008 }));
+    await w.pass(); await w.pass(); await w.pass();
+    const rows = getDb().prepare("SELECT mcap_eth, price_eth, holders, fees_eth, burned_tokens, treasury_eth FROM mind_history WHERE token = ?").all(t.token);
+    expect(rows).toEqual([{ mcap_eth: 2, price_eth: 2e-9, holders: 0, fees_eth: 0.05, burned_tokens: 250_000, treasury_eth: 0.008 }]);
+  });
+
   it("writes a holders line only at a milestone, once, and never for a count that fell", async () => {
     expect([0, 9, 10, 24, 25, 49, 50, 99, 100, 999, 1000, 250_000].map(holderMilestone)).toEqual([0, 0, 10, 10, 25, 25, 50, 50, 100, 500, 1000, 100_000]);
     const w = world();
