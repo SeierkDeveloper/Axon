@@ -4,6 +4,8 @@ import { withRequestContext } from "@/lib/withRequestContext";
 import { agentMindsEnabled } from "@/lib/mindsPolicy";
 import { liveToken } from "@/lib/mindsIndex";
 import { mindStatus } from "@/lib/mindsStatus";
+import { planOf, progressOf } from "@/lib/mindsPlan";
+import { boardToken } from "@/lib/mindsStats";
 import { normalizeAddress } from "@/lib/address";
 
 export const runtime = "nodejs";
@@ -20,6 +22,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     if (!t) return apiError("NOT_FOUND", "No token with a mind at that address", 404);
     const status = await mindStatus(token, { treasury: t.treasury }).catch(() => null);
     const mind = status ? { state: status.state, text: status.text, actionsToday: status.day?.actionsToday ?? null, actionsAllowed: t.treasury?.limits.maxActionsPerDay ?? null } : null;
-    return NextResponse.json({ ...t, mind }, { headers: { "Cache-Control": "public, max-age=10" } });
+    // the plan its mind works to, and how far along its goal the token is
+    const standing = planOf(token), b = boardToken(token);
+    const plan = standing ? { ...standing, progress: b ? progressOf(standing, { holders: b.holders, mcapEth: b.mcapEth, burnedTokens: b.burnedTokens, curveBps: b.curveBps, phase: b.phase }) : null } : null;
+    return NextResponse.json({ ...t, mind, plan }, { headers: { "Cache-Control": "public, max-age=10" } });
   });
 }

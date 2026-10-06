@@ -20,6 +20,7 @@ import { checkProposal, type Proposal } from "./mindsRules";
 import { divide, merkle } from "./mindsMerkle";
 import { addEvent } from "./mindsStats";
 import { owedThinkingEth } from "./mindsMind";
+import { reserveOf } from "./mindsPlan";
 import { mindsHalted } from "./mindsAdmin";
 import { publicClient, walletClientFor } from "./evm";
 import { logger } from "./logger";
@@ -122,6 +123,8 @@ async function act(d: Due, o: Required<Pick<ActOptions, "chain" | "sender">> & {
   const verdict = checkProposal(p, {
     allowed: treasury.limits.allowed, maxPerDayEth: treasury.limits.maxPerDayEth, maxPerActionEth: treasury.limits.maxPerActionEth, maxActionsPerDay: treasury.limits.maxActionsPerDay,
     availableEth: treasury.availableEth, owedThinkingEth: owedThinkingEth(d.token), spentTodayEth: day.spentTodayEth, actionsToday: day.actionsToday, active: treasury.active, phase: snap.phase, holders: d.holders, attached: d.attached === 1,
+    // the reserve its plan keeps holds on the second look too
+    reserveEth: reserveOf(d.token),
   });
   if (!verdict.ok) return drop(`Refused on the second look: ${verdict.reason}`);
 

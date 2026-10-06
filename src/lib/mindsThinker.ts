@@ -69,6 +69,14 @@ export const standInThinker: Thinker = async (model, system, prompt) => {
       ? `Woke on ${woke}. The treasury has ${free.toFixed(5)} ETH free with ${holders} holders. A quarter of that ${doing} now; the rest stays for later.`
       : `Woke on ${woke}. ${holders} holders. The treasury has ${free.toFixed(5)} ETH free, which is not enough to act on. Holding.`,
     action: act ? { kind, eth: size } : null,
+    // with no plan yet it writes a plain first one, so everything built on a plan can be exercised without a model
+    ...(/your_plan: none yet/.test(prompt) ? { plan: {
+      mission: "Use the fees for holders in measured steps and keep a reserve for a bad day.",
+      goal: { kind: "holders", target: Math.max(10, [10, 25, 50, 100, 250, 500, 1000].find((v) => v > holders) ?? holders * 2) },
+      split: { buyback: /buy back/.test(can) ? 40 : 0, reward: /reward holders/.test(can) ? 30 : 0, burn_axon: /burn \$AXON/.test(can) ? 10 : 0, reserve: 20 },
+      reserve_eth: Math.floor((free / 5) * 1e6) / 1e6,
+      thesis: "Buy back when the market cap falls, reward when holders grow, and never spend below the reserve.",
+    } } : {}),
   };
   const text = JSON.stringify(out);
   const inputTokens = Math.ceil((system.length + prompt.length) / 4), outputTokens = Math.ceil(text.length / 4);
