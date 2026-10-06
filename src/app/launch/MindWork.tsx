@@ -32,7 +32,7 @@ export interface MindWorkData {
 }
 
 const LABEL = "font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400";
-const eth = (v: number) => `${v >= 100 ? v.toFixed(0) : v >= 1 ? v.toFixed(2) : v >= 0.001 ? v.toFixed(4) : v > 0 ? v.toPrecision(2) : "0"} ETH`;
+const eth = (v: number) => `${v >= 100 ? v.toFixed(0) : v >= 1 ? v.toFixed(2) : v >= 0.001 ? v.toFixed(4) : v >= 0.000001 ? v.toFixed(Math.min(8, 1 - Math.floor(Math.log10(v)))) : v > 0 ? "under 0.000001" : "0"} ETH`;
 const ago = (iso: string, now: number): string => { const s = Math.max(0, Math.floor((now - Date.parse(iso)) / 1000)); return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86_400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86_400)}d`; };
 const until = (iso: string, now: number): string => { const m = Math.max(0, Math.round((Date.parse(iso) - now) / 60_000)); return m < 60 ? `${m} min` : m < 2880 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} days`; };
 const DID: Record<string, [string, string]> = { buyback: ["buyback", "buybacks"], reward: ["reward", "rewards"], burn_axon: ["$AXON burn", "$AXON burns"] };

@@ -23,7 +23,7 @@ export interface TerminalData { totals: BoardTotals; ethUsd: number | null; toke
 const POLL_MS = 6_000;
 
 const compact = (n: number) => (n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : n >= 100 ? n.toFixed(0) : n >= 1 ? n.toFixed(2) : n > 0 ? n.toPrecision(2) : "0");
-const ethText = (v: number) => `${v >= 100 ? v.toFixed(0) : v >= 1 ? v.toFixed(2) : v >= 0.001 ? v.toFixed(4) : v > 0 ? v.toPrecision(2) : "0"} ETH`;
+const ethText = (v: number) => `${v >= 100 ? v.toFixed(0) : v >= 1 ? v.toFixed(2) : v >= 0.001 ? v.toFixed(4) : v >= 0.000001 ? v.toFixed(Math.min(8, 1 - Math.floor(Math.log10(v)))) : v > 0 ? "under 0.000001" : "0"} ETH`;
 const money = (eth: number | null, usd: number | null) => (eth === null ? "…" : usd ? `$${compact(eth * usd)}` : ethText(eth));
 const pct = (bps: number | null) => (bps === null ? "…" : `${+(bps / 100).toFixed(1)}%`);
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -179,8 +179,8 @@ function Mind({ t }: { t: BoardToken }) {
       {work && <Brief token={t.token} creator={t.creator} brief={work.brief} canChangeAt={work.briefCanChangeAt} now={now} onChanged={() => setAgain((n) => n + 1)} />}
       {work && (
         <div role="tablist" aria-label="Its mind" className="-mx-1 mb-4 flex gap-1 overflow-x-auto border-b border-gray-200 px-1 dark:border-gray-800">
-          {([["journal", "Journal", t.thoughts], ["orders", "Orders and promises", work.orders.filter((o) => o.status === "armed").length], ["record", "Track record", work.record?.summary.moves ?? 0], ["reports", "Daily reports", work.reports.length], ["books", "Its books", null]] as [Tab, string, number | null][]).map(([id, label, n]) => (
-            <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition ${tab === id ? "border-gray-900 font-semibold text-gray-900 dark:border-white dark:text-white" : "border-transparent text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"}`}>
+          {([["journal", "Journal", t.thoughts], ["orders", "Orders", work.orders.filter((o) => o.status === "armed").length], ["record", "Track record", work.record?.summary.moves ?? 0], ["reports", "Reports", work.reports.length], ["books", "Books", null]] as [Tab, string, number | null][]).map(([id, label, n]) => (
+            <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={(e) => { setTab(id); e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" }); }} className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition ${tab === id ? "border-gray-900 font-semibold text-gray-900 dark:border-white dark:text-white" : "border-transparent text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"}`}>
               {label}{n ? <span className="ml-1.5 font-mono text-[11px] tabular-nums text-gray-400">{n}</span> : null}
             </button>
           ))}
