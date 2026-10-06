@@ -15,7 +15,9 @@ import { provider } from "@/lib/chain";
 export interface AgentCardData { agentId: string; name: string; description: string | null; category: string | null; price: string | null; priceEth: number | null; proofScore: number | null; studioScore: number | null; tasksCompleted: number | null }
 export interface TokenCardData { token: string; name: string | null; symbol: string | null; logo: string | null; mcapEth: number | null; holders: number | null; curvePercent: number; graduated: boolean; burnedEth: number; agentName: string | null; page: string }
 export interface TokenMindData { runsOn: string; status: string; treasuryEth: number; actionsToday: number | null; maxActionsPerDay: number | null; thoughts: number; lastThought: { at: string; text: string } | null }
+export interface MyTokenRow { token: TokenCardData; line: string }
 export type CardData =
+  | { kind: "my_tokens"; usdPerEth: number | null; launched: MyTokenRow[]; holding: MyTokenRow[]; rewards: { token: string; name: string | null; symbol: string | null; amountEth: number; page: string }[]; claimEth: number }
   | { kind: "token"; usdPerEth: number | null; token: TokenCardData; mind: TokenMindData }
   | { kind: "tokens"; title: string; usdPerEth: number | null; tokens: TokenCardData[] }
   | { kind: "agents"; title: string; agents: AgentCardData[] }
@@ -60,6 +62,38 @@ export function Card({ card }: { card: CardData }) {
         {card.description && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{card.description}</p>}
         <Link href={card.page} className="mt-4 inline-flex rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">Open the launch page</Link>
         <p className="mt-3 text-[11px] text-gray-400">Filled in for you to check. Add an image there and launch from your own wallet.</p>
+      </div>
+    );
+  }
+  if (card.kind === "my_tokens") {
+    const cap = (t: TokenCardData) => (t.mcapEth === null ? "…" : card.usdPerEth ? `$${compact(t.mcapEth * card.usdPerEth)}` : `${+t.mcapEth.toPrecision(3)} ETH`);
+    const head = "border-b border-gray-100 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.2em] text-gray-400 dark:border-gray-800";
+    const rows = (list: MyTokenRow[]) => list.map((r, i) => (
+      <Link key={r.token.token} href={r.token.page} className={`flex items-start gap-3 px-4 py-3 transition hover:bg-gray-50 dark:hover:bg-gray-900 ${i ? "border-t border-gray-100 dark:border-gray-800" : ""}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- token pictures come from wherever their creators put them */}
+        {r.token.logo ? <img src={r.token.logo} alt="" loading="lazy" className="h-10 w-10 shrink-0 rounded-lg object-cover" /> : <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-gray-100 font-mono text-[11px] font-semibold text-gray-400 dark:bg-gray-800">{(r.token.symbol ?? "?").slice(0, 4)}</span>}
+        <div className="min-w-0 flex-1">
+          <p className="flex items-baseline justify-between gap-3"><span className="truncate text-sm font-semibold text-gray-900 dark:text-white">{r.token.name ?? "Token"} <span className="font-mono text-xs font-normal text-gray-400">${r.token.symbol ?? "?"}</span></span><span className="shrink-0 font-mono text-xs font-semibold tabular-nums text-gray-900 dark:text-white">{cap(r.token)}</span></p>
+          <p className="mt-0.5 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{r.line}</p>
+        </div>
+      </Link>
+    ));
+    return (
+      <div className="mt-3 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+        {card.rewards.length > 0 && (
+          <>
+            <p className={head}>Waiting for you to claim</p>
+            {card.rewards.map((r, i) => (
+              <Link key={`${r.token}-${i}`} href={r.page} className={`flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-gray-50 dark:hover:bg-gray-900 ${i ? "border-t border-gray-100 dark:border-gray-800" : ""}`}>
+                <span className="min-w-0 truncate text-sm font-semibold text-gray-900 dark:text-white">{r.name ?? "A token"} <span className="font-mono text-xs font-normal text-gray-400">${r.symbol ?? "?"}</span></span>
+                <span className="shrink-0 font-mono text-xs font-semibold tabular-nums text-gray-900 dark:text-white">{+r.amountEth.toPrecision(4)} ETH</span>
+              </Link>
+            ))}
+            <p className="border-y border-gray-100 bg-gray-50 px-4 py-2 text-[11px] text-gray-500 dark:border-gray-800 dark:bg-gray-900/60 dark:text-gray-400">Rewards set aside for you by these tokens&apos; minds. You claim each one yourself, from your own wallet, on the token&apos;s page.</p>
+          </>
+        )}
+        {card.launched.length > 0 && <><p className={head}>You launched</p>{rows(card.launched)}</>}
+        {card.holding.length > 0 && <><p className={`${head} ${card.launched.length ? "border-t" : ""}`}>You hold</p>{rows(card.holding)}</>}
       </div>
     );
   }

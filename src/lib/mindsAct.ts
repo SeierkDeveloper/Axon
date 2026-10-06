@@ -308,3 +308,21 @@ export function sharesOf(account: string, nowSeconds = Math.floor(Date.now() / 1
 export function markClaimed(token: string, rewardId: number, index: number): void {
   getDb().prepare("UPDATE mind_reward_shares SET claimed = 1 WHERE token = ? AND reward_id = ? AND idx = ?").run(token.toLowerCase(), rewardId, index);
 }
+
+/** Asks a treasury whether a share was claimed already. Unreadable counts as not claimed: the claim itself is checked by the chain. */
+export type ClaimCheck = (vault: string, rewardId: number, index: number) => Promise<boolean>;
+const chainClaimed: ClaimCheck = (vault, rewardId, index) =>
+  publicClient().readContract({ address: vault as `0x${string}`, abi: VAULT_WRITE_ABI, functionName: "isClaimed", args: [BigInt(rewardId), BigInt(index)] }).then(Boolean).catch(() => false);
+
+/**
+ * What an account can still claim, checked against the chain: a share its treasury says is claimed is marked so here
+ * and left out. The page with the claim button and Mylo both answer from this.
+ */
+export async function openSharesOf(account: string, claimed: ClaimCheck = chainClaimed, limit = 50): Promise<ClaimableShare[]> {
+  const open: ClaimableShare[] = [];
+  for (const s of sharesOf(account).slice(0, limit)) {
+    if (await claimed(s.vault, s.rewardId, s.index).catch(() => false)) markClaimed(s.token, s.rewardId, s.index);
+    else open.push(s);
+  }
+  return open;
+}

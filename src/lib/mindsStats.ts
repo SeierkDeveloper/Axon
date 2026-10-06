@@ -210,6 +210,19 @@ export function findTokens(query: string, limit = 8): BoardToken[] {
   return rows.map(asToken);
 }
 
+/** A wallet's balance of a token, in whole tokens: the tokens here all count in the same eighteen decimal places. */
+const wholeTokens = (raw: string): number => Number(BigInt(raw) / 10n ** 12n) / 1e6;
+
+/** The tokens launched here that a wallet holds, biggest holding by its share of the supply first. */
+export function holdingsOf(wallet: string, limit = 20): { token: BoardToken; tokens: number; percentOfSupply: number | null }[] {
+  const rows = getDb().prepare(`SELECT h.balance heldRaw, b.* FROM mind_holders h JOIN (${BOARD_SELECT}) b ON b.token = h.token WHERE h.address = ? AND h.balance != '0'`).all(wallet.toLowerCase()) as (BoardRow & { heldRaw: string })[];
+  return rows.map(({ heldRaw, ...r }) => {
+    const t = asToken(r), tokens = wholeTokens(heldRaw);
+    const supply = t.priceEth && t.mcapEth ? t.mcapEth / t.priceEth : null;
+    return { token: t, tokens, percentOfSupply: supply ? (tokens / supply) * 100 : null };
+  }).filter((h) => h.tokens > 0).sort((a, b) => (b.percentOfSupply ?? 0) - (a.percentOfSupply ?? 0)).slice(0, limit);
+}
+
 const BOARD_SELECT =
     `SELECT t.token, t.name, t.symbol, t.logo, t.creator, t.launched_at launchedAt, t.tx_hash txHash, t.agent_id agentId, a.name agentName,
        t.pot, t.splitter, t.vault, t.payout, t.attached, t.tax_bps taxBps, t.creator_bps creatorBps, t.burn_bps burnBps, t.axon_bps axonBps, t.mind_bps mindBps, t.model,

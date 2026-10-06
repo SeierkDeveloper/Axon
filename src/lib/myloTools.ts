@@ -28,8 +28,10 @@ import { earningsOf, withdrawalsOf } from "./studioWithdraw";
 import { proposalsOf } from "./studioImprove";
 import { checkEligibility } from "./agentLaunch";
 import { agentMindsEnabled } from "./mindsPolicy";
-import { tokenOfAgent } from "./mindsStore";
-import { board, boardTotals, earnedSince, findTokens, type BoardSort, type BoardToken } from "./mindsStats";
+import { tokenOfAgent, tokensOfCreator } from "./mindsStore";
+import { board, boardToken, boardTotals, earnedSince, findTokens, holdingsOf, type BoardSort, type BoardToken } from "./mindsStats";
+import { openSharesOf } from "./mindsAct";
+import { mindsChain } from "./mindsChain";
 import { mindStatus } from "./mindsStatus";
 import { thoughts } from "./mindsMind";
 import { CAN } from "./mindsLaunch";
@@ -203,6 +205,11 @@ export const MINDS_TOOL_DEFS = [
     description: "Everything public about one token launched on Axon and its mind: its numbers, what was locked at launch (tax, where the fees go, what the mind may do and its limits), its mind's journal (its latest thoughts, what it proposed and what became of it), how many actions it has taken today, and what the mind is doing or waiting for right now. Give the token's address, ticker or name. Use it when someone asks how a token is doing, what its mind did or why, or why a mind is quiet. Facts from the chain and the mind's own words: report them, and never say whether to buy or where the price will go.",
     input_schema: { type: "object", properties: { token: { type: "string", description: "The token's address, its ticker or its name" } }, required: ["token"] },
   },
+  {
+    name: "my_tokens",
+    description: "The person's own tokens on Axon: the ones they launched (each with its numbers, what its fees have paid them, what its agent earned and what its mind is doing), the ones their wallet holds, and any reward a mind has set aside that is waiting for them to claim. Use it when they ask how their token is doing, what they hold, or whether they have something to claim. Claiming is done by them on the token's page; Mylo never claims.",
+    input_schema: { type: "object", properties: {} },
+  },
 ] as const;
 
 /** One agent as Mylo shows it: public facts only. */
@@ -214,7 +221,11 @@ export interface TokenCardData { token: string; name: string | null; symbol: str
 /** One token and its mind as Mylo shows them: the token, what its mind is doing, and its latest thought. */
 export interface TokenMindData { runsOn: string; status: string; treasuryEth: number; actionsToday: number | null; maxActionsPerDay: number | null; thoughts: number; lastThought: { at: string; text: string } | null }
 
+/** A row of the person's own tokens: the token, and the one line that matters about it for them. */
+export interface MyTokenRow { token: TokenCardData; line: string }
+
 export type Card =
+  | { kind: "my_tokens"; usdPerEth: number | null; launched: MyTokenRow[]; holding: MyTokenRow[]; rewards: { token: string; name: string | null; symbol: string | null; amountEth: number; page: string }[]; claimEth: number }
   | { kind: "token"; usdPerEth: number | null; token: TokenCardData; mind: TokenMindData }
   | { kind: "tokens"; title: string; usdPerEth: number | null; tokens: TokenCardData[] }
   | { kind: "agents"; title: string; agents: AgentCard[] }
@@ -242,7 +253,7 @@ export function agentCard(a: Agent): AgentCard {
 export const TOOL_LABELS: Record<string, string> = {
   search_agents: "Searching the network", agent_details: "Reading the agent's record", compare_agents: "Comparing agents",
   network_pulse: "Checking the network", public_feed: "Reading the latest on Axon", hire_agent: "Preparing the hire", second_opinion: "Preparing a second opinion",
-  save_crew: "Saving the crew", my_crews: "Looking at your crews", run_crew: "Preparing the crew", schedule_job: "Preparing the autopilot", my_schedules: "Looking at your autopilot", manage_schedule: "Updating your autopilot", launch_token: "Preparing the launch", token_board: "Looking at the tokens", token_details: "Reading the token and its mind", my_tier: "Checking your $AXON tier",
+  save_crew: "Saving the crew", my_crews: "Looking at your crews", run_crew: "Preparing the crew", schedule_job: "Preparing the autopilot", my_schedules: "Looking at your autopilot", manage_schedule: "Updating your autopilot", launch_token: "Preparing the launch", token_board: "Looking at the tokens", token_details: "Reading the token and its mind", my_tokens: "Looking at your tokens", my_tier: "Checking your $AXON tier",
   remember: "Remembering that", forget: "Forgetting that", my_inbox: "Reading what's new for you", my_agents: "Looking at your agents", my_earnings: "Checking your earnings", withdraw_earnings: "Preparing the withdrawal", apply_improvement: "Preparing the update",
   build_agent: "Preparing the build", change_build: "Making the change", build_report: "Reading your build", pricing_advice: "Looking at what similar agents charge", publish_build: "Preparing to publish",
 };
@@ -320,6 +331,7 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
       case "launch_token": return { ...launchTool(ctx, input), label };
       case "token_board": return { ...(await boardTool(input)), label };
       case "token_details": return { ...(await tokenTool(input)), label };
+      case "my_tokens": return { ...(await myTokens(ctx)), label };
       case "my_tier": return { ...(await tierTool(ctx)), label };
       case "remember": {
         if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." }, label };
@@ -638,6 +650,61 @@ async function tokenTool(input: Record<string, unknown>): Promise<Omit<ToolOutco
     card: {
       kind: "token", usdPerEth: usd, token: tokenCard(t),
       mind: { runsOn: mindLabel(t.model), status: statusText, treasuryEth: tr?.availableEth ?? t.treasuryEth, actionsToday: day?.actionsToday ?? null, maxActionsPerDay: tr?.limits.maxActionsPerDay ?? null, thoughts: t.thoughts, lastThought: journal[0]?.thought ? { at: journal[0].at, text: journal[0].thought } : null },
+    },
+  };
+}
+
+const whole = (n: number) => (n >= 100 ? Math.round(n) : +n.toPrecision(4));
+const share = (p: number | null) => (p === null ? null : `${p >= 0.01 ? +p.toFixed(2) : "under 0.01"}%`);
+
+/**
+ * The person's own tokens: what they launched, what their wallet holds, and rewards waiting for them. Everything here
+ * is public on the chain already; it is gathered for the wallet that is signed in. Nothing is claimed or moved.
+ */
+async function myTokens(ctx: ToolContext): Promise<Omit<ToolOutcome, "label">> {
+  if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." } };
+  if (!agentMindsEnabled()) return { result: { error: "Tokens with minds aren't on here yet." } };
+  const me = ctx.wallet.toLowerCase();
+  const usd = await ethUsd().catch(() => null);
+  const holdings = holdingsOf(me);
+  const heldOf = new Map(holdings.map((h) => [h.token.token, h]));
+
+  const created = tokensOfCreator(me).slice(0, 5).map((c) => boardToken(c.token)).filter((t): t is BoardToken => Boolean(t));
+  const launched = await Promise.all(created.map(async (t) => {
+    const [status, fees] = await Promise.all([mindStatus(t.token).catch(() => null), t.attached ? null : mindsChain.feeFlow(t.splitter, t.pot).catch(() => null)]);
+    const mine = heldOf.get(t.token);
+    return {
+      ...tokenForModel(t, usd),
+      fees_paid_to_you_eth: fees ? amount(fees.toCreatorEth) : null,
+      agent: t.agentId ? { name: t.agentName, page: `/agents/${t.agentId}`, earned_from_work_since_launch_eth: amount(earnedSince(t.agentId, t.launchedAt)) } : null,
+      mind_status: status?.text ?? null,
+      you_hold: mine ? { tokens: whole(mine.tokens), of_the_supply: share(mine.percentOfSupply) } : null,
+    };
+  }));
+
+  const holding = holdings.filter((h) => !created.some((t) => t.token === h.token.token)).slice(0, 8);
+  const open = await openSharesOf(me).catch(() => []);
+  const claimEth = amount(open.reduce((s, r) => s + r.amountEth, 0));
+  const now = Math.floor(Date.now() / 1000);
+  const rewards = open.map((r) => ({
+    token: r.token, name: r.name, ticker: r.symbol ? `$${r.symbol}` : null, amount_eth: amount(r.amountEth), page: `/launch?token=${r.token}`,
+    can_claim: r.startAt <= now ? "now" : `from ${new Date(r.startAt * 1000).toISOString()}`, claim_before: new Date(r.endAt * 1000).toISOString(),
+  }));
+  const none = !launched.length && !holding.length && !rewards.length;
+  return {
+    result: {
+      launched_by_you: launched,
+      you_hold: holding.map((h) => ({ token: h.token.token, name: h.token.name, ticker: h.token.symbol ? `$${h.token.symbol}` : null, page: `/launch?token=${h.token.token}`, tokens: whole(h.tokens), of_the_supply: share(h.percentOfSupply), market_cap_eth: h.token.mcapEth === null ? null : amount(h.token.mcapEth) })),
+      rewards_to_claim: rewards, rewards_to_claim_total_eth: claimEth,
+      note: none
+        ? "This wallet has launched no token here, holds none and has nothing to claim. They can launch one on /launch, and you can get it ready with launch_token."
+        : `${rewards.length ? "A reward is claimed by them, from their own wallet, on that token's page (the card opens it); you never claim it and never say it is claimed. " : ""}Holdings are counted from the chain and can be a few minutes behind. Say nothing about whether to buy, sell or hold.`,
+    },
+    card: none ? undefined : {
+      kind: "my_tokens", usdPerEth: usd, claimEth,
+      launched: created.map((t, i) => ({ token: tokenCard(t), line: launched[i].mind_status ?? "Its mind could not be read just now." })),
+      holding: holding.map((h) => ({ token: tokenCard(h.token), line: `You hold ${whole(h.tokens).toLocaleString("en-US")}${h.percentOfSupply === null ? "" : ` (${share(h.percentOfSupply)} of the supply)`}` })),
+      rewards: open.map((r) => ({ token: r.token, name: r.name, symbol: r.symbol, amountEth: amount(r.amountEth), page: `/launch?token=${r.token}` })),
     },
   };
 }
