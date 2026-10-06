@@ -305,7 +305,7 @@ export function sharesOf(account: string, nowSeconds = Math.floor(Date.now() / 1
   return rows.map((r) => ({ ...r, proof: JSON.parse(r.proof) as string[], amountEth: ethOf(BigInt(r.amountWei)) }));
 }
 
-export function markClaimed(token: string, rewardId: number, index: number): void {
+function markClaimed(token: string, rewardId: number, index: number): void {
   getDb().prepare("UPDATE mind_reward_shares SET claimed = 1 WHERE token = ? AND reward_id = ? AND idx = ?").run(token.toLowerCase(), rewardId, index);
 }
 
