@@ -85,7 +85,7 @@ describe("the models a mind can run on", () => {
     const opus = mindModel("claude-opus-5-5");
     expect(priceUsd(opus, 1_000_000, 0)).toBe(4);
     expect(priceUsd(opus, 0, 1_000_000)).toBe(20);
-    expect(estimateThoughtUsd(opus)).toBeCloseTo(0.0244, 6);
+    expect(estimateThoughtUsd(opus)).toBeCloseTo(0.0316, 6);
     expect(estimateThoughtUsd(mindModel("deepseek/deepseek-v4.1-flash"))).toBeLessThan(estimateThoughtUsd(opus) / 10);
   });
 

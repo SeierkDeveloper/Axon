@@ -223,19 +223,19 @@ describe("what a check-in may cost", () => {
     getDb().prepare("UPDATE mind_events SET at = ? WHERE token = ?").run(new Date(day).toISOString(), t.token);
     got(await thinkOnce(t.token, { chain: w.chain, thinker: k.fn, env: LIVE, now: day, usdPerEth: USD }));                 // the launch: 0.000024
     setCap(t.token, 2.2);
-    got(await thinkOnce(t.token, { chain: w.chain, thinker: k.fn, env: LIVE, now: day + 5 * H, usdPerEth: USD }));         // a check-in: 0.000048 so far, and one more would pass half
+    got(await thinkOnce(t.token, { chain: w.chain, thinker: k.fn, env: LIVE, now: day + 7 * H, usdPerEth: USD }));         // a check-in: 0.000048 so far, and one more would pass half
     setCap(t.token, 2.5);
-    expect(why(await thinkOnce(t.token, { chain: w.chain, thinker: k.fn, env: LIVE, now: day + 10 * H, usdPerEth: USD }))).toBe("its check-ins have used their share of what its thinking may cost today");
+    expect(why(await thinkOnce(t.token, { chain: w.chain, thinker: k.fn, env: LIVE, now: day + 14 * H, usdPerEth: USD }))).toBe("its check-ins have used their share of what its thinking may cost today");
     // something really happening is still thought about: that is what the other half is for
     addEvent(t.token, "fees", { eth: 0.004 });
-    expect(got(await thinkOnce(t.token, { chain: w.chain, thinker: k.fn, env: LIVE, now: day + 10 * H, usdPerEth: USD })).source).toBe("event");
+    expect(got(await thinkOnce(t.token, { chain: w.chain, thinker: k.fn, env: LIVE, now: day + 14 * H, usdPerEth: USD })).source).toBe("event");
   });
 
   it("waits when all minds together are close to the day's shared budget, while events still get through", async () => {
     const w = world(), t = await w.launch("BUDG");
     const k = thinker({ thought: "Looking in. Nothing to do.", action: null }, 0.02);
-    const env = { ...LIVE, MINDS_DAILY_BUDGET_USD: "0.05" };
-    got(await thinkOnce(t.token, { chain: w.chain, thinker: k.fn, env, now: T0, usdPerEth: USD }));                         // $0.02 spent of $0.05
+    const env = { ...LIVE, MINDS_DAILY_BUDGET_USD: "0.06" };
+    got(await thinkOnce(t.token, { chain: w.chain, thinker: k.fn, env, now: T0, usdPerEth: USD }));                         // $0.02 spent of $0.06
     expect(why(await thinkOnce(t.token, { chain: w.chain, thinker: k.fn, env, now: T0 + 2 * H, usdPerEth: USD }))).toBe("minds together are close to today's budget, so check-ins wait");
     addEvent(t.token, "fees", { eth: 0.004 });
     expect(got(await thinkOnce(t.token, { chain: w.chain, thinker: k.fn, env, now: T0 + 2 * H, usdPerEth: USD })).source).toBe("event");

@@ -10,6 +10,7 @@ import { CHAIN_ID_HEX, CHAIN_PARAMS, EXPLORER, explorerTxUrl, ponsTokenUrl, prov
 import type { BoardToken, BoardTotals, MindEvent, BoardSort } from "@/lib/mindsStats";
 import { mindLabel } from "@/lib/mindsModels";
 import TokenCard, { tokenCardFrame } from "./TokenCard";
+import { Plan, Brief, Orders, Record as TrackRecord, Reports, Books, type MindWorkData } from "./MindWork";
 
 /**
  * The launch terminal: every token launched on Axon, with the numbers its contracts report, and a running log of what
@@ -68,7 +69,7 @@ function eventText(e: MindEvent): string {
   }
 }
 
-interface ThoughtView { id: number; at: string; modelLabel: string; thought: string | null; action: { kind: string; eth: number } | null; verdict: "none" | "approved" | "refused"; verdictReason: string | null; sent: { status: string; txHash: string | null; error: string | null } | null }
+interface ThoughtView { id: number; at: string; modelLabel: string; source?: string; thought: string | null; action: { kind: string; eth: number } | null; verdict: "none" | "approved" | "refused"; verdictReason: string | null; sent: { status: string; txHash: string | null; error: string | null } | null }
 const ACTION: Record<string, string> = { buyback: "buy back and burn", reward: "reward holders", burn_axon: "burn $AXON" };
 
 interface ChainState { paused: boolean; frozen: boolean; active: boolean }
@@ -76,6 +77,9 @@ interface ChainState { paused: boolean; frozen: boolean; active: boolean }
 interface MindNow { state: string; text: string; actionsToday: number | null; actionsAllowed: number | null }
 /** States the panel already says in its own notice, with the creator's switch beside it. */
 const SAID_ELSEWHERE = new Set(["halted", "stopped", "frozen", "paused"]);
+/** How a journal entry came about, when it was not something happening to the token. */
+const CAME_FROM: Record<string, string> = { pulse: "check-in", report: "daily report" };
+type Tab = "journal" | "orders" | "record" | "reports" | "books";
 const PAUSE_ABI = parseAbi(["function setPaused(bool paused)"]);
 
 /** The creator's own switch. The treasury takes it from that one wallet and from nobody else, Axon included. */
@@ -123,22 +127,27 @@ function Mind({ t }: { t: BoardToken }) {
   const [items, setItems] = useState<ThoughtView[] | null>(null);
   const [chain, setChain] = useState<ChainState | null>(null);
   const [mind, setMind] = useState<MindNow | null>(null);
+  const [work, setWork] = useState<MindWorkData | null>(null);
+  const [tab, setTab] = useState<Tab>("journal");
+  const [again, setAgain] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     let alive = true;
     const load = () => {
-      void fetch(`/api/minds/thoughts?token=${t.token}&limit=3`).then((r) => (r.ok ? (r.json() as Promise<{ thoughts: ThoughtView[] }>) : null)).then((d) => { if (alive && d) { setItems(d.thoughts); setNow(Date.now()); } }).catch(() => {});
+      void fetch(`/api/minds/thoughts?token=${t.token}&limit=5`).then((r) => (r.ok ? (r.json() as Promise<{ thoughts: ThoughtView[] }>) : null)).then((d) => { if (alive && d) { setItems(d.thoughts); setNow(Date.now()); } }).catch(() => {});
       // whether its treasury is running is the chain's to say, so it is read from there rather than kept
-      void fetch(`/api/minds/tokens/${t.token}`).then((r) => (r.ok ? (r.json() as Promise<{ treasury: ChainState | null; mind?: MindNow | null }>) : null)).then((d) => {
+      void fetch(`/api/minds/tokens/${t.token}`).then((r) => (r.ok ? (r.json() as Promise<{ treasury: ChainState | null; mind?: MindNow | null } & Partial<MindWorkData>>) : null)).then((d) => {
         if (!alive || !d) return;
         if (d.treasury) setChain({ paused: d.treasury.paused, frozen: d.treasury.frozen, active: d.treasury.active });
         setMind(d.mind ?? null);
+        // what it works to and has to show for it: its plan, brief, orders, record, reports and books
+        setWork({ plan: d.plan ?? null, orders: d.orders ?? [], promises: d.promises ?? null, record: d.record ?? null, reports: d.reports ?? [], brief: d.brief ?? null, briefCanChangeAt: d.briefCanChangeAt ?? null, books: d.books ?? null });
       }).catch(() => {});
     };
     load();
     const timer = setInterval(load, 15_000);
     return () => { alive = false; clearInterval(timer); };
-  }, [t.token]);
+  }, [t.token, again]);
   const halted = t.stopped ? null : !chain || chain.active ? null
     : chain.frozen ? "This mind's treasury is frozen. Nothing is sent from it; holders can still claim what was already set aside."
     : chain.paused ? "Its creator has paused this mind. It does not think and nothing leaves its treasury; holders can still claim what was already set aside."
@@ -166,7 +175,22 @@ function Mind({ t }: { t: BoardToken }) {
           </div>
         ))}
       </dl>
-      {items === null ? (
+      {work && <Plan plan={work.plan} now={now} />}
+      {work && <Brief token={t.token} creator={t.creator} brief={work.brief} canChangeAt={work.briefCanChangeAt} now={now} onChanged={() => setAgain((n) => n + 1)} />}
+      {work && (
+        <div role="tablist" aria-label="Its mind" className="-mx-1 mb-4 flex gap-1 overflow-x-auto border-b border-gray-200 px-1 dark:border-gray-800">
+          {([["journal", "Journal", t.thoughts], ["orders", "Orders and promises", work.orders.filter((o) => o.status === "armed").length], ["record", "Track record", work.record?.summary.moves ?? 0], ["reports", "Daily reports", work.reports.length], ["books", "Its books", null]] as [Tab, string, number | null][]).map(([id, label, n]) => (
+            <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition ${tab === id ? "border-gray-900 font-semibold text-gray-900 dark:border-white dark:text-white" : "border-transparent text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"}`}>
+              {label}{n ? <span className="ml-1.5 font-mono text-[11px] tabular-nums text-gray-400">{n}</span> : null}
+            </button>
+          ))}
+        </div>
+      )}
+      {work && tab === "orders" ? <Orders orders={work.orders} promises={work.promises} now={now} />
+        : work && tab === "record" ? <TrackRecord record={work.record} now={now} />
+        : work && tab === "reports" ? <Reports reports={work.reports} />
+        : work && tab === "books" ? <Books books={work.books} attached={t.attached} />
+        : items === null ? (
         <p className="text-sm text-gray-400">…</p>
       ) : items.length === 0 ? (
         // the line above already says why when there is one
@@ -177,7 +201,7 @@ function Mind({ t }: { t: BoardToken }) {
             <li key={h.id}>
               <p className="text-sm leading-relaxed">{h.thought}</p>
               <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-gray-400">
-                <span suppressHydrationWarning>{ago(h.at, now)} ago · {h.modelLabel}</span>
+                <span suppressHydrationWarning>{ago(h.at, now)} ago · {h.modelLabel}{h.source && CAME_FROM[h.source] ? ` · ${CAME_FROM[h.source]}` : ""}</span>
                 {h.action && (
                   <span className={`rounded-md px-1.5 py-0.5 ${h.verdict === "approved" ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900" : "bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-300"}`}>
                     proposed: {ACTION[h.action.kind] ?? h.action.kind} with {ethText(h.action.eth)} · {h.verdict === "approved" ? "passed the rule check" : "refused by the rule check"}

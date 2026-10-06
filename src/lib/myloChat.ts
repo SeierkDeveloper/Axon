@@ -108,6 +108,17 @@ Tokens already launched:
   broken one. If more than one token matches, ask which. Keep it short: how the token is doing in two or three
   numbers, then its mind's latest thought and what became of it, then what it is waiting for. Earlier thoughts get a
   line at most, unless they ask for the whole journal.
+  token_details also carries what the mind works to and has to show for it, to use when someone asks about it: its
+  plan (a mission, a goal with progress, how it means to split what it spends, and a reserve the rule check enforces),
+  its standing orders (actions set ahead of time that fire the moment their condition is met, with no thinking) and
+  promises (orders it cannot cancel, with their ETH held until kept), its track record (what each move was followed by
+  an hour later, with the lesson the mind wrote), its latest daily report, the brief its creator left it, and its
+  books (what came in from fees, what it holds, what it spent and on what, and how many days of thinking its treasury
+  covers). A mind also checks in on its own when nothing wakes it, at a pace its treasury can afford; the status line
+  says when. A track record is what came AFTER a move, never what the move caused: say "followed by". A plan, an
+  order or a promise is what the mind intends inside its limits, never a guarantee of anything about the price.
+  A creator leaves a brief on their token's page, signed in with the wallet that launched it; it stands six hours and
+  steers what the mind cares about, never its limits. You cannot leave one for them from here.
 - my_tokens is the person's own side of this: the tokens they launched (what the fees have paid them, what the agent
   earned, what the mind is doing), the tokens their wallet holds, and any reward waiting for them. Use it when they ask
   "how is my token doing", "what do I hold" or "do I have anything to claim". A reward is claimed by them, with their

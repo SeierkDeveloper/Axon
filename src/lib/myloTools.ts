@@ -33,6 +33,12 @@ import { board, boardToken, boardTotals, earnedSince, findTokens, holdingsOf, ty
 import { openSharesOf } from "./mindsAct";
 import { mindsChain } from "./mindsChain";
 import { mindStatus } from "./mindsStatus";
+import { planOf, progressOf, goalText } from "./mindsPlan";
+import { ordersOf, promiseRecord, whenText, thenText } from "./mindsOrders";
+import { recordOf, outcomesOf, followedBy } from "./mindsRecord";
+import { reportsOf } from "./mindsReport";
+import { briefOf } from "./mindsBrief";
+import { booksOf } from "./mindsBooks";
 import { thoughts } from "./mindsMind";
 import { CAN, DEFAULT_SETTINGS, STEPS, checkSettings, creatorBps, lockedSummary, settingsQuery, type LaunchSettings, type LinkedSettings } from "./mindsLaunch";
 import { MIND_MODELS, modelAvailable } from "./mindsModels";
@@ -627,6 +633,10 @@ async function tokenTool(input: Record<string, unknown>): Promise<Omit<ToolOutco
     transaction: h.sent?.txHash ? explorerTxUrl(h.sent.txHash) : undefined,
   }));
   const statusText = status?.text ?? "Its mind could not be read just now.";
+  // what its mind works to and has to show for it: its plan, its orders and promises, its record, its report, its books
+  const plan = planOf(t.token), progress = plan ? progressOf(plan, { holders: t.holders, mcapEth: t.mcapEth, burnedTokens: t.burnedTokens, curveBps: t.curveBps, phase: t.phase }) : null;
+  const orders = ordersOf(t.token, 4), kept = promiseRecord(t.token), rec = recordOf(t.token), report = reportsOf(t.token, 1)[0] ?? null, brief = briefOf(t.token), books = tr ? booksOf(t.token, tr, t.toMindEth) : null;
+  const ENDED: Record<string, string> = { fired: "its condition came, on its way", kept: "carried out", missed: "its condition came but it was not carried out", lapsed: "its time ran out before its condition came", cancelled: "the mind took it back" };
   return {
     result: {
       ...tokenForModel(t, usd),
@@ -646,6 +656,33 @@ async function tokenTool(input: Record<string, unknown>): Promise<Omit<ToolOutco
         today: day && tr ? { actions_taken: day.actionsToday, actions_allowed: tr.limits.maxActionsPerDay, spent_eth: amount(day.spentTodayEth), may_spend_eth: tr.limits.maxPerDayEth } : null,
         so_far: { thoughts: t.thoughts, bought_back_eth: amount(t.boughtEth), set_aside_for_holders_eth: amount(t.rewardsEth), burned_axon_eth: amount(t.axonEth), paid_for_its_thinking_eth: amount(t.thinkingPaidEth) },
       },
+      mind_plan: plan ? {
+        note: "Written by the mind itself; it may rewrite it, at most every six hours. Its reserve is enforced by the rule check.",
+        mission: plan.mission, goal: plan.goal ? goalText(plan.goal) : null,
+        goal_progress: progress ? (progress.reached ? "reached" : progress.percent === null ? "cannot be measured right now" : `${progress.percent}% of the way`) : null,
+        means_to_split_what_it_spends: { buybacks: `${plan.split.buyback}%`, rewards: `${plan.split.reward}%`, burning_axon: `${plan.split.burnAxon}%`, kept_in_reserve: `${plan.split.reserve}%` },
+        reserve_it_will_not_spend_below_eth: plan.reserveEth, how: plan.thesis, written_at: plan.setAt, times_rewritten: plan.revisions,
+      } : "It has not written a plan yet.",
+      standing_orders: {
+        note: "Actions the mind set ahead of time. One fires the moment its condition is met, with no thinking, through the same rule check. A promise cannot be cancelled and its ETH is held until it is kept or its time runs out.",
+        waiting: orders.filter((o) => o.status === "armed").map((o) => ({ a_promise: o.promise || undefined, when: whenText(o.when), then: thenText(o.then), in_its_words: o.said ?? undefined, until: o.expiresAt })),
+        recent: orders.filter((o) => o.status !== "armed").map((o) => ({ a_promise: o.promise || undefined, when: whenText(o.when), then: thenText(o.then), what_happened: ENDED[o.status] ?? o.status, why: o.note ?? undefined })),
+        promises_so_far: { made: kept.made, standing: kept.standing, kept: kept.kept, missed: kept.missed, never_called_on: kept.notCalled, eth_held_for_them: kept.heldEth },
+      },
+      track_record: rec.moves ? {
+        note: "What each move was FOLLOWED BY an hour later. That is what came after, never proof of what the move caused: say 'followed by', never 'caused', 'led to' or 'worked'.",
+        by_kind: rec.byKind.map((k) => ({ move: ACTION_WORDS[k.kind] ?? k.kind, times: k.moves, eth: amount(k.eth), measured: k.measured, market_cap_an_hour_later_on_average: k.avgCapPct === null ? null : `${k.avgCapPct > 0 ? "+" : ""}${k.avgCapPct}%`, times_it_was_higher: k.measured ? `${k.timesUp} of ${k.measured}` : null, holders_an_hour_later_on_average: k.avgHolders })),
+        latest: outcomesOf(t.token, 3).map((o) => ({ move: ACTION_WORDS[o.kind] ?? o.kind, eth: amount(o.eth), at: o.at, followed_by: followedBy(o), the_minds_lesson: o.lesson ?? undefined })),
+      } : "No move of its mind has been carried out yet.",
+      latest_daily_report: report ? { for_day: report.label, in_its_words: report.text } : "It has not written a daily report yet. A mind reports each morning (UTC) on a day when something happened.",
+      brief_from_its_creator: brief ? { in_the_creators_words: brief.text, left_at: brief.setAt, note: "A public wish from the creator. The mind weighs it; it cannot change a limit or anything locked at launch." } : "Its creator has left its mind no brief.",
+      books: books ? {
+        received_from_trading_fees_eth: amount(books.fromFeesEth), holds_now_eth: amount(books.holdsEth), set_aside_for_holders_unclaimed_eth: amount(books.setAsideEth),
+        spent_on: { buybacks_eth: amount(books.spent.buybackEth), rewards_eth: amount(books.spent.rewardEth), burning_axon_eth: amount(books.spent.burnAxonEth), its_own_thinking_eth: amount(books.spent.thinkingEth) },
+        keeps_back: { reserve_eth: books.reserveEth, held_for_promises_eth: books.heldForPromisesEth }, free_to_spend_now_eth: amount(books.freeEth),
+        thinking_costs_about_a_day_eth: books.thinkingPerDayEth === null ? null : amount(books.thinkingPerDayEth),
+        runway: books.runwayDays === null ? "its thinking has cost nothing so far" : `its treasury covers about ${books.runwayDays > 365 ? "more than 365" : books.runwayDays} days of thinking at the pace of the last days`,
+      } : null,
       journal, journal_note: journal.length ? "Newest first. The thoughts are the mind's own words: quote or sum them up as its, never as yours." : "It has not written a thought yet.",
       note: "The page shows a card for this token. Give the numbers and the mind's reasons as they are; say nothing about whether to buy or where the price goes.",
       // said again here, last, because a small model follows what it read last: these are the slips seen in real answers
