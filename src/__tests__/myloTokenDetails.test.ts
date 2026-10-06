@@ -30,6 +30,8 @@ import { mindsChain, type Treasury } from "@/lib/mindsChain";
 import { CAN } from "@/lib/mindsLaunch";
 import { MIN_GAP_MS } from "@/lib/mindsMind";
 import { startConversation } from "@/lib/myloStore";
+import { NextRequest } from "next/server";
+import { GET as tokenGET } from "@/app/api/minds/tokens/[token]/route";
 
 let n = 0;
 const addr = () => `0x${(++n + 8_800_000).toString(16).padStart(40, "0")}`;
@@ -142,6 +144,37 @@ describe("what a mind is doing right now", () => {
     const t = token({ name: "Dark Chain", symbol: "DARK", chain: null });
     const s = await state(t.token);
     expect(s).toMatchObject({ state: "waiting", treasury: null, day: null });
+  });
+});
+
+describe("the token's page saying what its mind is doing", () => {
+  const get = async (tok: string) => { const res = await tokenGET(new NextRequest(`http://x/api/minds/tokens/${tok}`), { params: Promise.resolve({ token: tok }) }); return { status: res.status, body: (await res.json()) as { mind: { state: string; text: string; actionsToday: number | null; actionsAllowed: number | null } | null; treasury: unknown } }; };
+
+  it("uses a treasury somebody has just read instead of reading it again", async () => {
+    const t = token({ name: "Read Once", symbol: "ONCE" });
+    // the chain says it runs; the caller's own reading says its creator paused it, and that reading is what counts
+    const s = await mindStatus(t.token, { chain: mindsChain, env: ON, now: NOW, usdPerEth: 2000, treasury: treasury({ paused: true, active: false }) });
+    expect(s!.state).toBe("paused");
+    expect((await mindStatus(t.token, { chain: mindsChain, env: ON, now: NOW, usdPerEth: 2000, treasury: null }))!.treasury).toBeNull();
+  });
+
+  it("is sent with the token's live numbers: the line, and today's actions against the limit", async () => {
+    const t = token({ name: "Page Line", symbol: "PGLN", actionsToday: 6 });
+    thought(t.token, 30, "Fees came in. I bought back a little.");
+    const r = await get(t.token);
+    expect(r.status).toBe(200);
+    expect(r.body.mind).toEqual({ state: "actions_used", text: "It has used all 6 of the actions it may take today, a limit locked at launch. It can act again after midnight UTC.", actionsToday: 6, actionsAllowed: 6 });
+    expect(r.body.treasury).toBeTruthy();
+
+    const waiting = token({ name: "Page Wait", symbol: "PGWT" });
+    expect((await get(waiting.token)).body.mind).toMatchObject({ state: "waiting", actionsToday: 2, actionsAllowed: 6 });
+  });
+
+  it("still answers when the chain cannot be read, and not at all for a token that is not here", async () => {
+    const dark = token({ name: "Page Dark", symbol: "PGDK", chain: null });
+    const r = await get(dark.token);
+    expect(r.body).toMatchObject({ treasury: null, mind: { state: "waiting", actionsToday: null, actionsAllowed: null } });
+    expect((await get(addr())).status).toBe(404);
   });
 });
 

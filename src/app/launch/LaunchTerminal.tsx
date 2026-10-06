@@ -71,6 +71,10 @@ interface ThoughtView { id: number; at: string; modelLabel: string; thought: str
 const ACTION: Record<string, string> = { buyback: "buy back and burn", reward: "reward holders", burn_axon: "burn $AXON" };
 
 interface ChainState { paused: boolean; frozen: boolean; active: boolean }
+/** What the mind is doing or waiting for, as the server puts it into words (mindsStatus). */
+interface MindNow { state: string; text: string; actionsToday: number | null; actionsAllowed: number | null }
+/** States the panel already says in its own notice, with the creator's switch beside it. */
+const SAID_ELSEWHERE = new Set(["halted", "stopped", "frozen", "paused"]);
 const PAUSE_ABI = parseAbi(["function setPaused(bool paused)"]);
 
 /** The creator's own switch. The treasury takes it from that one wallet and from nobody else, Axon included. */
@@ -117,13 +121,18 @@ function CreatorSwitch({ t, paused, onSent }: { t: BoardToken; paused: boolean; 
 function Mind({ t }: { t: BoardToken }) {
   const [items, setItems] = useState<ThoughtView[] | null>(null);
   const [chain, setChain] = useState<ChainState | null>(null);
+  const [mind, setMind] = useState<MindNow | null>(null);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     let alive = true;
     const load = () => {
       void fetch(`/api/minds/thoughts?token=${t.token}&limit=3`).then((r) => (r.ok ? (r.json() as Promise<{ thoughts: ThoughtView[] }>) : null)).then((d) => { if (alive && d) { setItems(d.thoughts); setNow(Date.now()); } }).catch(() => {});
       // whether its treasury is running is the chain's to say, so it is read from there rather than kept
-      void fetch(`/api/minds/tokens/${t.token}`).then((r) => (r.ok ? (r.json() as Promise<{ treasury: ChainState | null }>) : null)).then((d) => { if (alive && d?.treasury) setChain({ paused: d.treasury.paused, frozen: d.treasury.frozen, active: d.treasury.active }); }).catch(() => {});
+      void fetch(`/api/minds/tokens/${t.token}`).then((r) => (r.ok ? (r.json() as Promise<{ treasury: ChainState | null; mind?: MindNow | null }>) : null)).then((d) => {
+        if (!alive || !d) return;
+        if (d.treasury) setChain({ paused: d.treasury.paused, frozen: d.treasury.frozen, active: d.treasury.active });
+        setMind(d.mind ?? null);
+      }).catch(() => {});
     };
     load();
     const timer = setInterval(load, 15_000);
@@ -133,12 +142,21 @@ function Mind({ t }: { t: BoardToken }) {
     : chain.frozen ? "This mind's treasury is frozen. Nothing is sent from it; holders can still claim what was already set aside."
     : chain.paused ? "Its creator has paused this mind. It does not think and nothing leaves its treasury; holders can still claim what was already set aside."
     : "Minds are paused right now. Nothing is sent from any treasury; holders can still claim what was already set aside.";
+  // the notices below already say stopped, frozen and paused; everything else gets the line
+  const rightNow = mind && !t.stopped && !halted && !SAID_ELSEWHERE.has(mind.state) ? mind : null;
   return (
     <div className="border-t border-gray-200 bg-gray-50 px-4 py-5 sm:px-5 dark:border-gray-800 dark:bg-gray-900/40">
       <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400">Its mind <span className="normal-case tracking-normal text-gray-500 dark:text-gray-400">· runs on {mindLabel(t.model).replace(/^Its/, "its")}</span></p>
       {t.stopped && <p className="mb-3 rounded-lg bg-gray-200 px-3 py-2 text-sm text-gray-700 dark:bg-gray-800 dark:text-gray-200">This mind is stopped. It does not think and nothing is sent for it; its treasury is untouched.</p>}
       {halted && <p className="mb-3 rounded-lg bg-gray-200 px-3 py-2 text-sm text-gray-700 dark:bg-gray-800 dark:text-gray-200">{halted}</p>}
       {chain && <CreatorSwitch t={t} paused={chain.paused} onSent={(paused) => setChain({ ...chain, paused, active: !paused && !chain.frozen })} />}
+      {/* what it is doing or waiting for right now, so a quiet mind never reads as a broken one */}
+      {rightNow && (
+        <p className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-200">
+          <span className="min-w-0 flex-1 basis-64"><span className="mr-2 font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400">Right now</span>{rightNow.text}</span>
+          {rightNow.actionsToday !== null && rightNow.actionsAllowed !== null && rightNow.actionsAllowed > 0 && <span className="shrink-0 font-mono text-[11px] tabular-nums text-gray-400">{rightNow.actionsToday} of {rightNow.actionsAllowed} actions today</span>}
+        </p>
+      )}
       <dl className="mb-4 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-4">
         {([["Thoughts", String(t.thoughts)], ["Sent to buybacks", ethText(t.boughtEth)], [t.attached ? "Sent to burn $AXON" : "Set aside for holders", ethText(t.attached ? t.axonEth : t.rewardsEth)], ["Paid for its thinking", ethText(t.thinkingPaidEth)]] as const).map(([k, v]) => (
           <div key={k}>
@@ -150,7 +168,8 @@ function Mind({ t }: { t: BoardToken }) {
       {items === null ? (
         <p className="text-sm text-gray-400">…</p>
       ) : items.length === 0 ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">It has not thought yet. A mind wakes when something happens to its token and its treasury can pay for the thought.</p>
+        // the line above already says why when there is one
+        rightNow ? null : <p className="text-sm text-gray-500 dark:text-gray-400">It has not thought yet. A mind wakes when something happens to its token and its treasury can pay for the thought.</p>
       ) : (
         <ol className="space-y-4">
           {items.map((h) => (

@@ -27,7 +27,11 @@ export interface MindStatus {
   day: VaultDay | null;
 }
 
-export interface StatusOptions { chain?: MindsChain; env?: Record<string, string | undefined>; now?: number; usdPerEth?: number | null }
+export interface StatusOptions {
+  chain?: MindsChain; env?: Record<string, string | undefined>; now?: number; usdPerEth?: number | null;
+  /** the treasury, when the caller has just read it (null: it could not be read); left out, it is read here */
+  treasury?: Treasury | null;
+}
 
 const KEPT = "holders can still claim what was already set aside.";
 
@@ -41,7 +45,7 @@ export async function mindStatus(token: string, o: StatusOptions = {}): Promise<
   ).get(token.toLowerCase()) as Row | undefined;
   if (!m) return null;
 
-  const [treasury, day] = await Promise.all([chain.treasury(m.vault).catch(() => null), chain.vaultDay(m.vault).catch(() => null)]);
+  const [treasury, day] = await Promise.all([o.treasury !== undefined ? o.treasury : chain.treasury(m.vault).catch(() => null), chain.vaultDay(m.vault).catch(() => null)]);
   const say = (state: MindState, text: string): MindStatus => ({ state, text, treasury, day });
 
   const mode = thinkingMode(env);
