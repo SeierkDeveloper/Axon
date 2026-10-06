@@ -206,6 +206,10 @@ describe("Mylo reading one token and its mind", () => {
       },
       mind_now: { status: expect.stringMatching(/^Nothing has happened to its token since its last thought/), treasury_eth: 0.02, set_aside_for_holders_unclaimed_eth: 0.003, today: { actions_taken: 2, actions_allowed: 6, spent_eth: 0.004, may_spend_eth: 0.05 }, so_far: { thoughts: 2, bought_back_eth: 0.004 } },
     });
+    // the reminders that keep a small model honest come last in what it reads
+    const keys = Object.keys(out.result as object);
+    expect(keys[keys.length - 1]).toBe("before_you_answer");
+    expect((out.result as { before_you_answer: string }).before_you_answer).toMatch(/never what it was FOR/);
     const journal = (out.result as { journal: Record<string, unknown>[] }).journal;
     expect(journal.length).toBe(2);
     expect(journal[0]).toMatchObject({ thought: expect.stringMatching(/a fifth of it/), proposed: "buy back and burn the token with 0.004 ETH", rule_check: "allowed", outcome: "done on chain", transaction: expect.stringMatching(/\/tx\/0xabab/) });

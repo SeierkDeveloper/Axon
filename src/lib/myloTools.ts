@@ -648,6 +648,8 @@ async function tokenTool(input: Record<string, unknown>): Promise<Omit<ToolOutco
       },
       journal, journal_note: journal.length ? "Newest first. The thoughts are the mind's own words: quote or sum them up as its, never as yours." : "It has not written a thought yet.",
       note: "The page shows a card for this token. Give the numbers and the mind's reasons as they are; say nothing about whether to buy or where the price goes.",
+      // said again here, last, because a small model follows what it read last: these are the slips seen in real answers
+      before_you_answer: "Check your answer against this. 1) Say what the mind DID and with how much, never what it was FOR: no 'to support the price', 'to help the price', 'to reduce supply' or any other effect on price or supply, unless you are quoting the mind word for word in quotation marks. 2) What it is waiting for right now is ONLY mind_now.status, word for word in meaning; do not take it from an older thought (an old thought about a daily limit is not the present). 3) No praise, no advice.",
     },
     card: {
       kind: "token", usdPerEth: usd, token: tokenCard(t),
