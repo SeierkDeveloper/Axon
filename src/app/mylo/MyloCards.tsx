@@ -14,7 +14,9 @@ import { provider } from "@/lib/chain";
 
 export interface AgentCardData { agentId: string; name: string; description: string | null; category: string | null; price: string | null; priceEth: number | null; proofScore: number | null; studioScore: number | null; tasksCompleted: number | null }
 export interface TokenCardData { token: string; name: string | null; symbol: string | null; logo: string | null; mcapEth: number | null; holders: number | null; curvePercent: number; graduated: boolean; burnedEth: number; agentName: string | null; page: string }
+export interface TokenMindData { runsOn: string; status: string; treasuryEth: number; actionsToday: number | null; maxActionsPerDay: number | null; thoughts: number; lastThought: { at: string; text: string } | null }
 export type CardData =
+  | { kind: "token"; usdPerEth: number | null; token: TokenCardData; mind: TokenMindData }
   | { kind: "tokens"; title: string; usdPerEth: number | null; tokens: TokenCardData[] }
   | { kind: "agents"; title: string; agents: AgentCardData[] }
   | { kind: "compare"; agents: AgentCardData[] }
@@ -58,6 +60,45 @@ export function Card({ card }: { card: CardData }) {
         {card.description && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{card.description}</p>}
         <Link href={card.page} className="mt-4 inline-flex rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">Open the launch page</Link>
         <p className="mt-3 text-[11px] text-gray-400">Filled in for you to check. Add an image there and launch from your own wallet.</p>
+      </div>
+    );
+  }
+  if (card.kind === "token") {
+    const t = card.token, m = card.mind;
+    const cap = t.mcapEth === null ? "…" : card.usdPerEth ? `$${compact(t.mcapEth * card.usdPerEth)}` : `${+t.mcapEth.toPrecision(3)} ETH`;
+    const tiles: [string, string][] = [
+      ["Market cap", cap], ["Holders", t.holders === null ? "–" : `${t.holders}`],
+      ["Mind's treasury", `${+m.treasuryEth.toPrecision(3)} ETH`], ["Actions today", m.actionsToday === null || m.maxActionsPerDay === null ? "–" : `${m.actionsToday} of ${m.maxActionsPerDay}`],
+    ];
+    return (
+      <div className="mt-3 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+        <div className="flex items-center gap-3 px-4 py-3">
+          {/* eslint-disable-next-line @next/next/no-img-element -- token pictures come from wherever their creators put them */}
+          {t.logo ? <img src={t.logo} alt="" loading="lazy" className="h-11 w-11 shrink-0 rounded-xl object-cover" /> : <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gray-100 font-mono text-[11px] font-semibold text-gray-400 dark:bg-gray-800">{(t.symbol ?? "?").slice(0, 4)}</span>}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[15px] font-semibold text-gray-900 dark:text-white">{t.name ?? "Token"}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400"><span className="font-mono">${t.symbol ?? "?"}</span> · {t.graduated ? "Graduated" : `Curve ${t.curvePercent}%`} · Mind: {m.runsOn}</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-px border-y border-gray-100 bg-gray-100 dark:border-gray-800 dark:bg-gray-800 sm:grid-cols-4">
+          {tiles.map(([k, v]) => (
+            <div key={k} className="bg-white px-4 py-2.5 dark:bg-gray-950">
+              <p className="font-mono text-sm font-semibold tabular-nums text-gray-900 dark:text-white">{v}</p>
+              <p className="text-[11px] text-gray-400">{k}</p>
+            </div>
+          ))}
+        </div>
+        <div className="px-4 py-3">
+          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-gray-400">Its mind right now</p>
+          <p className="mt-1.5 text-sm leading-relaxed text-gray-700 dark:text-gray-300">{m.status}</p>
+          {m.lastThought && (
+            <>
+              <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.2em] text-gray-400">Its latest thought</p>
+              <p className="mt-1.5 border-l-2 border-gray-200 pl-3 text-sm leading-relaxed text-gray-700 dark:border-gray-700 dark:text-gray-300">{m.lastThought.text}</p>
+            </>
+          )}
+          <Link href={t.page} className="mt-4 inline-flex rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">Open its page</Link>
+        </div>
       </div>
     );
   }

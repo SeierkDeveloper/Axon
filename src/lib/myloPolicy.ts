@@ -226,6 +226,7 @@ export const TOOLS: Record<string, ToolRule> = {
   my_tier: { kind: "read", wallet: true, confirm: false, spends: false },
   // tokens and their minds: public numbers anyone can read on /launch, so no wallet is needed
   token_board: { kind: "read", wallet: false, confirm: false, spends: false },
+  token_details: { kind: "read", wallet: false, confirm: false, spends: false },
   // memory: about yourself, so no confirmation, but only with a wallet
   remember: { kind: "act", wallet: true, confirm: false, spends: false },
   forget: { kind: "act", wallet: true, confirm: false, spends: false },

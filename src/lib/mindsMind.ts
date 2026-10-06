@@ -29,7 +29,7 @@ export const MIN_GAP_MS = 10 * 60_000;
 /** No mind's thinking costs more than this in a day, whatever its creator set. */
 export const MAX_COST_PER_DAY_ETH = 0.01;
 /** After a thought that failed, the mind waits this long before trying again. */
-const FAILED_GAP_MS = 30 * 60_000;
+export const FAILED_GAP_MS = 30 * 60_000;
 const THOUGHT_CHARS = 600;
 const MINDS_PER_PASS = 3;
 
@@ -74,8 +74,8 @@ export function owedThinkingEth(token: string): number {
 }
 
 const dayStart = (now: number) => new Date(Math.floor(now / 86_400_000) * 86_400_000).toISOString();
-const costToday = (token: string, now: number) => (getDb().prepare("SELECT COALESCE(SUM(cost_eth), 0) v FROM mind_thoughts WHERE token = ? AND at >= ?").get(token, dayStart(now)) as { v: number }).v;
-const spentTodayUsd = (now: number) => (getDb().prepare("SELECT COALESCE(SUM(cost_usd), 0) v FROM mind_thoughts WHERE standin = 0 AND at >= ?").get(dayStart(now)) as { v: number }).v;
+export const costToday = (token: string, now: number) => (getDb().prepare("SELECT COALESCE(SUM(cost_eth), 0) v FROM mind_thoughts WHERE token = ? AND at >= ?").get(token, dayStart(now)) as { v: number }).v;
+export const spentTodayUsd = (now: number) => (getDb().prepare("SELECT COALESCE(SUM(cost_usd), 0) v FROM mind_thoughts WHERE standin = 0 AND at >= ?").get(dayStart(now)) as { v: number }).v;
 
 const REASON: Record<string, (e: { eth: number | null; tokens: number | null }) => string> = {
   launch: () => "the launch",

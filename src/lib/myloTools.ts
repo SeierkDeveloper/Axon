@@ -29,7 +29,10 @@ import { proposalsOf } from "./studioImprove";
 import { checkEligibility } from "./agentLaunch";
 import { agentMindsEnabled } from "./mindsPolicy";
 import { tokenOfAgent } from "./mindsStore";
-import { board, boardTotals, findTokens, type BoardSort, type BoardToken } from "./mindsStats";
+import { board, boardTotals, earnedSince, findTokens, type BoardSort, type BoardToken } from "./mindsStats";
+import { mindStatus } from "./mindsStatus";
+import { thoughts } from "./mindsMind";
+import { CAN } from "./mindsLaunch";
 import { mindLabel } from "./mindsModels";
 import { ethUsd } from "./ethPrice";
 import { LAUNCH_LIMITS } from "./mindsAgent";
@@ -195,6 +198,11 @@ export const MINDS_TOOL_DEFS = [
       limit: { type: "integer", description: "How many to return, 1 to 8 (default 5)" },
     } },
   },
+  {
+    name: "token_details",
+    description: "Everything public about one token launched on Axon and its mind: its numbers, what was locked at launch (tax, where the fees go, what the mind may do and its limits), its mind's journal (its latest thoughts, what it proposed and what became of it), how many actions it has taken today, and what the mind is doing or waiting for right now. Give the token's address, ticker or name. Use it when someone asks how a token is doing, what its mind did or why, or why a mind is quiet. Facts from the chain and the mind's own words: report them, and never say whether to buy or where the price will go.",
+    input_schema: { type: "object", properties: { token: { type: "string", description: "The token's address, its ticker or its name" } }, required: ["token"] },
+  },
 ] as const;
 
 /** One agent as Mylo shows it: public facts only. */
@@ -203,7 +211,11 @@ export interface AgentCard { agentId: string; name: string; description: string 
 /** One token as Mylo shows it: what the launch page shows anyone. */
 export interface TokenCardData { token: string; name: string | null; symbol: string | null; logo: string | null; mcapEth: number | null; holders: number | null; curvePercent: number; graduated: boolean; burnedEth: number; agentName: string | null; page: string }
 
+/** One token and its mind as Mylo shows them: the token, what its mind is doing, and its latest thought. */
+export interface TokenMindData { runsOn: string; status: string; treasuryEth: number; actionsToday: number | null; maxActionsPerDay: number | null; thoughts: number; lastThought: { at: string; text: string } | null }
+
 export type Card =
+  | { kind: "token"; usdPerEth: number | null; token: TokenCardData; mind: TokenMindData }
   | { kind: "tokens"; title: string; usdPerEth: number | null; tokens: TokenCardData[] }
   | { kind: "agents"; title: string; agents: AgentCard[] }
   | { kind: "compare"; agents: AgentCard[] }
@@ -230,7 +242,7 @@ export function agentCard(a: Agent): AgentCard {
 export const TOOL_LABELS: Record<string, string> = {
   search_agents: "Searching the network", agent_details: "Reading the agent's record", compare_agents: "Comparing agents",
   network_pulse: "Checking the network", public_feed: "Reading the latest on Axon", hire_agent: "Preparing the hire", second_opinion: "Preparing a second opinion",
-  save_crew: "Saving the crew", my_crews: "Looking at your crews", run_crew: "Preparing the crew", schedule_job: "Preparing the autopilot", my_schedules: "Looking at your autopilot", manage_schedule: "Updating your autopilot", launch_token: "Preparing the launch", token_board: "Looking at the tokens", my_tier: "Checking your $AXON tier",
+  save_crew: "Saving the crew", my_crews: "Looking at your crews", run_crew: "Preparing the crew", schedule_job: "Preparing the autopilot", my_schedules: "Looking at your autopilot", manage_schedule: "Updating your autopilot", launch_token: "Preparing the launch", token_board: "Looking at the tokens", token_details: "Reading the token and its mind", my_tier: "Checking your $AXON tier",
   remember: "Remembering that", forget: "Forgetting that", my_inbox: "Reading what's new for you", my_agents: "Looking at your agents", my_earnings: "Checking your earnings", withdraw_earnings: "Preparing the withdrawal", apply_improvement: "Preparing the update",
   build_agent: "Preparing the build", change_build: "Making the change", build_report: "Reading your build", pricing_advice: "Looking at what similar agents charge", publish_build: "Preparing to publish",
 };
@@ -307,6 +319,7 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
       }
       case "launch_token": return { ...launchTool(ctx, input), label };
       case "token_board": return { ...(await boardTool(input)), label };
+      case "token_details": return { ...(await tokenTool(input)), label };
       case "my_tier": return { ...(await tierTool(ctx)), label };
       case "remember": {
         if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." }, label };
@@ -569,6 +582,63 @@ async function boardTool(input: Record<string, unknown>): Promise<Omit<ToolOutco
         : search ? `No token on Axon matches "${search}". ${total ? "Without search this lists what is here." : "None have been launched yet."}` : "No tokens have been launched on Axon yet. Anyone can launch the first on /launch.",
     },
     card: found.length ? { kind: "tokens", title: search ? `Tokens matching "${search}"` : TITLES[sort], usdPerEth: usd, tokens: found.map(tokenCard) } : undefined,
+  };
+}
+
+const percent = (bps: number | null) => (bps === null ? null : `${+(bps / 100).toFixed(2)}%`);
+const ACTION_WORDS: Record<string, string> = { buyback: "buy back and burn the token", reward: "reward holders", burn_axon: "burn $AXON" };
+
+/** One token and its mind: its numbers, what was locked at launch, the mind's journal and what it is waiting for. */
+async function tokenTool(input: Record<string, unknown>): Promise<Omit<ToolOutcome, "label">> {
+  if (!agentMindsEnabled()) return { result: { error: "Tokens with minds aren't on here yet." } };
+  const asked = String(input.token ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+  if (!asked) return { result: { error: "Say which token: its address, ticker or name." } };
+  const found = findTokens(asked, 5);
+  if (!found.length) return { result: { error: `No token on Axon matches "${asked}". token_board lists what is here.` } };
+  const q = asked.replace(/^\$/, "").toLowerCase();
+  const exact = found.filter((t) => t.token === q || t.symbol?.toLowerCase() === q || t.name?.toLowerCase() === q);
+  // several tokens can share a word, or even a ticker: ask which rather than answer about the wrong one
+  if (found.length > 1 && exact.length !== 1) {
+    return { result: { which: (exact.length ? exact : found).map((t) => ({ token: t.token, name: t.name, ticker: t.symbol ? `$${t.symbol}` : null, market_cap_eth: t.mcapEth === null ? null : amount(t.mcapEth), launched_at: t.launchedAt })), note: "More than one token matches. Ask which they mean, then call this again with that token's address." } };
+  }
+  const t = exact[0] ?? found[0];
+  const [usd, status] = await Promise.all([ethUsd().catch(() => null), mindStatus(t.token)]);
+  const tr = status?.treasury ?? null, day = status?.day ?? null;
+  const may = tr ? (Object.entries({ buyback: CAN.buyback, reward: CAN.reward, burn_axon: CAN.burnAxon }) as [string, number][]).filter(([, bit]) => tr.limits.allowed & bit).map(([k]) => ACTION_WORDS[k]) : null;
+  const journal = thoughts(t.token, 4).map((h) => ({
+    at: h.at, woke_because: h.reasons.slice(0, 4), thought: h.thought,
+    proposed: h.action ? `${ACTION_WORDS[h.action.kind] ?? h.action.kind} with ${amount(h.action.eth)} ETH` : "nothing",
+    rule_check: h.verdict === "none" ? undefined : h.verdict === "approved" ? "allowed" : `refused: ${h.verdictReason ?? "outside its limits"}`,
+    outcome: h.sent ? (h.sent.status === "done" ? "done on chain" : h.sent.status === "failed" ? `failed: ${h.sent.error ?? "unknown"}` : h.sent.status === "dropped" ? "not sent" : "on its way") : undefined,
+    transaction: h.sent?.txHash ? explorerTxUrl(h.sent.txHash) : undefined,
+  }));
+  const statusText = status?.text ?? "Its mind could not be read just now.";
+  return {
+    result: {
+      ...tokenForModel(t, usd),
+      description: (getDb().prepare("SELECT description FROM mind_tokens WHERE token = ?").get(t.token) as { description: string | null } | undefined)?.description ?? null,
+      creator: t.creator,
+      agent: t.agentId ? { name: t.agentName, page: `/agents/${t.agentId}`, earned_from_work_since_launch_eth: amount(earnedSince(t.agentId, t.launchedAt)) } : null,
+      locked_at_launch: {
+        note: "Fixed for good at launch: nobody can change any of it, not the creator and not Axon.",
+        tax_on_every_trade: t.attached ? null : percent(t.taxBps),
+        fees_go: t.attached ? null : { to_the_creator: percent(t.creatorBps), burn_the_token: percent(t.burnBps), burn_axon: percent(t.axonBps), to_the_mind: percent(t.mindBps) },
+        mind_runs_on: mindLabel(t.model), mind_may: may,
+        mind_limits: tr ? { most_spent_a_day_eth: tr.limits.maxPerDayEth, most_in_one_action_eth: tr.limits.maxPerActionEth, most_actions_a_day: tr.limits.maxActionsPerDay, thinking_costs_at_most_a_day_eth: tr.limits.maxCostPerDayEth } : null,
+      },
+      mind_now: {
+        status: statusText,
+        treasury_eth: amount(tr?.availableEth ?? t.treasuryEth), set_aside_for_holders_unclaimed_eth: tr ? amount(Math.max(0, tr.rewardedEth - tr.claimedEth)) : null,
+        today: day && tr ? { actions_taken: day.actionsToday, actions_allowed: tr.limits.maxActionsPerDay, spent_eth: amount(day.spentTodayEth), may_spend_eth: tr.limits.maxPerDayEth } : null,
+        so_far: { thoughts: t.thoughts, bought_back_eth: amount(t.boughtEth), set_aside_for_holders_eth: amount(t.rewardsEth), burned_axon_eth: amount(t.axonEth), paid_for_its_thinking_eth: amount(t.thinkingPaidEth) },
+      },
+      journal, journal_note: journal.length ? "Newest first. The thoughts are the mind's own words: quote or sum them up as its, never as yours." : "It has not written a thought yet.",
+      note: "The page shows a card for this token. Give the numbers and the mind's reasons as they are; say nothing about whether to buy or where the price goes.",
+    },
+    card: {
+      kind: "token", usdPerEth: usd, token: tokenCard(t),
+      mind: { runsOn: mindLabel(t.model), status: statusText, treasuryEth: tr?.availableEth ?? t.treasuryEth, actionsToday: day?.actionsToday ?? null, maxActionsPerDay: tr?.limits.maxActionsPerDay ?? null, thoughts: t.thoughts, lastThought: journal[0]?.thought ? { at: journal[0].at, text: journal[0].thought } : null },
+    },
   };
 }
 

@@ -32,6 +32,7 @@ export const ASK_MYLO_TOOL = {
 function shown(cards: Card[]) {
   return cards.map((c) => {
     if (c.kind === "agents" || c.kind === "compare") return { kind: c.kind === "compare" ? "comparison" : "agents", agents: c.agents.map((a) => ({ agent_id: a.agentId, name: a.name, price: a.price, tested_score: a.studioScore, proof_score: a.proofScore, jobs_done: a.tasksCompleted })) };
+    if (c.kind === "token") return { kind: "token", token: c.token.token, name: c.token.name, ticker: c.token.symbol, market_cap_eth: c.token.mcapEth, holders: c.token.holders, mind: { runs_on: c.mind.runsOn, status: c.mind.status, latest_thought: c.mind.lastThought?.text ?? null }, page: `${siteUrl()}${c.token.page}` };
     if (c.kind === "tokens") return { kind: "tokens", title: c.title, tokens: c.tokens.map((t) => ({ token: t.token, name: t.name, ticker: t.symbol, market_cap_eth: t.mcapEth, holders: t.holders, page: `${siteUrl()}${t.page}` })) };
     if (c.kind === "launch") return { kind: "launch", agent: c.agentName, name: c.name, ticker: c.ticker, description: c.description, launch_page: `${siteUrl()}${c.page}` };
     if (c.kind === "earnings") return { kind: "earnings", can_withdraw_eth: c.availableEth, agents: c.agents.map((a) => ({ agent_id: a.agentId, name: a.name, earned_eth: a.earnedEth, can_withdraw_eth: a.availableEth })) };
