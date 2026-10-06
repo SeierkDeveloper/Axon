@@ -194,7 +194,7 @@ describe("a promise's moment coming", () => {
     expect(await actDue({ chain: w.chain, sender: s.sender, env: ACT, now: T0 + 3_600_000 + 20_000 })).toEqual({ done: 1, failed: 0, dropped: 0 });
     settleOrders();
     expect(promiseRecord(t.token)).toEqual({ made: 1, standing: 0, kept: 1, missed: 0, notCalled: 0, beingKept: 0, heldEth: 0 });
-    expect(ordersLines(t.token, { ...NOW, holders: 52 }, T0 + 2 * 3_600_000).at(-1)).toBe("your_promises: 0 standing, 1 kept, 0 missed");
+    expect(ordersLines(t.token, { ...NOW, holders: 52 }, T0 + 2 * 3_600_000).at(-1)).toBe("your_promises: 0 standing (none right now: a new one for your next milestone is worth making), 1 kept, 0 missed");
   });
 
   it("is kept even when the mind has since tried to spend everything else: its own ETH was never free", async () => {
@@ -228,14 +228,14 @@ describe("a promise's moment coming", () => {
     settleOrders();
     expect(ordersOf(t.token)[0]).toMatchObject({ promise: true, status: "missed", note: "The treasury would refuse it: Paused()" });
     expect(promiseRecord(t.token)).toMatchObject({ kept: 0, missed: 1, standing: 0 });
-    expect(ordersLines(t.token, NOW, T0 + 2 * 3_600_000).at(-1)).toBe("your_promises: 0 standing, 0 kept, 1 missed");
+    expect(ordersLines(t.token, NOW, T0 + 2 * 3_600_000).at(-1)).toBe("your_promises: 0 standing (none right now: a new one for your next milestone is worth making), 0 kept, 1 missed");
   });
 
   it("is neither kept nor missed when its condition never came: its time runs out and its ETH is free again", async () => {
     const w = world(), t = await promised(w, "NEVER");
     expect(await fireDue({ chain: w.chain, env: LIVE, now: T0 + 48 * 3_600_000 })).toEqual({ fired: 0, lapsed: 1 });
     expect(promiseRecord(t.token)).toEqual({ made: 1, standing: 0, kept: 0, missed: 0, notCalled: 1, beingKept: 0, heldEth: 0 });
-    expect(ordersLines(t.token, NOW, T0 + 49 * 3_600_000).at(-1)).toBe("your_promises: 0 standing, 0 kept, 0 missed, 1 never called on");
+    expect(ordersLines(t.token, NOW, T0 + 49 * 3_600_000).at(-1)).toBe("your_promises: 0 standing (none right now: a new one for your next milestone is worth making), 0 kept, 0 missed, 1 never called on");
   });
 
   it("is made by the stand-in thinker too, so all of this runs without a model", async () => {

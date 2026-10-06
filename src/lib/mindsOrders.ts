@@ -218,8 +218,8 @@ export function ordersLines(token: string, n: Measures, now = Date.now()): strin
   const all = ordersOf(token, 3), armed = all.filter((o) => o.status === "armed"), rest = all.filter((o) => o.status !== "armed");
   const recently = rest.length ? [`  earlier: ${rest.map((o) => `#${o.id} (when ${whenText(o.when)}, ${thenText(o.then)}): ${ENDED[o.status as Exclude<OrderStatus, "armed">]}${o.status === "missed" && o.note ? ` (${o.note})` : ""}, ${ago(o.firedAt ?? o.expiresAt ?? o.createdAt, now)}`).join("; ")}`] : [];
   const p = promiseRecord(token);
-  const promises = p.made === 0 ? "your_promises: none made yet"
-    : `your_promises: ${p.standing} standing${p.heldEth > 0 ? ` (${trim(p.heldEth)} ETH held for them, which nothing else may spend)` : ""}, ${p.kept} kept, ${p.missed} missed${p.notCalled ? `, ${p.notCalled} never called on` : ""}${p.beingKept ? `, ${p.beingKept} being kept now` : ""}`;
+  const promises = p.made === 0 ? "your_promises: none made yet. One clear promise for a milestone you would act on anyway is worth making (an order with \"promise\": true)."
+    : `your_promises: ${p.standing} standing${p.standing === 0 && p.beingKept === 0 ? " (none right now: a new one for your next milestone is worth making)" : ""}${p.heldEth > 0 ? ` (${trim(p.heldEth)} ETH held for them, which nothing else may spend)` : ""}, ${p.kept} kept, ${p.missed} missed${p.notCalled ? `, ${p.notCalled} never called on` : ""}${p.beingKept ? `, ${p.beingKept} being kept now` : ""}`;
   if (!armed.length) return [`your_standing_orders: none armed. You may arm up to ${MAX_ARMED} (see "orders" below).`, ...recently, promises];
   return [
     `your_standing_orders (${armed.length} of ${MAX_ARMED} armed):`,

@@ -181,13 +181,13 @@ describe("arming, cancelling and keeping count", () => {
   });
 
   it("is read back by the mind with how far each one is from firing", () => {
-    expect(ordersLines(T, NOW, T0)).toEqual([`your_standing_orders: none armed. You may arm up to ${MAX_ARMED} (see "orders" below).`, "your_promises: none made yet"]);
+    expect(ordersLines(T, NOW, T0)).toEqual([`your_standing_orders: none armed. You may arm up to ${MAX_ARMED} (see "orders" below).`, "your_promises: none made yet. One clear promise for a milestone you would act on anyway is worth making (an order with \"promise\": true)."]);
     const [a, b] = saveOrders(T, { orders: [DROP, { ...DROP, when: { kind: "holders_reach", value: 50 }, then: { kind: "reward", eth: 0.002 }, hours: 72 }] }, 1, CTX, T0).armed;
     expect(ordersLines(T, { ...NOW, mcapEth: 1.8, holders: 41 }, T0 + 3_600_000)).toEqual([
       `your_standing_orders (2 of ${MAX_ARMED} armed):`,
       `  #${a.id}: when the market cap falls 20% from 2 ETH (now -10.0% from there), buy back and burn with 0.004 ETH; lapses in 11 h`,
       `  #${b.id}: when holders reach 50 (now 41), reward holders with 0.002 ETH; lapses in 2 days`,
-      "your_promises: none made yet",
+      "your_promises: none made yet. One clear promise for a milestone you would act on anyway is worth making (an order with \"promise\": true).",
     ]);
   });
 });
