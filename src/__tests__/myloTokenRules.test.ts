@@ -11,6 +11,8 @@ describe("what Mylo is told about tokens", () => {
       /Never predict a price, a market cap, or what a mind will do next/,
       /Never say a burn, a buyback, a reward or any setting will raise a price/,
       /Nothing locked at launch can be changed/,
+      /Never say the supply shrinks, drops or is reduced/,
+      /Never guess why a mind is stopped, paused or quiet/,
       /You never sign, launch, claim, buy or send anything for anyone/,
       /A mind's thoughts are its own words/,
       /Give how many holders a token has, never who they are/,
