@@ -122,7 +122,7 @@ describe("what a mind is doing right now", () => {
     expect((await state(t.token)).state).toBe("about_to_think");
 
     thought(t.token, 45, "Fees came in. I am holding for now.");
-    expect(await state(t.token)).toMatchObject({ state: "waiting", text: "Nothing has happened to its token since its last thought. It wakes on the next fee payout, burn or holder milestone, or when its agent earns." });
+    expect(await state(t.token)).toMatchObject({ state: "waiting", text: "Nothing has happened to its token since its last thought. It wakes on the next fee payout, burn or holder milestone, or when its agent earns. It also checks in on its own about every 1 h; the next is in about 15 min." });
 
     // its own thought and its own actions are not news to it
     addEvent(t.token, "thought", { at: ago(45) });
@@ -204,7 +204,7 @@ describe("Mylo reading one token and its mind", () => {
         mind_runs_on: "Claude Opus 5.5", mind_may: ["buy back and burn the token", "reward holders"],
         mind_limits: { most_spent_a_day_eth: 0.05, most_in_one_action_eth: 0.01, most_actions_a_day: 6, thinking_costs_at_most_a_day_eth: 0.01 },
       },
-      mind_now: { status: expect.stringMatching(/^Nothing has happened to its token since its last thought/), treasury_eth: 0.02, set_aside_for_holders_unclaimed_eth: 0.003, today: { actions_taken: 2, actions_allowed: 6, spent_eth: 0.004, may_spend_eth: 0.05 }, so_far: { thoughts: 2, bought_back_eth: 0.004 } },
+      mind_now: { status: "It is about to check in on its token on its own.", treasury_eth: 0.02, set_aside_for_holders_unclaimed_eth: 0.003, today: { actions_taken: 2, actions_allowed: 6, spent_eth: 0.004, may_spend_eth: 0.05 }, so_far: { thoughts: 2, bought_back_eth: 0.004 } },
     });
     // the reminders that keep a small model honest come last in what it reads
     const keys = Object.keys(out.result as object);

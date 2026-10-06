@@ -14,6 +14,7 @@ import { thinkingMode } from "./mindsThinker";
 import { estimateThoughtUsd, mindModel, OWN_MIND } from "./mindsModels";
 import { costToday, dailyBudgetUsd, owedThinkingEth, spentTodayUsd, FAILED_GAP_MS, MAX_COST_PER_DAY_ETH, MIN_GAP_MS } from "./mindsMind";
 import { ethUsd } from "./ethPrice";
+import { pulseEnabled, pulseSpan, pulseState } from "./mindsPulse";
 
 export type MindState =
   | "halted" | "stopped" | "frozen" | "paused" | "unread" | "no_treasury" | "cannot_pay" | "thinking_capped" | "budget" | "actions_used" | "resting" | "about_to_think" | "waiting";
@@ -65,9 +66,11 @@ export async function mindStatus(token: string, o: StatusOptions = {}): Promise<
   if (!m.attached && (m.mind_bps ?? 0) === 0 && available <= 0) return say("no_treasury", "None of this token's fees go to its mind, so it has no treasury and stays quiet.");
 
   // a mind on its creator's own server pays nothing for a thought, so no cost holds it back
+  let usd: number | null = null;
   if (m.model !== OWN_MIND) {
     const model = mindModel(m.model);
     const usdPerEth = o.usdPerEth === undefined ? await ethUsd().catch(() => null) : o.usdPerEth;
+    usd = usdPerEth ?? null;
     if (usdPerEth) {
       const estimateEth = estimateThoughtUsd(model) / usdPerEth;
       if (available - owedThinkingEth(m.token) < estimateEth) return say("cannot_pay", `Its treasury cannot pay for a thought right now. It thinks again once more fees reach it.`);
@@ -85,7 +88,11 @@ export async function mindStatus(token: string, o: StatusOptions = {}): Promise<
     if (last && now - Date.parse(last.at) < gap) return say("resting", `Something new happened to its token since its last thought. It thinks at most once every ${Math.round(MIN_GAP_MS / 60_000)} minutes, so it will pick it up shortly.`);
     return say("about_to_think", "Something new happened to its token. It will think about it shortly.");
   }
+  // nothing woke it: when it next checks in on its own
+  const pulse = thought && pulseEnabled(env) && (m.model === OWN_MIND || usd) ? pulseState(m.token, now, { usdPerEth: m.model === OWN_MIND ? 1 : usd, treasuryEth: available - owedThinkingEth(m.token), ...(treasury ? { ceilingEth: Math.min(MAX_COST_PER_DAY_ETH, treasury.limits.maxCostPerDayEth) } : {}) }) : null;
+  if (pulse?.due && (!last || now - Date.parse(last.at) >= MIN_GAP_MS)) return say("about_to_think", pulse.kind === "radar" ? "Its radar flagged something unusual on its token. It will look at it shortly." : "It is about to check in on its token on its own.");
+  const checks = !pulse ? "" : pulse.everyMs === null || pulse.nextAt === null ? " Its treasury is too small for it to check in on its own between those." : ` It also checks in on its own about every ${pulseSpan(pulse.everyMs)}; the next is ${pulse.nextAt <= now ? "due" : `in about ${pulseSpan(pulse.nextAt - now)}`}.`;
   return say("waiting", thought
-    ? `Nothing has happened to its token since its last thought. It wakes ${wakes}.`
+    ? `Nothing has happened to its token since its last thought. It wakes ${wakes}.${checks}`
     : `It has not thought yet. It wakes ${wakes}, as long as its treasury can pay for the thought.`);
 }
