@@ -21,6 +21,7 @@ import { divide, merkle } from "./mindsMerkle";
 import { addEvent } from "./mindsStats";
 import { owedThinkingEth } from "./mindsMind";
 import { reserveOf } from "./mindsPlan";
+import { heldFor } from "./mindsOrders";
 import { mindsHalted } from "./mindsAdmin";
 import { publicClient, walletClientFor } from "./evm";
 import { logger } from "./logger";
@@ -125,6 +126,8 @@ async function act(d: Due, o: Required<Pick<ActOptions, "chain" | "sender">> & {
     availableEth: treasury.availableEth, owedThinkingEth: owedThinkingEth(d.token), spentTodayEth: day.spentTodayEth, actionsToday: day.actionsToday, active: treasury.active, phase: snap.phase, holders: d.holders, attached: d.attached === 1,
     // the reserve its plan keeps holds on the second look too
     reserveEth: reserveOf(d.token),
+    // and so does what it holds for promises still standing (one being kept is no longer among them)
+    heldEth: heldFor(d.token),
   });
   if (!verdict.ok) return drop(`Refused on the second look: ${verdict.reason}`);
 

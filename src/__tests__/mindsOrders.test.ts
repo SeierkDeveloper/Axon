@@ -95,8 +95,8 @@ function signer(o: { simulate?: () => unknown; ok?: boolean } = {}) {
 
 describe("reading a standing order out of a mind's answer", () => {
   it("takes a well-formed one, and remembers where the market cap stood when it was set", () => {
-    expect(ok(readOrder(DROP, CTX))).toEqual({ when: { kind: "market_cap_drops_pct", value: 20, base: 2 }, then: { kind: "buyback", eth: 0.004 }, hours: 12, said: "If the market cap falls a fifth from here I buy back and burn." });
-    expect(ok(readOrder({ when: { kind: "Holders Reach", value: "50.4" }, then: { kind: "reward", eth: "0.002" } }, CTX))).toEqual({ when: { kind: "holders_reach", value: 50, base: null }, then: { kind: "reward", eth: 0.002 }, hours: ORDER_HOURS.usual, said: null });
+    expect(ok(readOrder(DROP, CTX))).toEqual({ when: { kind: "market_cap_drops_pct", value: 20, base: 2 }, then: { kind: "buyback", eth: 0.004 }, hours: 12, said: "If the market cap falls a fifth from here I buy back and burn.", promise: false });
+    expect(ok(readOrder({ when: { kind: "Holders Reach", value: "50.4" }, then: { kind: "reward", eth: "0.002" } }, CTX))).toEqual({ when: { kind: "holders_reach", value: 50, base: null }, then: { kind: "reward", eth: 0.002 }, hours: ORDER_HOURS.usual, said: null, promise: false });
     expect(ok(readOrder({ when: { kind: "graduates" }, then: { kind: "burn_axon", eth: 0.001 }, hours: 9999 }, CTX))).toMatchObject({ when: { kind: "graduates", value: 0, base: null }, hours: ORDER_HOURS.most });
     expect(ok(readOrder({ ...DROP, hours: 0 }, CTX)).hours).toBe(ORDER_HOURS.least);
   });
@@ -181,12 +181,13 @@ describe("arming, cancelling and keeping count", () => {
   });
 
   it("is read back by the mind with how far each one is from firing", () => {
-    expect(ordersLines(T, NOW, T0)).toEqual([`your_standing_orders: none armed. You may arm up to ${MAX_ARMED} (see "orders" below).`]);
+    expect(ordersLines(T, NOW, T0)).toEqual([`your_standing_orders: none armed. You may arm up to ${MAX_ARMED} (see "orders" below).`, "your_promises: none made yet"]);
     const [a, b] = saveOrders(T, { orders: [DROP, { ...DROP, when: { kind: "holders_reach", value: 50 }, then: { kind: "reward", eth: 0.002 }, hours: 72 }] }, 1, CTX, T0).armed;
     expect(ordersLines(T, { ...NOW, mcapEth: 1.8, holders: 41 }, T0 + 3_600_000)).toEqual([
       `your_standing_orders (2 of ${MAX_ARMED} armed):`,
       `  #${a.id}: when the market cap falls 20% from 2 ETH (now -10.0% from there), buy back and burn with 0.004 ETH; lapses in 11 h`,
       `  #${b.id}: when holders reach 50 (now 41), reward holders with 0.002 ETH; lapses in 2 days`,
+      "your_promises: none made yet",
     ]);
   });
 });

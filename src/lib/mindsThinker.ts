@@ -82,11 +82,18 @@ export const standInThinker: Thinker = async (model, system, prompt) => {
   // cap falls, or failing that a reward at the next round number of holders
   const cap = num("market_cap_eth"), order = Math.min(perAction, Math.max(0.0001, Math.floor((free / 5) * 1e6) / 1e6));
   if (/your_standing_orders: none armed/.test(prompt) && order <= perAction) {
-    const orders = /buy back/.test(can) && cap > 0
+    const orders: Record<string, unknown>[] = /buy back/.test(can) && cap > 0
       ? [{ when: { kind: "market_cap_drops_pct", value: 15 }, then: { kind: "buyback", eth: order }, hours: 24, say: "If the market cap falls 15% from here I buy back and burn, without waiting to be woken." }]
       : /reward holders/.test(can) && holders >= 2
         ? [{ when: { kind: "holders_reach", value: [10, 25, 50, 100, 250, 500, 1000].find((v) => v > holders) ?? holders * 2 }, then: { kind: "reward", eth: order }, hours: 72, say: "When holders reach the next round number I set a reward aside for them." }]
         : [];
+    // and, the first time, one promise: a small amount set aside for the day holders reach the next round number
+    const next = [10, 25, 50, 100, 250, 500, 1000].find((v) => v > holders) ?? holders * 2;
+    const with_ = /buy back/.test(can) ? "buyback" : /burn \$AXON/.test(can) ? "burn_axon" : null;
+    const spare = free - (act ? size : 0) - order;
+    if (/your_promises: none made yet/.test(prompt) && with_ && spare >= 0.0001) {
+      orders.push({ when: { kind: "holders_reach", value: next }, then: { kind: with_, eth: 0.0001 }, hours: 72, say: `If holders reach ${next} within three days, I ${with_ === "buyback" ? "buy back and burn" : "burn $AXON"} with 0.0001 ETH. It is set aside from now.`, promise: true });
+    }
     if (orders.length) Object.assign(out, { orders });
   }
   const text = JSON.stringify(out);

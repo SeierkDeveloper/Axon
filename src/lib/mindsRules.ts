@@ -31,6 +31,8 @@ export interface RuleContext {
   attached?: boolean;
   /** the floor its own plan keeps: ETH that stays in the treasury whatever it proposes. 0 without a plan. */
   reserveEth?: number;
+  /** ETH held for promises the mind has made and not yet been called on: nothing else may spend it. 0 without any. */
+  heldEth?: number;
 }
 
 /** Nothing smaller than this is worth its own gas. */
@@ -66,6 +68,8 @@ export function checkProposal(p: Proposal, c: RuleContext): Verdict {
   if (p.eth > free + 1e-12) return no(`The treasury cannot cover it: ${Math.max(0, free).toFixed(6)} ETH is free after what its thinking costs.`);
   const floor = c.reserveEth ?? 0;
   if (floor > 0 && p.eth > free - floor + 1e-12) return no(`It would take the treasury below the reserve its own plan keeps (${floor} ETH): ${Math.max(0, free - floor).toFixed(6)} ETH is free above it.`);
+  const held = c.heldEth ?? 0;
+  if (held > 0 && p.eth > free - floor - held + 1e-12) return no(`It would spend what it has promised: ${held} ETH is held for promises it made, and ${Math.max(0, free - floor - held).toFixed(6)} ETH is free beside that.`);
   if (p.kind === "buyback" && (c.phase === 1 || c.phase === 3)) return no("The token has no open market to buy on right now.");
   if (p.kind === "reward" && c.attached) return no("Rewards are not open for a token launched before minds: its holders are only counted from the day it got its mind.");
   if (p.kind === "reward" && c.holders < 2) return no("There are not enough holders to reward yet.");

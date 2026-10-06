@@ -5,7 +5,7 @@ import { agentMindsEnabled } from "@/lib/mindsPolicy";
 import { liveToken } from "@/lib/mindsIndex";
 import { mindStatus } from "@/lib/mindsStatus";
 import { planOf, progressOf } from "@/lib/mindsPlan";
-import { ordersOf, whenText, thenText } from "@/lib/mindsOrders";
+import { ordersOf, promiseRecord, whenText, thenText } from "@/lib/mindsOrders";
 import { boardToken } from "@/lib/mindsStats";
 import { normalizeAddress } from "@/lib/address";
 
@@ -28,6 +28,6 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     const plan = standing ? { ...standing, progress: b ? progressOf(standing, { holders: b.holders, mcapEth: b.mcapEth, burnedTokens: b.burnedTokens, curveBps: b.curveBps, phase: b.phase }) : null } : null;
     // its standing orders: the ones armed, then the most recent that fired, lapsed or were cancelled
     const orders = ordersOf(token).map((o) => ({ id: o.id, status: o.status, when: whenText(o.when), then: thenText(o.then), said: o.said, promise: o.promise, createdAt: o.createdAt, expiresAt: o.expiresAt, firedAt: o.firedAt, note: o.note }));
-    return NextResponse.json({ ...t, mind, plan, orders }, { headers: { "Cache-Control": "public, max-age=10" } });
+    return NextResponse.json({ ...t, mind, plan, orders, promises: promiseRecord(token) }, { headers: { "Cache-Control": "public, max-age=10" } });
   });
 }

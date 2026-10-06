@@ -9,6 +9,11 @@
 // special standing: it becomes an ordinary proposal, written into the mind's journal, and goes through the same rule
 // check, the same second look before sending and the same limits in the treasury's contract as any other. An order
 // fires once. One that is not met in time lapses.
+//
+// A promise is a standing order the mind makes in public and binds itself to. Three things set it apart: it must say
+// what it promises in a sentence holders can read, the mind cannot take it back, and its amount is held in the
+// treasury from the moment it is made, so that nothing else the mind does can spend it. When its condition is met it
+// is kept or missed, and the count of both is shown. One whose condition never came was not called on.
 
 import { getDb } from "./db";
 import { agentMindsEnabled } from "./mindsPolicy";
@@ -98,8 +103,12 @@ function said(v: unknown): string | null {
   return text.length < 8 || validateAgentText(text) ? null : text;
 }
 
-export interface Wanted { when: Order["when"]; then: Proposal; hours: number; said: string | null }
-export interface ArmContext { allowed: number; attached?: boolean; maxPerActionEth: number; numbers: Measures }
+export interface Wanted { when: Order["when"]; then: Proposal; hours: number; said: string | null; promise: boolean }
+export interface ArmContext {
+  allowed: number; attached?: boolean; maxPerActionEth: number; numbers: Measures;
+  /** what the treasury has free to promise right now: above its thinking costs, its reserve, what is already held and what it is spending in this answer. A promise it cannot cover is not made. */
+  freeEth?: number;
+}
 
 /**
  * Read one order out of a mind's answer. Returns the order, or the plain reason it cannot be armed. An order is only
@@ -135,7 +144,9 @@ export function readOrder(raw: unknown, c: ArmContext): Wanted | { refused: stri
 
   const h = num(r.hours);
   const hours = Number.isFinite(h) ? Math.min(ORDER_HOURS.most, Math.max(ORDER_HOURS.least, Math.round(h))) : ORDER_HOURS.usual;
-  return { when, then: { kind: then, eth: Math.floor(eth * 1e9) / 1e9 }, hours, said: said(r.say ?? r.said) };
+  const promise = r.promise === true || r.promise === "true" || r.promise === 1, words = said(r.say ?? r.said);
+  if (promise && !words) return { refused: "A promise has to say what it promises, in a sentence holders can read." };
+  return { when, then: { kind: then, eth: Math.floor(eth * 1e9) / 1e9 }, hours, said: words, promise };
 }
 
 /** A token's orders: those armed, oldest first, then the most recent that are not. */
@@ -145,6 +156,22 @@ export function ordersOf(token: string, recent = 10): Order[] {
   const rest = db.prepare("SELECT * FROM mind_orders WHERE token = ? AND status != 'armed' ORDER BY id DESC LIMIT ?").all(t, Math.max(0, recent)) as Row[];
   return [...armed, ...rest].map(toOrder);
 }
+/** ETH held for a token's standing promises. `except` leaves one out: the promise that is being kept right now. */
+export const heldFor = (token: string, except = 0): number => (getDb().prepare("SELECT COALESCE(SUM(then_eth), 0) v FROM mind_orders WHERE token = ? AND status = 'armed' AND promise = 1 AND id != ?").get(token.toLowerCase(), except) as { v: number }).v;
+
+export interface PromiseRecord { made: number; standing: number; kept: number; missed: number; notCalled: number; beingKept: number; heldEth: number }
+/**
+ * A mind's record with its promises. Kept: its condition came and the action was carried out on chain. Missed: its
+ * condition came and the action was not carried out. Not called: its time ran out before the condition came, which
+ * is neither. Being kept: the condition came and the action is on its way.
+ */
+export function promiseRecord(token: string): PromiseRecord {
+  const t = token.toLowerCase();
+  const rows = getDb().prepare("SELECT status, COUNT(*) n FROM mind_orders WHERE token = ? AND promise = 1 GROUP BY status").all(t) as { status: string; n: number }[];
+  const of = (s: string) => rows.find((r) => r.status === s)?.n ?? 0;
+  return { made: rows.reduce((s, r) => s + r.n, 0), standing: of("armed"), kept: of("kept"), missed: of("missed"), notCalled: of("lapsed"), beingKept: of("fired"), heldEth: heldFor(t) };
+}
+
 export const armedCount = (token: string): number => (getDb().prepare("SELECT COUNT(*) n FROM mind_orders WHERE token = ? AND status = 'armed'").get(token.toLowerCase()) as { n: number }).n;
 
 /**
@@ -160,12 +187,18 @@ export function saveOrders(token: string, raw: { orders?: unknown; cancel?: unkn
     if (Number.isInteger(id)) cancelled += db.prepare("UPDATE mind_orders SET status = 'cancelled', note = 'Cancelled by the mind.' WHERE id = ? AND token = ? AND status = 'armed' AND promise = 0").run(id, t).changes;
   }
   const armed: Order[] = [], refused: string[] = [];
+  let free = c.freeEth ?? 0;
   for (const one of Array.isArray(raw.orders) ? raw.orders.slice(0, 6) : []) {
     const o = readOrder(one, c);
     if ("refused" in o) { refused.push(o.refused); continue; }
     if (armedCount(t) >= MAX_ARMED) { refused.push(`It already has ${MAX_ARMED} orders armed, which is the most a mind keeps at once.`); continue; }
-    const r = db.prepare("INSERT INTO mind_orders (token, thought_id, when_kind, when_value, when_base, then_kind, then_eth, promise, said, status, expires_at, created_at) VALUES (?,?,?,?,?,?,?,0,?,'armed',?,?)")
-      .run(t, thoughtId, o.when.kind, o.when.value, o.when.base, o.then.kind, o.then.eth, o.said, new Date(now + o.hours * 3_600_000).toISOString(), at);
+    // a promise is only made with the ETH to keep it in the treasury now, and that ETH is held from here on
+    if (o.promise) {
+      if (o.then.eth > free + 1e-12) { refused.push(`The treasury cannot cover this promise now: ${Math.max(0, free).toFixed(6)} ETH is free to promise.`); continue; }
+      free -= o.then.eth;
+    }
+    const r = db.prepare("INSERT INTO mind_orders (token, thought_id, when_kind, when_value, when_base, then_kind, then_eth, promise, said, status, expires_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,'armed',?,?)")
+      .run(t, thoughtId, o.when.kind, o.when.value, o.when.base, o.then.kind, o.then.eth, o.promise ? 1 : 0, o.said, new Date(now + o.hours * 3_600_000).toISOString(), at);
     armed.push(toOrder(db.prepare("SELECT * FROM mind_orders WHERE id = ?").get(r.lastInsertRowid) as Row));
   }
   return { armed, refused, cancelled };
@@ -183,11 +216,15 @@ const ENDED: Record<Exclude<OrderStatus, "armed">, string> = { fired: "its condi
 export function ordersLines(token: string, n: Measures, now = Date.now()): string[] {
   const all = ordersOf(token, 3), armed = all.filter((o) => o.status === "armed"), rest = all.filter((o) => o.status !== "armed");
   const recently = rest.length ? [`  earlier: ${rest.map((o) => `#${o.id} (when ${whenText(o.when)}, ${thenText(o.then)}): ${ENDED[o.status as Exclude<OrderStatus, "armed">]}${o.status === "missed" && o.note ? ` (${o.note})` : ""}, ${ago(o.firedAt ?? o.expiresAt ?? o.createdAt, now)}`).join("; ")}`] : [];
-  if (!armed.length) return [`your_standing_orders: none armed. You may arm up to ${MAX_ARMED} (see "orders" below).`, ...recently];
+  const p = promiseRecord(token);
+  const promises = p.made === 0 ? "your_promises: none made yet"
+    : `your_promises: ${p.standing} standing${p.heldEth > 0 ? ` (${trim(p.heldEth)} ETH held for them, which nothing else may spend)` : ""}, ${p.kept} kept, ${p.missed} missed${p.notCalled ? `, ${p.notCalled} never called on` : ""}${p.beingKept ? `, ${p.beingKept} being kept now` : ""}`;
+  if (!armed.length) return [`your_standing_orders: none armed. You may arm up to ${MAX_ARMED} (see "orders" below).`, ...recently, promises];
   return [
     `your_standing_orders (${armed.length} of ${MAX_ARMED} armed):`,
-    ...armed.map((o) => `  #${o.id}: when ${whenText(o.when)}${distance(o.when, n)}, ${thenText(o.then)}; lapses in ${left(o.expiresAt, now)}`),
+    ...armed.map((o) => `  #${o.id}${o.promise ? " (a promise, it cannot be cancelled)" : ""}: when ${whenText(o.when)}${distance(o.when, n)}, ${thenText(o.then)}; ${o.promise ? "stands for another" : "lapses in"} ${left(o.expiresAt, now)}`),
     ...recently,
+    promises,
   ];
 }
 
@@ -198,6 +235,7 @@ interface Armed extends Row { vault: string; attached: number; phase: number; mc
 /** What its journal says when an order fires: written by plain code from the order itself, in the mind's voice. */
 function firedText(o: Order, n: Measures): string {
   const now = o.when.kind.startsWith("market_cap") && n.mcapEth !== null ? ` It stands at ${trim(n.mcapEth)} ETH.` : o.when.kind === "holders_reach" ? ` There are ${n.holders} now.` : "";
+  if (o.promise) return `I made a promise: "${o.said ?? ""}" Its moment has come: ${whenText(o.when)}.${now} Keeping it means I ${thenText(o.then)}, from the ETH I held for it. That goes to the rule check now.`;
   return `My standing order was met: ${whenText(o.when)}.${now}${o.said ? ` When I set it I said: "${o.said}"` : ""} It calls for me to ${thenText(o.then)}, so that goes to the rule check now.`;
 }
 
@@ -234,13 +272,15 @@ export async function fireDue(o: FireOptions = {}): Promise<{ fired: number; lap
         allowed: treasury.limits.allowed, maxPerDayEth: treasury.limits.maxPerDayEth, maxPerActionEth: treasury.limits.maxPerActionEth, maxActionsPerDay: treasury.limits.maxActionsPerDay,
         availableEth: treasury.availableEth, owedThinkingEth: owed, spentTodayEth: day?.spentTodayEth ?? 0, actionsToday: day?.actionsToday ?? 0, active: treasury.active, phase: r.phase, holders: r.holders, attached: r.attached === 1,
         reserveEth: reserveOf(r.token),
+        // what is held for its other promises stays held; a promise being kept spends its own
+        heldEth: heldFor(r.token, order.promise ? r.id : 0),
       });
       db.transaction(() => {
         // it carries on from the newest event the mind has seen, so firing never hides news from its next thought
         const lastEvent = (db.prepare("SELECT COALESCE(MAX(last_event_id), 0) v FROM mind_thoughts WHERE token = ?").get(r.token) as { v: number }).v;
         const t = db.prepare(
           "INSERT INTO mind_thoughts (token, at, model, standin, status, reasons, thought, action, verdict, verdict_reason, input_tokens, output_tokens, cost_usd, cost_eth, last_event_id, error, source, mcap_eth, holders) VALUES (?,?,?,0,'thought',?,?,?,?,?,0,0,0,0,?,NULL,'order',?,?)",
-        ).run(r.token, at, ORDER_MODEL, JSON.stringify([`a standing order it set: when ${whenText(order.when)}`]), firedText(order, n), JSON.stringify(order.then), verdict.ok ? "approved" : "refused", verdict.ok ? null : verdict.reason, lastEvent, r.mcap_eth, r.holders);
+        ).run(r.token, at, ORDER_MODEL, JSON.stringify([`${order.promise ? "a promise it made" : "a standing order it set"}: when ${whenText(order.when)}`]), firedText(order, n), JSON.stringify(order.then), verdict.ok ? "approved" : "refused", verdict.ok ? null : verdict.reason, lastEvent, r.mcap_eth, r.holders);
         db.prepare("UPDATE mind_orders SET status = ?, fired_at = ?, fired_thought_id = ?, note = ? WHERE id = ? AND status = 'armed'").run(verdict.ok ? "fired" : "missed", at, t.lastInsertRowid, verdict.ok ? null : verdict.reason, r.id);
         addEvent(r.token, "thought", { at });
       })();
