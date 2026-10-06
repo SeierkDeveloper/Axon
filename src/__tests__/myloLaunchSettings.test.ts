@@ -74,6 +74,7 @@ describe("Mylo setting a launch up in conversation", () => {
     expect(Object.keys(def.input_schema.properties)).toEqual(expect.arrayContaining(["tax_percent", "burn_percent", "burn_axon_percent", "mind_percent", "mind_model", "mind_may_buy_back", "mind_actions_per_day", "first_buy_eth", "payout_wallet"]));
     expect(def.input_schema.required).toEqual([]);
     expect(def.description).toMatch(/Only pass a setting they actually chose/);
+    expect(def.description).toMatch(/never confirm a setting without calling it/);
   });
 
   it("opens the screen complete, and shows exactly what will be locked", async () => {

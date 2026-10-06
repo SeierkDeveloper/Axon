@@ -28,15 +28,17 @@ describe("what Mylo is told about tokens", () => {
 
   it("is told how to use each of the tools that read tokens, and how to set a launch up", () => {
     for (const d of MINDS_TOOL_DEFS) expect(MINDS_NOTE).toContain(d.name);
-    expect(MINDS_NOTE).toMatch(/one\s+or two questions at a time/);
-    expect(MINDS_NOTE).toMatch(/never tell them\s+which numbers are best/);
+    expect(MINDS_NOTE).toMatch(/one question at a time/);
+    expect(MINDS_NOTE).toMatch(/never tell them which numbers are best/);
     expect(MINDS_NOTE).toMatch(/A mind on their own server cannot be set from here/);
   });
 
   it("is told the hard limits, and not to drag a launch out", () => {
     expect(MINDS_NOTE).toMatch(/tax 0 to 10%/);
-    expect(MINDS_NOTE).toMatch(/Never answer "changed" or "got it" to a number the screen would refuse/);
-    expect(MINDS_NOTE).toMatch(/Never ask about the payout wallet, links or the mind's limits unless they bring them up/);
+    expect(MINDS_NOTE).toMatch(/Call launch_token EVERY time they give or change anything/);
+    expect(MINDS_NOTE).toMatch(/Never say "got it", "changed" or "perfect" about a\s+setting before launch_token has accepted it/);
+    expect(MINDS_NOTE).toMatch(/Give no example split and no reason to prefer one/);
+    expect(MINDS_NOTE).toMatch(/Never ask about the payout wallet,\s+links, what the mind may do or the mind's limits unless they bring them up/);
   });
 
   it("says nothing in his instructions that reads as written by a machine", () => {
