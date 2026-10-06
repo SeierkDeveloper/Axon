@@ -3,7 +3,9 @@
 //     did and why, and burns. Facts only, nobody named: no buyer, no wallet, no task text, no amounts a person paid
 //     beyond the agent's public price.
 //   - to the person it concerns (their inbox): their agent earned or a paid job of theirs failed, a better version of it
-//     is ready, it was taken out of rotation or put back, someone remixed it, a withdrawal was sent.
+//     is ready, it was taken out of rotation or put back, someone remixed it, a withdrawal was sent. With Agent Minds:
+//     a token's creator hears what its mind did and why, a holder milestone and its graduation; a holder hears only
+//     about a reward they can claim.
 // Each event lands once (its dedupe key), whenever the pass runs and however often it looks back over the same hours.
 // Demo jobs have no payment, so only jobs someone paid for count as hires.
 
@@ -14,6 +16,7 @@ import { notify, think } from "./myloStore";
 import { myloEnabled } from "./myloPolicy";
 import { explorerTxUrl } from "./chain";
 import { logger } from "./logger";
+import { agentMindsEnabled } from "./mindsPolicy";
 
 /** How far back each pass looks. Longer than the gap between passes, so a pass that missed a beat loses nothing. */
 export const LOOK_BACK_HOURS = 3;
@@ -96,6 +99,58 @@ export function runMyloPass(now = Date.now()): PassResult {
   const sent = db.prepare("SELECT id, agent_id, wallet, amount_eth, tx_hash, updated_at FROM agent_withdrawals WHERE status = 'sent' AND updated_at >= ?").all(since) as { id: string; agent_id: string; wallet: string; amount_eth: string; tx_hash: string | null; updated_at: string }[];
   for (const w of sent) told(notify(w.wallet, "withdrawal", `Sent ${eth(Number(w.amount_eth))} to your wallet`, `What ${nameOf(w.agent_id)} earned.`, w.tx_hash ? explorerTxUrl(w.tx_hash) : null, `withdrawal:${w.id}`, w.updated_at));
 
+  if (agentMindsEnabled()) notices += mindNotices(since);
+
   if (thoughts || notices) logger.info("mylo.pass", "Mylo noticed things", { thoughts, notices });
   return { thoughts, notices };
+}
+
+const ACTED: Record<string, (ticker: string, eth: string) => { title: (name: string) => string; body: string }> = {
+  buyback: (ticker, e) => ({ title: (name) => `${name}'s mind bought back ${ticker}`, body: `It used ${e} of its treasury to buy ${ticker} and send it to the dead address.` }),
+  reward: (_ticker, e) => ({ title: (name) => `${name}'s mind rewarded holders`, body: `It set ${e} aside for holders to claim on the token's page.` }),
+  burn_axon: (_ticker, e) => ({ title: (name) => `${name}'s mind burned $AXON`, body: `It used ${e} of its treasury to buy $AXON and send it to the dead address.` }),
+};
+
+/**
+ * What Agent Minds tells people, in their inbox. A token's creator: each thing its mind did, with the mind's own reason,
+ * each holder milestone, and its graduation. A holder: only a reward that is theirs to claim, so nobody is written to
+ * about a token just for holding it. Every notice has its own key, so looking back over the same hours adds nothing.
+ */
+function mindNotices(since: string): number {
+  const db = getDb();
+  let notices = 0;
+  const told = (b: boolean) => { if (b) notices++; };
+  const page = (token: string) => `/launch?token=${token}`;
+
+  // what a mind did, once the chain has confirmed it; its thinking payments are its own upkeep and nobody's news
+  const acted = db.prepare(`
+    SELECT a.id, a.token, a.kind, a.eth, a.updated_at, t.creator, t.name, t.symbol, h.thought
+    FROM mind_actions a JOIN mind_tokens t ON t.token = a.token LEFT JOIN mind_thoughts h ON h.id = a.thought_id
+    WHERE a.status = 'done' AND a.kind IN ('buyback', 'reward', 'burn_axon') AND a.updated_at >= ?`).all(since) as { id: number; token: string; kind: string; eth: number; updated_at: string; creator: string; name: string | null; symbol: string | null; thought: string | null }[];
+  for (const a of acted) {
+    const words = ACTED[a.kind](a.symbol ? `$${a.symbol}` : "the token", eth(a.eth));
+    told(notify(a.creator, "mind", words.title(a.name ?? "Your token"), `${words.body}${a.thought ? ` In its own words: "${a.thought}"` : ""}`, page(a.token), `mind-acted:${a.id}`, a.updated_at));
+  }
+
+  // a holder milestone or a graduation, to the creator
+  const marks = db.prepare(`
+    SELECT e.id, e.token, e.kind, e.tokens, e.at, t.creator, t.name FROM mind_events e JOIN mind_tokens t ON t.token = e.token
+    WHERE e.kind IN ('holders', 'graduated') AND e.at >= ?`).all(since) as { id: number; token: string; kind: string; tokens: number | null; at: string; creator: string; name: string | null }[];
+  for (const m of marks) {
+    const name = m.name ?? "Your token";
+    if (m.kind === "holders") told(notify(m.creator, "milestone", `${name} passed ${Math.round(m.tokens ?? 0).toLocaleString("en-US")} holders`, "Its mind has been told too, and may act on it.", page(m.token), `mind-holders:${m.token}:${Math.round(m.tokens ?? 0)}`, m.at));
+    else told(notify(m.creator, "milestone", `${name} graduated`, "It filled its curve and now trades in its pool on Pons.", page(m.token), `mind-graduated:${m.token}`, m.at));
+  }
+
+  // a reward, to each holder it has a share for
+  const rewards = db.prepare(`
+    SELECT r.token, r.reward_id, r.end_at, r.created_at, t.name, t.symbol FROM mind_rewards r JOIN mind_tokens t ON t.token = r.token WHERE r.created_at >= ?`).all(since) as { token: string; reward_id: number; end_at: number; created_at: string; name: string | null; symbol: string | null }[];
+  const sharesOf = db.prepare("SELECT idx, account, amount_wei FROM mind_reward_shares WHERE token = ? AND reward_id = ? AND claimed = 0");
+  for (const r of rewards) {
+    const by = new Date(r.end_at * 1000).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
+    for (const s of sharesOf.all(r.token, r.reward_id) as { idx: number; account: string; amount_wei: string }[]) {
+      told(notify(s.account, "reward", `A reward from ${r.name ?? "a token you hold"} is waiting for you`, `${eth(Number(BigInt(s.amount_wei) / 10n ** 9n) / 1e9)}, set aside by its mind for holders of ${r.symbol ? `$${r.symbol}` : "the token"}. Claim it from your own wallet on the token's page before ${by}.`, page(r.token), `mind-reward:${r.token}:${r.reward_id}:${s.idx}`, r.created_at));
+    }
+  }
+  return notices;
 }

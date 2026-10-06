@@ -164,7 +164,7 @@ export const MYLO_TOOL_DEFS = [
   },
   {
     name: "my_inbox",
-    description: "What Mylo noticed for the person since they last looked: their agents earning, paid jobs that failed, better versions ready, agents taken out of rotation or back, remixes, withdrawals sent. Use it when they ask what they missed or what's new. Reading marks them read.",
+    description: "What Mylo noticed for the person since they last looked: their agents earning, paid jobs that failed, better versions ready, agents taken out of rotation or back, remixes, withdrawals sent; and for tokens: what the mind of a token they launched did and why, a holder milestone or graduation, and a reward waiting for them to claim. Use it when they ask what they missed or what's new. Reading marks them read.",
     input_schema: { type: "object", properties: {} },
   },
   {
