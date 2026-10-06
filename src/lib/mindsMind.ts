@@ -24,7 +24,7 @@ import { extractJson } from "./studioDraft";
 import { ethUsd } from "./ethPrice";
 import { sensesLines, sensesOf, type Senses } from "./mindsSenses";
 import { PLAN_MIN_MS, planLines, planOf, progressOf, readPlan, savePlan } from "./mindsPlan";
-import { ORDER_MODEL, heldFor, ordersLines, saveOrders, type Measures } from "./mindsOrders";
+import { ORDER_MODEL, heldFor, ordersEnabled, ordersLines, saveOrders, type Measures } from "./mindsOrders";
 import { recordLines, saveLessons } from "./mindsRecord";
 import { briefLines } from "./mindsBrief";
 import { PULSE_BUDGET_SHARE, PULSE_SHARE, pulseEnabled, pulseState } from "./mindsPulse";
@@ -272,7 +272,7 @@ export async function thinkOnce(token: string, o: ThinkOptions = {}): Promise<Th
   seen.plan = planLines(standing, numbers, { buybackEth: treasury.boughtBackEth, rewardEth: treasury.rewardedEth, burnAxonEth: treasury.axonBurnedEth }, now);
   seen.reserveEth = standing?.reserveEth ?? 0;
   const measures: Measures = { mcapEth: m.mcap_eth, holders: m.holders, treasuryEth: m.treasury_eth, phase: m.phase };
-  seen.orders = ordersLines(m.token, measures, now);
+  seen.orders = ordersEnabled(env) ? ordersLines(m.token, measures, now) : ["your_standing_orders: switched off for now. Set none in this answer."];
   const heldEth = heldFor(m.token);
   seen.heldEth = heldEth;
   seen.record = recordLines(m.token, now);
@@ -333,7 +333,7 @@ export async function thinkOnce(token: string, o: ThinkOptions = {}): Promise<Th
     if (report) db.prepare("INSERT OR IGNORE INTO mind_reports (token, day, text, thought_id, at) VALUES (?,?,?,?,?)").run(m.token, report.day, text, r.lastInsertRowid, at);
     if (written) savePlan(m.token, written, Number(r.lastInsertRowid), { now, reached });
     // the orders it set or took back in this answer; one that cannot be armed is left out and the reason is logged
-    if (parsed?.orders || parsed?.cancel_orders) {
+    if (ordersEnabled(env) && (parsed?.orders || parsed?.cancel_orders)) {
       // a promise has to be covered by what is free after everything else in this answer: its thinking, its reserve, what is already held, and the action it just proposed
       const freeEth = treasury.availableEth - owed - (standin ? 0 : costEth) - THINKING_RESERVE_ETH - reserveEth - heldEth - (proposal && verdict === "approved" ? proposal.eth : 0);
       const set = saveOrders(m.token, { orders: parsed.orders, cancel: parsed.cancel_orders }, Number(r.lastInsertRowid), { allowed: treasury.limits.allowed, attached: Boolean(m.attached), maxPerActionEth: treasury.limits.maxPerActionEth, numbers: measures, freeEth }, now);

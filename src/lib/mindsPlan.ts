@@ -88,11 +88,6 @@ export function planOf(token: string): StoredPlan | null {
 /** The floor a token's mind keeps, in ETH: 0 without a plan. What the rule check is given. */
 export const reserveOf = (token: string): number => (getDb().prepare("SELECT reserve_eth v FROM mind_plans WHERE token = ?").get(token.toLowerCase()) as { v: number } | undefined)?.v ?? 0;
 
-/** When the mind may next rewrite its plan, in ms since the epoch; 0 when it has none and may write one now. */
-export function mayReviseAt(token: string): number {
-  const p = planOf(token);
-  return p ? Date.parse(p.setAt) + PLAN_MIN_MS : 0;
-}
 
 /**
  * Keep a plan a mind wrote. The first one is always taken. A later one is taken only once the standing plan has

@@ -8,7 +8,7 @@
 // When the condition is met the order fires at once, with no model called and nothing to pay for. Firing gives it no
 // special standing: it becomes an ordinary proposal, written into the mind's journal, and goes through the same rule
 // check, the same second look before sending and the same limits in the treasury's contract as any other. An order
-// fires once. One that is not met in time lapses.
+// fires once. One that is not met in time lapses. Off with MINDS_ORDERS=off: then none fires and none is armed.
 //
 // A promise is a standing order the mind makes in public and binds itself to. Three things set it apart: it must say
 // what it promises in a sentence holders can read, the mind cannot take it back, and its amount is held in the
@@ -229,6 +229,11 @@ export function ordersLines(token: string, n: Measures, now = Date.now()): strin
   ];
 }
 
+/** Standing orders can be switched off on their own: none fires and none is armed, while everything else a mind does goes on. */
+export function ordersEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return (env.MINDS_ORDERS ?? "on").trim().toLowerCase() !== "off";
+}
+
 export interface FireOptions { chain?: MindsChain; env?: Record<string, string | undefined>; now?: number }
 
 interface Armed extends Row { vault: string; attached: number; phase: number; mcap_eth: number | null; holders: number; treasury_eth: number }
@@ -248,7 +253,7 @@ function firedText(o: Order, n: Measures): string {
  */
 export async function fireDue(o: FireOptions = {}): Promise<{ fired: number; lapsed: number } | null> {
   const env = o.env ?? process.env, now = o.now ?? Date.now(), chain = o.chain ?? mindsChain;
-  if (!agentMindsEnabled(env) || thinkingMode(env) === "off" || mindsHalted()) return null;
+  if (!agentMindsEnabled(env) || thinkingMode(env) === "off" || mindsHalted() || !ordersEnabled(env)) return null;
   const db = getDb(), at = new Date(now).toISOString();
   const lapsed = db.prepare("UPDATE mind_orders SET status = 'lapsed' WHERE status = 'armed' AND expires_at IS NOT NULL AND expires_at <= ?").run(at).changes;
   const rows = db.prepare(

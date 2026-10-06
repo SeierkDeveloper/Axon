@@ -194,7 +194,7 @@ function Mind({ t }: { t: BoardToken }) {
         <p className="text-sm text-gray-400">…</p>
       ) : items.length === 0 ? (
         // the line above already says why when there is one
-        rightNow ? null : <p className="text-sm text-gray-500 dark:text-gray-400">It has not thought yet. A mind wakes when something happens to its token and its treasury can pay for the thought.</p>
+        rightNow ? null : <p className="text-sm text-gray-500 dark:text-gray-400">It has not thought yet. A mind wakes when something happens to its token and its treasury can pay for the thought. After its first thought it also checks in on its own.</p>
       ) : (
         <ol className="space-y-4">
           {items.map((h) => (

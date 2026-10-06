@@ -2208,7 +2208,13 @@ const SPEC = {
 
     "/minds/tokens/{token}": {
       parameters: [{ name: "token", in: "path", required: true, schema: { type: "string" } }],
-      get: { summary: "Its fees have paid out, and what its agent has earned from work since the launch", tags: ["Minds"], security: [] },
+      get: { summary: "One token with what the chain says now, and what its mind works to: its plan, standing orders and promises, track record, daily reports, its creator's brief and its books", tags: ["Minds"], security: [] },
+    },
+
+    "/minds/tokens/{token}/brief": {
+      parameters: [{ name: "token", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "The note a token's creator has left its mind, the ones before it, and when it can next be changed", tags: ["Minds"], security: [] },
+      post: { summary: "Leave the token's mind a brief, or take it back with an empty one. Only the wallet that launched the token can, and a brief stands for six hours", tags: ["Minds"] },
     },
 
     "/minds/tokens": {

@@ -288,6 +288,20 @@ describe("a standing order firing", () => {
     expect(await fireDue({ chain: w.chain, env: LIVE, now: T0 + 60_000 })).toEqual({ fired: 1, lapsed: 0 });
   });
 
+  it("can be switched off on its own: then none fires and none is armed, and the mind is told so", async () => {
+    const w = world(), { t } = await arm(w, "SWOFF"), off = { ...LIVE, MINDS_ORDERS: "off" };
+    setCap(t.token, 1.5);
+    expect(await fireDue({ chain: w.chain, env: off, now: T0 + 60_000 })).toBeNull();
+    expect(ordersOf(t.token)[0].status).toBe("armed");
+    addEvent(t.token, "fees", { eth: 0.004 });
+    const k = thinker({ thought: "Trying to set another order while they are off.", action: null, orders: [{ ...DROP, when: { kind: "holders_reach", value: 77 } }] });
+    got(await thinkOnce(t.token, { chain: w.chain, thinker: k.fn, env: off, now: T0 + 20 * 60_000, usdPerEth: USD }));
+    expect(k.calls[0].prompt).toContain("your_standing_orders: switched off for now. Set none in this answer.");
+    expect(ordersOf(t.token)).toHaveLength(1);
+    // back on, the order that waited fires
+    expect(await fireDue({ chain: w.chain, env: LIVE, now: T0 + 21 * 60_000 })).toEqual({ fired: 1, lapsed: 0 });
+  });
+
   it("fires one order a token a pass, the oldest first", async () => {
     const w = world(), t = await w.launch("TWO");
     const k = thinker({ thought: "Two orders, for two depths of the same fall.", action: null, orders: [DROP, { ...DROP, when: { kind: "market_cap_drops_pct", value: 30 }, then: { kind: "buyback", eth: 0.002 } }] });
