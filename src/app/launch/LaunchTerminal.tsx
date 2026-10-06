@@ -64,6 +64,7 @@ function eventText(e: MindEvent): string {
     case "rewarded": return `mind set ${ethText(e.eth ?? 0)} aside for holders`;
     case "attached": return "was given a mind";
     case "topup": return `mind's treasury topped up with ${ethText(e.eth ?? 0)}`;
+    case "brief": return "creator left its mind a brief";
   }
 }
 

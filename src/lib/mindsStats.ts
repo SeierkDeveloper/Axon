@@ -19,7 +19,7 @@ const TOKENS_PER_PASS = 40;
 const MAX_HOLDER_BLOCKS = 2_000_000n;
 const NOBODY = ["0x0000000000000000000000000000000000000000", "0x000000000000000000000000000000000000dead"];
 
-export type MindEventKind = "launch" | "fees" | "burn" | "graduated" | "holders" | "earned" | "thought" | "bought" | "axon" | "rewarded" | "attached" | "topup";
+export type MindEventKind = "launch" | "fees" | "burn" | "graduated" | "holders" | "earned" | "thought" | "bought" | "axon" | "rewarded" | "attached" | "topup" | "brief";
 
 interface StatsRow { token: string; phase: number; treasury_eth: number; fees_eth: number; burns: number; burned_tokens: number; burned_eth: number; holders_block: number | null; holders_mark: number; earned_mark: number }
 interface TokenRow { token: string; pot: string; splitter: string | null; vault: string; curve: string | null; block_number: number; agent_id: string | null; launched_at: string; attached: number }

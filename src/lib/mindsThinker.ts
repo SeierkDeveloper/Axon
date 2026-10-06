@@ -99,6 +99,8 @@ export const standInThinker: Thinker = async (model, system, prompt) => {
   // and a plain lesson for each of its moves that has been measured and has none
   const waiting = prompt.split("\n").map((line) => /^ {2}#(\d+) (buyback|reward|\$AXON burn) with .*No lesson yet/.exec(line) && { move: Number(/#(\d+)/.exec(line)![1]), did: /#\d+ (buyback|reward|\$AXON burn)/.exec(line)![1], pct: /ETH \(([+-]?[0-9.]+)%\)/.exec(line)?.[1] }).filter(Boolean) as { move: number; did: string; pct?: string }[];
   if (waiting.length) Object.assign(out, { lessons: waiting.map((w) => ({ move: w.move, lesson: w.pct === undefined ? `This ${w.did} was carried out. I am watching what follows the next one.` : `An hour after this ${w.did} the market cap stood ${Number(w.pct) >= 0 ? "higher" : "lower"} by ${Math.abs(Number(w.pct))}%. One move shows little; I keep the size measured.` })) });
+  // a new brief from its creator: it says it has read it
+  if (/woke_by: [^\n]*a new brief from its creator/.test(prompt)) out.thought = `${out.thought} I have read my creator's new brief and will weigh it inside my limits.`.slice(0, 440);
   // its daily report: the facts it was handed, said plainly
   const day = /your_day \(([^,]+),[^\n]*\n((?: {2}[^\n]+\n)+)/.exec(prompt);
   if (day && /this_answer: your daily report/.test(prompt)) {
