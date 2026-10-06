@@ -158,6 +158,8 @@ describe("Mylo reading what a mind works to", () => {
     try { r = (await runTool("token_details", { token: t.token }, { wallet: null, owner: "guest:bare", conversationId: startConversation("guest:bare", "t").id })).result as Record<string, unknown>; }
     finally { if (old === undefined) delete process.env.AGENT_MINDS; else process.env.AGENT_MINDS = old; }
     expect(r.mind_plan).toBe("It has not written a plan yet.");
+    // said last, where a small model reads it: its own words are never made up for it
+    expect(r.before_you_answer).toMatch(/Anything you put in quotation marks must be copied word for word from this result/);
     expect(r.track_record).toBe("No move of its mind has been carried out yet.");
     expect(r.brief_from_its_creator).toBe("Its creator has left its mind no brief.");
     expect(r.latest_daily_report).toMatch(/^It has not written a daily report yet/);

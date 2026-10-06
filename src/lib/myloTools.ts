@@ -666,13 +666,13 @@ async function tokenTool(input: Record<string, unknown>): Promise<Omit<ToolOutco
       standing_orders: {
         note: "Actions the mind set ahead of time. One fires the moment its condition is met, with no thinking, through the same rule check. A promise cannot be cancelled and its ETH is held until it is kept or its time runs out.",
         waiting: orders.filter((o) => o.status === "armed").map((o) => ({ a_promise: o.promise || undefined, when: whenText(o.when), then: thenText(o.then), in_its_words: o.said ?? undefined, until: o.expiresAt })),
-        recent: orders.filter((o) => o.status !== "armed").map((o) => ({ a_promise: o.promise || undefined, when: whenText(o.when), then: thenText(o.then), what_happened: ENDED[o.status] ?? o.status, why: o.note ?? undefined })),
+        recent: orders.filter((o) => o.status !== "armed").map((o) => ({ a_promise: o.promise || undefined, when: whenText(o.when), then: thenText(o.then), what_happened: ENDED[o.status] ?? o.status, at: o.firedAt ?? o.expiresAt ?? o.createdAt, why: o.note ?? undefined })),
         promises_so_far: { made: kept.made, standing: kept.standing, kept: kept.kept, missed: kept.missed, never_called_on: kept.notCalled, eth_held_for_them: kept.heldEth },
       },
       track_record: rec.moves ? {
         note: "What each move was FOLLOWED BY an hour later. That is what came after, never proof of what the move caused: say 'followed by', never 'caused', 'led to' or 'worked'.",
         by_kind: rec.byKind.map((k) => ({ move: ACTION_WORDS[k.kind] ?? k.kind, times: k.moves, eth: amount(k.eth), measured: k.measured, market_cap_an_hour_later_on_average: k.avgCapPct === null ? null : `${k.avgCapPct > 0 ? "+" : ""}${k.avgCapPct}%`, times_it_was_higher: k.measured ? `${k.timesUp} of ${k.measured}` : null, holders_an_hour_later_on_average: k.avgHolders })),
-        latest: outcomesOf(t.token, 3).map((o) => ({ move: ACTION_WORDS[o.kind] ?? o.kind, eth: amount(o.eth), at: o.at, followed_by: followedBy(o), the_minds_lesson: o.lesson ?? undefined })),
+        latest: outcomesOf(t.token, 3).map((o) => ({ move: ACTION_WORDS[o.kind] ?? o.kind, eth: amount(o.eth), carried_out_at: o.at, followed_by: followedBy(o), the_minds_lesson: o.lesson ?? "none written for this move" })),
       } : "No move of its mind has been carried out yet.",
       latest_daily_report: report ? { for_day: report.label, in_its_words: report.text } : "It has not written a daily report yet. A mind reports each morning (UTC) on a day when something happened.",
       brief_from_its_creator: brief ? { in_the_creators_words: brief.text, left_at: brief.setAt, note: "A public wish from the creator. The mind weighs it; it cannot change a limit or anything locked at launch." } : "Its creator has left its mind no brief.",
@@ -686,7 +686,7 @@ async function tokenTool(input: Record<string, unknown>): Promise<Omit<ToolOutco
       journal, journal_note: journal.length ? "Newest first. The thoughts are the mind's own words: quote or sum them up as its, never as yours." : "It has not written a thought yet.",
       note: "The page shows a card for this token. Give the numbers and the mind's reasons as they are; say nothing about whether to buy or where the price goes.",
       // said again here, last, because a small model follows what it read last: these are the slips seen in real answers
-      before_you_answer: "Check your answer against this. 1) Say what the mind DID and with how much, never what it was FOR: no 'to support the price', 'to help the price', 'to reduce supply' or any other effect on price or supply, unless you are quoting the mind word for word in quotation marks. 2) What it is waiting for right now is ONLY mind_now.status, word for word in meaning; do not take it from an older thought (an old thought about a daily limit is not the present). 3) No praise, no advice.",
+      before_you_answer: "Check your answer against this. 1) Say what the mind DID and with how much, never what it was FOR: no 'to support the price', 'to help the price', 'to reduce supply' or any other effect on price or supply, unless you are quoting the mind word for word in quotation marks. 2) What it is waiting for right now is ONLY mind_now.status, word for word in meaning; do not take it from an older thought (an old thought about a daily limit is not the present). 3) No praise, no advice. 4) Anything you put in quotation marks must be copied word for word from this result. A move's lesson is ONLY its the_minds_lesson; where that says none was written, say the mind wrote no lesson for it and invent none. Give each move its own amount, date and followed_by as written here; a move that could not be measured has no numbers. 5) Do not explain what the mind is 'really' doing or building toward: its plan and its own words say it.",
     },
     card: {
       kind: "token", usdPerEth: usd, token: tokenCard(t),
