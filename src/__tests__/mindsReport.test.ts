@@ -64,7 +64,7 @@ function thinker(answer: unknown, cost = 0.02) {
   return { fn, calls };
 }
 const got = (r: Thought | { skipped: string }): Thought => { if ("skipped" in r) throw new Error(`skipped: ${r.skipped}`); return r; };
-import { dayFacts, dayBefore, dayLabel, reportDue, reportsOf, reportsEnabled, REPORT_UNTIL_HOUR } from "@/lib/mindsReport";
+import { dayFacts, dayBefore, dayLabel, reportDue, reportsOf, reportsEnabled, reportUntilHour, REPORT_UNTIL_HOUR } from "@/lib/mindsReport";
 import { runMyloPass } from "@/lib/myloPass";
 import { fireDue, settleOrders } from "@/lib/mindsOrders";
 import { pulseState } from "@/lib/mindsPulse";
@@ -211,6 +211,9 @@ describe("a mind writing its daily report", () => {
     expect(await reportDue({ chain: w.chain, thinker: k.fn, env: ACT, now: Date.UTC(2026, 9, 6, REPORT_UNTIL_HOUR), usdPerEth: USD })).toBeNull();
     for (const env of [{ ...ACT, MINDS_REPORTS: "off" }, { ...ACT, MINDS_THINKING: "off" }, { ...ACT, AGENT_MINDS: "off" }]) expect(await reportDue({ chain: w.chain, thinker: k.fn, env, now: NEXT, usdPerEth: USD })).toBeNull();
     expect([reportsEnabled({}), reportsEnabled({ MINDS_REPORTS: "off" })]).toEqual([true, false]);
+    // the hour can be moved for a service; anything that is not a whole hour from 1 to 24 is ignored
+    expect([reportUntilHour({}), reportUntilHour({ MINDS_REPORT_UNTIL_HOUR: "24" }), reportUntilHour({ MINDS_REPORT_UNTIL_HOUR: "0" }), reportUntilHour({ MINDS_REPORT_UNTIL_HOUR: "soon" }), reportUntilHour({ MINDS_REPORT_UNTIL_HOUR: "9.5" })]).toEqual([12, 24, 12, 12, 12]);
+    expect(await reportDue({ chain: w.chain, thinker: k.fn, env: { ...ACT, MINDS_REPORT_UNTIL_HOUR: "9" }, now: Date.UTC(2026, 9, 6, 9, 5), usdPerEth: USD })).toBeNull();
     getDb().prepare("UPDATE mind_tokens SET stopped_at = ? WHERE token = ?").run(new Date(T0).toISOString(), t.token);
     expect(await reportDue({ chain: w.chain, thinker: k.fn, env: ACT, now: NEXT, usdPerEth: USD })).toEqual({ written: 0, skipped: 0, quiet: 0 });
     getDb().prepare("UPDATE mind_tokens SET stopped_at = NULL WHERE token = ?").run(t.token);

@@ -24,6 +24,9 @@ import { logger } from "./logger";
 
 /** A report on yesterday is written in the first hours of today, and not after this hour (UTC). */
 export const REPORT_UNTIL_HOUR = 12;
+// The hour can be moved for a service through its settings (a private site trying reports out in the afternoon); a
+// value that is not a whole hour from 1 to 24 is ignored.
+export const reportUntilHour = (env: Record<string, string | undefined> = process.env): number => { const n = Number(env.MINDS_REPORT_UNTIL_HOUR); return Number.isInteger(n) && n >= 1 && n <= 24 ? n : REPORT_UNTIL_HOUR; };
 /** A change this large over the day is worth a report on its own. */
 const MOVED_PCT = 5;
 /** After this many attempts that failed, a day's report is given up. */
@@ -111,7 +114,7 @@ export function reportsOf(token: string, limit = 7): Report[] {
 export async function reportDue(o: ThinkOptions = {}, limit = 2): Promise<{ written: number; skipped: number; quiet: number } | null> {
   const env = o.env ?? process.env, now = o.now ?? Date.now();
   if (!agentMindsEnabled(env) || thinkingMode(env) === "off" || mindsHalted() || !reportsEnabled(env)) return null;
-  if (new Date(now).getUTCHours() >= REPORT_UNTIL_HOUR) return null;
+  if (new Date(now).getUTCHours() >= reportUntilHour(env)) return null;
   const db = getDb(), day = dayBefore(now), dayEnd = new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString();
   // minds that were thinking before that day ended, have no report for it, and have not just tried and failed
   const due = db.prepare(
