@@ -7,7 +7,7 @@ import Link from "next/link";
 import { decodeEventLog, encodeFunctionData, formatEther } from "viem";
 import { useWallet } from "@/components/WalletProvider";
 import { CHAIN_ID_HEX, CHAIN_PARAMS, explorerTxUrl, ponsTokenUrl, provider, readableWalletError } from "@/lib/chain";
-import { CEILINGS, DEFAULT_SETTINGS, MIND_LAUNCH_ABI, checkSettings, creatorBps, launchInput, launchValue, lockedSummary, type LaunchSettings, tokenDescription } from "@/lib/mindsLaunch";
+import { CEILINGS, DEFAULT_SETTINGS, MIND_LAUNCH_ABI, checkSettings, creatorBps, launchInput, launchValue, lockedSummary, type LaunchSettings, type LinkedSettings, tokenDescription } from "@/lib/mindsLaunch";
 import { DEFAULT_MIND_MODEL, MIND_MODELS, OWN_MIND, mindLabel } from "@/lib/mindsModels";
 import { OWN_SERVER_EXAMPLE } from "@/lib/mindsOwnExample";
 
@@ -19,7 +19,8 @@ import { OWN_SERVER_EXAMPLE } from "@/lib/mindsOwnExample";
  * be locked, before the wallet opens, because none of it can be changed after.
  */
 
-export interface Prefill { name: string; symbol: string; line: string; agentId: string }
+/** What a link can open the screen with. `linked` is settings worked out beforehand (with Mylo); the creator still checks them here. */
+export interface Prefill { name: string; symbol: string; line: string; agentId: string; linked?: LinkedSettings }
 
 interface Info { launcher: string | null; launchFeeWei: string; agents: { agentId: string; name: string }[]; models?: { id: string; label: string; maker: string; available: boolean }[]; ownOpen?: boolean }
 type Trial = { ok: true; thought: string; action: { kind: string; eth: number } | null; verdict: string; verdictReason: string | null; ms: number } | { ok: false; error: string };
@@ -70,13 +71,14 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
   const [own, setOwn] = useState(Boolean(prefill.agentId));
   const [agentId, setAgentId] = useState(prefill.agentId);
   const [picture, setPicture] = useState<{ blob: Blob; preview: string } | null>(null);
-  const [settings, setSettings] = useState<Omit<LaunchSettings, "payout">>(DEFAULT_SETTINGS);
-  const [payout, setPayout] = useState("");
-  const [model, setModel] = useState(DEFAULT_MIND_MODEL);
+  const [settings, setSettings] = useState<Omit<LaunchSettings, "payout">>({ ...DEFAULT_SETTINGS, ...prefill.linked?.settings });
+  const [payout, setPayout] = useState(prefill.linked?.payout ?? "");
+  const [model, setModel] = useState(prefill.linked?.model ?? DEFAULT_MIND_MODEL);
   const [mindUrl, setMindUrl] = useState("");
   const [secret, setSecret] = useState<string | null>(null);
   const [trial, setTrial] = useState<Trial | "running" | null>(null);
-  const [advanced, setAdvanced] = useState(false);
+  // when a link set anything that lives under Advanced, it starts open: nothing chosen beforehand is hidden
+  const [advanced, setAdvanced] = useState(Boolean(prefill.linked && (prefill.linked.payout || Object.keys(prefill.linked.settings).some((k) => k !== "openingBuyEth"))));
   const [agreed, setAgreed] = useState(false);
 
   const [step, setStep] = useState<Step>("idle");
@@ -289,6 +291,11 @@ export default function MindLaunch({ prefill }: { prefill: Prefill }) {
     <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
       {/* ── what is asked for ── */}
       <div className="min-w-0 space-y-8">
+        {prefill.linked && (
+          <p className="rounded-2xl border border-gray-900 px-5 py-4 text-sm leading-relaxed dark:border-white">
+            <span className="font-semibold">Filled in from your conversation with Mylo.</span> Read every number here before you sign: nothing below can be changed after the launch.
+          </p>
+        )}
         <section className="rounded-2xl border border-gray-200 p-5 sm:p-6 dark:border-gray-800">
           <p className={label}>The token</p>
           <div className="flex gap-4">

@@ -6,6 +6,7 @@
 // tests check against the contract's own source.
 
 import { isAddress, parseAbi, parseEther } from "viem";
+import { isMindModel } from "./mindsModels";
 
 /** Must match MindLauncher.LaunchInput field for field and in order: once encoded the struct is positional. */
 export const MIND_LAUNCH_ABI = parseAbi([
@@ -141,6 +142,80 @@ export function mindLimits(s: MindLimits) {
     maxCostPerDay: eth(s.maxCostPerDayEth) ?? 0n,
   } as const;
 }
+
+// ── Settings carried in a link ────────────────────────────────────────────────
+
+/**
+ * Settings a link to the launch screen can carry, so the screen opens with them filled in: what Mylo worked out with
+ * the creator in conversation. Only what was chosen is carried; the rest keeps the screen's own defaults. Nothing here
+ * launches anything: the creator still reads every number on the screen and signs it themselves.
+ */
+export interface LinkedSettings {
+  settings: Partial<Omit<LaunchSettings, "payout">>;
+  /** the payout wallet, when another than the launching one was chosen */
+  payout?: string;
+  /** the model the mind runs on */
+  model?: string;
+}
+
+/** The steps the screen's own sliders move in: a number from a link lands on one, as if it had been dragged there. */
+export const STEPS = { taxBps: 50, shareBps: 100 } as const;
+
+const AMOUNT = /^\d{1,6}(\.\d{1,18})?$/;
+const snap = (v: number, step: number) => Math.round(v / step) * step;
+
+/** The link's query for these settings, as key and value pairs. */
+export function settingsQuery(l: LinkedSettings): [string, string][] {
+  const s = l.settings, q: [string, string][] = [];
+  const put = (k: string, v: string | number | boolean | undefined) => { if (v !== undefined && v !== "") q.push([k, typeof v === "boolean" ? (v ? "1" : "0") : String(v)]); };
+  // "tomind", not "mind": the launch page already reads ?mind= as "give an earlier token a mind"
+  put("tax", s.taxBps); put("burn", s.burnBps); put("axon", s.axonBps); put("tomind", s.mindBps);
+  put("buyback", s.canBuyback); put("reward", s.canReward); put("burnaxon", s.canBurnAxon);
+  put("day", s.maxPerDayEth); put("action", s.maxPerActionEth); put("actions", s.maxActionsPerDay); put("think", s.maxCostPerDayEth);
+  put("buy", s.openingBuyEth); put("x", s.twitter); put("web", s.website);
+  put("payout", l.payout); put("ai", l.model);
+  return q;
+}
+
+/**
+ * Read settings back out of a link. A link is something anybody can write, so every value is checked on its own and
+ * one that is not a plain, in-range number, switch, amount, link or address is left out, as if it had not been there.
+ */
+export function readSettingsQuery(get: (key: string) => string | undefined): LinkedSettings {
+  const settings: LinkedSettings["settings"] = {};
+  const int = (k: string, max: number, step = 1) => { const v = get(k); if (v === undefined || !/^\d{1,5}$/.test(v)) return undefined; const n = snap(Number(v), step); return n <= max ? n : undefined; };
+  const flag = (k: string) => { const v = get(k); return v === "1" ? true : v === "0" ? false : undefined; };
+  // as long as the screen's own boxes take, and no longer
+  const amount = (k: string) => { const v = get(k)?.trim(); return v !== undefined && v.length <= 12 && AMOUNT.test(v) ? v : undefined; };
+  const url = (k: string) => { const v = get(k)?.trim(); return v && v.length <= 200 && /^https:\/\/[^\s<>"']+$/.test(v) ? v : undefined; };
+
+  const tax = int("tax", CEILINGS.taxBps, STEPS.taxBps);
+  if (tax !== undefined) settings.taxBps = tax;
+  // the three shares only make sense together: if they would leave the creator less than nothing, none of them is kept
+  const shares = { burnBps: int("burn", 10_000, STEPS.shareBps), axonBps: int("axon", 10_000, STEPS.shareBps), mindBps: int("tomind", 10_000, STEPS.shareBps) };
+  if ((shares.burnBps ?? 0) + (shares.axonBps ?? 0) + (shares.mindBps ?? 0) <= 10_000) {
+    for (const [k, v] of Object.entries(shares) as [keyof typeof shares, number | undefined][]) if (v !== undefined) settings[k] = v;
+  }
+  const can = { canBuyback: flag("buyback"), canReward: flag("reward"), canBurnAxon: flag("burnaxon") };
+  for (const [k, v] of Object.entries(can) as [keyof typeof can, boolean | undefined][]) if (v !== undefined) settings[k] = v;
+  const eths = { maxPerDayEth: amount("day"), maxPerActionEth: amount("action"), maxCostPerDayEth: amount("think"), openingBuyEth: amount("buy") };
+  for (const [k, v] of Object.entries(eths) as [keyof typeof eths, string | undefined][]) if (v !== undefined) settings[k] = v;
+  const actions = int("actions", CEILINGS.actionsPerDay);
+  if (actions !== undefined) settings.maxActionsPerDay = actions;
+  const twitter = url("x"), website = url("web");
+  if (twitter) settings.twitter = twitter;
+  if (website) settings.website = website;
+
+  const payout = get("payout")?.trim(), model = get("ai")?.trim();
+  return {
+    settings,
+    ...(payout && isAddress(payout) && !/^0x0{40}$/i.test(payout) ? { payout } : {}),
+    ...(isMindModel(model) ? { model } : {}),
+  };
+}
+
+/** Whether a link carried any settings at all. */
+export const hasLinkedSettings = (l: LinkedSettings): boolean => Object.keys(l.settings).length > 0 || Boolean(l.payout) || Boolean(l.model);
 
 /** What every token launched here says about where it came from, at the end of its description. */
 export const LAUNCHED_ON = "Launched on Axon.";

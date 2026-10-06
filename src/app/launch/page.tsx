@@ -8,6 +8,7 @@ import { board, boardToken, boardTotals, events, PAGE_SIZE } from "@/lib/mindsSt
 import { ethUsd } from "@/lib/ethPrice";
 import { launchFactoryAddress } from "@/lib/agentLaunch";
 import { agentMindsEnabled } from "@/lib/mindsPolicy";
+import { hasLinkedSettings, readSettingsQuery } from "@/lib/mindsLaunch";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,10 @@ export default async function LaunchIndexPage({ searchParams }: { searchParams: 
     // a link from Mylo, or from an agent's own page, can arrive with the form filled in; the creator still reads it
     const sp = await searchParams;
     const one = (k: string, n: number) => (typeof sp[k] === "string" ? (sp[k] as string).slice(0, n) : "");
-    const prefill = { name: one("name", 32), symbol: (one("ticker", 10) || one("symbol", 10)).replace(/[^A-Za-z0-9]/g, "").toUpperCase(), line: one("line", 180), agentId: one("agent", 80) };
-    const launching = Boolean(sp.new !== undefined || prefill.name || prefill.symbol || prefill.line || prefill.agentId);
+    // settings Mylo worked out with the creator ride in the link too; each is checked before the form takes it
+    const linked = readSettingsQuery((k) => (typeof sp[k] === "string" ? (sp[k] as string).slice(0, 220) : undefined));
+    const prefill = { name: one("name", 32), symbol: (one("ticker", 10) || one("symbol", 10)).replace(/[^A-Za-z0-9]/g, "").toUpperCase(), line: one("line", 180), agentId: one("agent", 80), linked: hasLinkedSettings(linked) ? linked : undefined };
+    const launching = Boolean(sp.new !== undefined || prefill.name || prefill.symbol || prefill.line || prefill.agentId || prefill.linked);
 
     // a mind for a token launched before minds
     if (sp.mind !== undefined) {

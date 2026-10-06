@@ -22,7 +22,7 @@ export type CardData =
   | { kind: "tokens"; title: string; usdPerEth: number | null; tokens: TokenCardData[] }
   | { kind: "agents"; title: string; agents: AgentCardData[] }
   | { kind: "compare"; agents: AgentCardData[] }
-  | { kind: "launch"; agentId: string | null; agentName: string; name: string | null; ticker: string | null; description: string | null; page: string }
+  | { kind: "launch"; agentId: string | null; agentName: string; name: string | null; ticker: string | null; description: string | null; page: string; locked?: { label: string; value: string }[]; firstBuyEth?: string | null }
   | { kind: "earnings"; agents: { agentId: string; name: string; earnedEth: number; availableEth: number }[]; availableEth: number }
   | { kind: "pulse"; agents: number; activeAgents: number; tasksToday: number; successRate: number; burned: number | null; burns: number | null; lastCheck: { at: string; checks: number | null } | null };
 
@@ -60,8 +60,27 @@ export function Card({ card }: { card: CardData }) {
           <div className="rounded-xl bg-gray-50 px-3 py-2 dark:bg-gray-900"><p className="text-[11px] text-gray-400">Ticker</p><p className="truncate font-mono text-sm font-semibold text-gray-900 dark:text-white">{card.ticker ? `$${card.ticker}` : "Your choice"}</p></div>
         </div>
         {card.description && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{card.description}</p>}
+        {card.locked && (
+          <div className="mt-4">
+            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-gray-400">Locked at launch, for good</p>
+            <dl className="mt-2 divide-y divide-gray-100 border-y border-gray-100 text-sm dark:divide-gray-800 dark:border-gray-800">
+              {card.locked.map((r) => (
+                <div key={r.label} className="flex items-baseline justify-between gap-4 py-1.5">
+                  <dt className="shrink-0 text-gray-500 dark:text-gray-400">{r.label}</dt>
+                  <dd className="text-right font-medium text-gray-900 dark:text-white">{r.value}</dd>
+                </div>
+              ))}
+              {card.firstBuyEth && (
+                <div className="flex items-baseline justify-between gap-4 py-1.5">
+                  <dt className="shrink-0 text-gray-500 dark:text-gray-400">Your first buy</dt>
+                  <dd className="text-right font-medium text-gray-900 dark:text-white">{card.firstBuyEth} ETH</dd>
+                </div>
+              )}
+            </dl>
+          </div>
+        )}
         <Link href={card.page} className="mt-4 inline-flex rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">Open the launch page</Link>
-        <p className="mt-3 text-[11px] text-gray-400">Filled in for you to check. Add an image there and launch from your own wallet.</p>
+        <p className="mt-3 text-[11px] text-gray-400">{card.locked ? "Filled in for you to check. Add a picture there, read every number, and launch from your own wallet. None of it can be changed afterwards." : "Filled in for you to check. Add an image there and launch from your own wallet."}</p>
       </div>
     );
   }

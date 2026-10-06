@@ -34,7 +34,9 @@ import { openSharesOf } from "./mindsAct";
 import { mindsChain } from "./mindsChain";
 import { mindStatus } from "./mindsStatus";
 import { thoughts } from "./mindsMind";
-import { CAN } from "./mindsLaunch";
+import { CAN, DEFAULT_SETTINGS, STEPS, checkSettings, creatorBps, lockedSummary, settingsQuery, type LaunchSettings, type LinkedSettings } from "./mindsLaunch";
+import { MIND_MODELS, modelAvailable } from "./mindsModels";
+import { publicClient } from "./evm";
 import { mindLabel } from "./mindsModels";
 import { ethUsd } from "./ethPrice";
 import { LAUNCH_LIMITS } from "./mindsAgent";
@@ -230,7 +232,7 @@ export type Card =
   | { kind: "tokens"; title: string; usdPerEth: number | null; tokens: TokenCardData[] }
   | { kind: "agents"; title: string; agents: AgentCard[] }
   | { kind: "compare"; agents: AgentCard[] }
-  | { kind: "launch"; agentId: string | null; agentName: string; name: string | null; ticker: string | null; description: string | null; page: string }
+  | { kind: "launch"; agentId: string | null; agentName: string; name: string | null; ticker: string | null; description: string | null; page: string; locked?: { label: string; value: string }[]; firstBuyEth?: string | null }
   | { kind: "earnings"; agents: { agentId: string; name: string; earnedEth: number; availableEth: number }[]; availableEth: number }
   | { kind: "pulse"; agents: number; activeAgents: number; tasksToday: number; successRate: number; burned: number | null; burns: number | null; lastCheck: { at: string; checks: number | null } | null };
 
@@ -328,7 +330,7 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
           return { result: { error: err instanceof RetainerError || err instanceof Error ? err.message : "That didn't work." }, label };
         }
       }
-      case "launch_token": return { ...launchTool(ctx, input), label };
+      case "launch_token": return { ...(await launchTool(ctx, input)), label };
       case "token_board": return { ...(await boardTool(input)), label };
       case "token_details": return { ...(await tokenTool(input)), label };
       case "my_tokens": return { ...(await myTokens(ctx)), label };
@@ -710,7 +712,7 @@ async function myTokens(ctx: ToolContext): Promise<Omit<ToolOutcome, "label">> {
 }
 
 /** Get a launch ready: the agent can launch, and the page opens with what Mylo suggests filled in. */
-function launchTool(ctx: ToolContext, input: Record<string, unknown>): Omit<ToolOutcome, "label"> {
+async function launchTool(ctx: ToolContext, input: Record<string, unknown>): Promise<Omit<ToolOutcome, "label">> {
   if (!ctx.wallet) return { result: { error: "Sign in with your wallet first." } };
   if (agentMindsEnabled()) return mindLaunchTool(ctx.wallet, input);
   const agentId = String(input.agent_id ?? "");
@@ -728,11 +730,71 @@ function launchTool(ctx: ToolContext, input: Record<string, unknown>): Omit<Tool
   };
 }
 
+/** The settings the launch tool takes, as the model names them. All optional: what is left out keeps the screen's default. */
+const LAUNCH_SETTING_PROPS = {
+  tax_percent: { type: "number", description: "Tax on every trade, 0 to 10, in steps of 0.5" },
+  burn_percent: { type: "number", description: "Share of the fees that buys the token back and burns it, in whole percent" },
+  burn_axon_percent: { type: "number", description: "Share of the fees that buys $AXON and burns it, in whole percent" },
+  mind_percent: { type: "number", description: "Share of the fees that fills the mind's treasury, in whole percent. The creator gets what the three shares leave." },
+  mind_model: { type: "string", description: `The AI the mind runs on: ${MIND_MODELS.map((m) => m.label).join(", ")}` },
+  mind_may_buy_back: { type: "boolean" }, mind_may_reward_holders: { type: "boolean" }, mind_may_burn_axon: { type: "boolean" },
+  mind_spend_per_day_eth: { type: "number", description: "The most the mind may spend in a day, in ETH" },
+  mind_spend_per_action_eth: { type: "number", description: "The most in one action, in ETH" },
+  mind_actions_per_day: { type: "integer", description: "How many actions a day, at most 24" },
+  mind_thinking_per_day_eth: { type: "number", description: "The most its thinking may cost in a day, at most 0.01 ETH" },
+  first_buy_eth: { type: "number", description: "The creator's own first buy inside the launch transaction, in ETH. Optional." },
+  payout_wallet: { type: "string", description: "Where the creator's share is paid, if not the wallet they launch with" },
+  twitter: { type: "string", description: "An https:// link" }, website: { type: "string", description: "An https:// link" },
+} as const;
+
+const ethText = (v: unknown): string | null => { const n = Number(v); return Number.isFinite(n) && n >= 0 && n < 1e6 ? String(+n.toFixed(9)) : null; };
+const bpsOf = (v: unknown, step: number): number | null => { const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= 100 ? Math.round((n * 100) / step) * step : null; };
+/** The launch platform's own fee as it has been; the screen shows the real one before anything is signed. */
+const LAUNCH_FEE_ETH = 0.0005;
+
+/** The settings the person chose in conversation, as the launch link carries them; or what is wrong with one of them. */
+function chosenSettings(wallet: string, input: Record<string, unknown>): { linked: LinkedSettings; full: LaunchSettings } | string {
+  const settings: LinkedSettings["settings"] = {};
+  const has = (k: string) => input[k] !== undefined && input[k] !== null && input[k] !== "";
+  for (const [key, field, step] of [["tax_percent", "taxBps", STEPS.taxBps], ["burn_percent", "burnBps", STEPS.shareBps], ["burn_axon_percent", "axonBps", STEPS.shareBps], ["mind_percent", "mindBps", STEPS.shareBps]] as const) {
+    if (!has(key)) continue;
+    const bps = bpsOf(input[key], step);
+    if (bps === null) return `${key.replace(/_/g, " ")} is a number of percent.`;
+    settings[field] = bps;
+  }
+  for (const [key, field] of [["mind_may_buy_back", "canBuyback"], ["mind_may_reward_holders", "canReward"], ["mind_may_burn_axon", "canBurnAxon"]] as const) if (typeof input[key] === "boolean") settings[field] = input[key] as boolean;
+  for (const [key, field] of [["mind_spend_per_day_eth", "maxPerDayEth"], ["mind_spend_per_action_eth", "maxPerActionEth"], ["mind_thinking_per_day_eth", "maxCostPerDayEth"], ["first_buy_eth", "openingBuyEth"]] as const) {
+    if (!has(key)) continue;
+    const text = ethText(input[key]);
+    if (text === null) return `${key.replace(/_/g, " ")} is an amount of ETH.`;
+    settings[field] = text === "0" && field === "openingBuyEth" ? "" : text;
+  }
+  if (has("mind_actions_per_day")) settings.maxActionsPerDay = Math.floor(Number(input.mind_actions_per_day));
+  for (const [key, field] of [["twitter", "twitter"], ["website", "website"]] as const) if (has(key)) settings[field] = String(input[key]).trim().slice(0, 200);
+
+  let model: string | undefined;
+  if (has("mind_model")) {
+    const asked = String(input.mind_model).trim().toLowerCase();
+    if (/\bown\b|my server|their server/.test(asked)) return `A mind on their own server is set up on the launch screen itself, under "Its mind": it has a test button and a signing secret there. Leave mind_model out and tell them that.`;
+    const m = MIND_MODELS.find((x) => x.id.toLowerCase() === asked || x.label.toLowerCase() === asked) ?? MIND_MODELS.find((x) => asked.length >= 3 && (x.label.toLowerCase().includes(asked) || asked.includes(x.label.toLowerCase().split(" ")[0])));
+    if (!m) return `There is no mind called "${String(input.mind_model).slice(0, 40)}". The choices are ${MIND_MODELS.map((x) => x.label).join(", ")}.`;
+    if (!modelAvailable(m)) return `${m.label} is not open as a mind right now. The others are.`;
+    model = m.id;
+  }
+  const payout = has("payout_wallet") ? String(input.payout_wallet).trim() : undefined;
+  const full: LaunchSettings = { ...DEFAULT_SETTINGS, ...settings, payout: payout ?? wallet };
+  const wrong = checkSettings(full);
+  if (wrong) return wrong;
+  return { linked: { settings, ...(payout ? { payout } : {}), ...(model ? { model } : {}) }, full };
+}
+
 /**
  * Agent Minds: get a launch ready on the one launch screen. A new token with a new agent made from one line, or a
- * token for an agent the wallet already owns. Nothing is prepared or launched here; the screen opens filled in.
+ * token for an agent the wallet already owns, and any of the settings the person chose in conversation: the tax, where
+ * the fees go, the AI its mind runs on, what the mind may do and its limits, their first buy. Each is checked by the
+ * same rules as the screen. Nothing is prepared or launched here; the screen opens filled in and they sign it.
  */
-function mindLaunchTool(wallet: string, input: Record<string, unknown>): Omit<ToolOutcome, "label"> {
+async function mindLaunchTool(wallet: string, input: Record<string, unknown>): Promise<Omit<ToolOutcome, "label">> {
   const name = String(input.name ?? "").replace(/\s+/g, " ").trim().slice(0, LAUNCH_LIMITS.nameChars);
   const ticker = String(input.ticker ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, LAUNCH_LIMITS.symbolChars);
   const line = String(input.what_the_agent_does ?? input.description ?? "").replace(/\s+/g, " ").trim().slice(0, LAUNCH_LIMITS.lineChars);
@@ -748,17 +810,37 @@ function mindLaunchTool(wallet: string, input: Record<string, unknown>): Omit<To
   } else if (line.length < LAUNCH_LIMITS.lineMin) {
     return { result: { can_launch: false, why_not: "Ask them in one line what the agent behind the token should do, then call this again with what_the_agent_does." } };
   }
+  const chosen = chosenSettings(wallet, input);
+  if (typeof chosen === "string") return { result: { can_launch: false, why_not: chosen, note: "Nothing was prepared. Sort this out with them and call this again with every setting they chose." } };
   if (name) q.set("name", name);
   if (ticker) q.set("ticker", ticker);
   if (!agentId) q.set("line", line);
+  for (const [k, v] of settingsQuery(chosen.linked)) q.set(k, v);
   const page = `/launch?${q}`;
+
+  const set = Object.keys(chosen.linked.settings).length > 0 || Boolean(chosen.linked.payout) || Boolean(chosen.linked.model);
+  const locked = set ? [...lockedSummary(ticker, chosen.full), { label: "Its mind runs on", value: mindLabel(chosen.linked.model ?? null) }] : undefined;
+  const buy = Number(chosen.full.openingBuyEth || 0);
+  // a first buy the wallet cannot cover fails at the signature: say so now, from the wallet's own balance
+  const balance = buy > 0 ? await publicClient().getBalance({ address: wallet as `0x${string}` }).then((w) => Number(w / 10n ** 9n) / 1e9).catch(() => null) : null;
+  const short = balance !== null && balance < buy + LAUNCH_FEE_ETH;
+  // worth saying only when they were choosing where the fees go or what the mind does, not for a first buy on its own
+  const aboutTheMind = Object.keys(chosen.linked.settings).some((k) => !["openingBuyEth", "twitter", "website"].includes(k)) || Boolean(chosen.linked.model);
+  const quiet = chosen.full.mindBps === 0 && aboutTheMind;
   return {
     result: {
       can_launch: true, filled_in: { name: name || null, ticker: ticker || null, agent: agentId ? agentName : "a new agent made from their line", what_the_agent_does: agentId ? null : line },
-      still_needed: "a picture, then they check what gets locked (tax and where the fees go) and sign one transaction from their own wallet on that screen",
-      note: "The page shows a card with these filled in and a button to the launch screen. Point to the card; don't write out the link. Never say it is launched.",
+      will_be_locked: locked ? Object.fromEntries(locked.map((r) => [r.label, r.value])) : "They chose no settings yet, so the screen opens on its defaults: 0% tax and all fees to them. They can set them there, or with you first.",
+      creator_share: `${+(creatorBps(chosen.full) / 100).toFixed(2)}%`,
+      first_buy_eth: buy > 0 ? chosen.full.openingBuyEth : null,
+      warnings: [
+        short ? `Their wallet holds about ${+balance!.toFixed(5)} ETH, which is less than the first buy of ${chosen.full.openingBuyEth} ETH plus the launch fee (about ${LAUNCH_FEE_ETH} ETH) and gas. Tell them, and offer a smaller first buy.` : null,
+        quiet ? "With 0% of the fees to the mind it has no treasury: it stays quiet and takes no actions. Make sure that is what they want." : null,
+      ].filter(Boolean),
+      still_needed: "a picture, then they read what gets locked and sign one transaction from their own wallet on that screen",
+      note: `The page shows a card with ${locked ? "what will be locked" : "these filled in"} and a button to the launch screen. Read back what will be locked in a few plain lines and point to the card; don't write out the link. Everything on it is locked for good at launch. Never say it is launched, and never promise a price or returns.`,
     },
-    card: { kind: "launch", agentId: agentId || null, agentName, name: name || null, ticker: ticker || null, description: agentId ? null : line, page },
+    card: { kind: "launch", agentId: agentId || null, agentName, name: name || null, ticker: ticker || null, description: agentId ? null : line, page, ...(locked ? { locked, firstBuyEth: buy > 0 ? chosen.full.openingBuyEth : null } : {}) },
   };
 }
 
@@ -768,8 +850,8 @@ export function myloToolDefs(): typeof MYLO_TOOL_DEFS {
   if (!agentMindsEnabled()) return MYLO_TOOL_DEFS;
   return [...MYLO_TOOL_DEFS.map((t) => (t.name !== "launch_token" ? t : {
     name: "launch_token",
-    description: "Get a token launch ready on the launch screen. Either a new token with a new agent (give what_the_agent_does: one line; Axon makes the agent from it) or a token for one of the person's own agents (give agent_id). Give your best name and a short ticker. The person adds a picture, checks what gets locked and signs from their own wallet there; Mylo never launches it.",
-    input_schema: { type: "object", properties: { name: { type: "string" }, ticker: { type: "string" }, what_the_agent_does: { type: "string" }, agent_id: { type: "string" } }, required: [] },
+    description: "Get a token launch ready on the launch screen. Either a new token with a new agent (give what_the_agent_does: one line; Axon makes the agent from it) or a token for one of the person's own agents (give agent_id). Give your best name and a short ticker. You can also carry every setting they chose with you in conversation, so the screen opens complete: the tax, where the fees go, the AI its mind runs on, what the mind may do and its limits, and their first buy. Only pass a setting they actually chose; what you leave out keeps the screen's default. Each is checked by the screen's own rules, and you get back exactly what will be locked. The person adds a picture, reads it and signs from their own wallet there; Mylo never launches it.",
+    input_schema: { type: "object", properties: { name: { type: "string" }, ticker: { type: "string" }, what_the_agent_does: { type: "string" }, agent_id: { type: "string" }, ...LAUNCH_SETTING_PROPS }, required: [] },
   })), ...MINDS_TOOL_DEFS] as unknown as typeof MYLO_TOOL_DEFS;
 }
 
