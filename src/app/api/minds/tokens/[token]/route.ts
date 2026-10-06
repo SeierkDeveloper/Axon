@@ -6,6 +6,7 @@ import { liveToken } from "@/lib/mindsIndex";
 import { mindStatus } from "@/lib/mindsStatus";
 import { planOf, progressOf } from "@/lib/mindsPlan";
 import { ordersOf, promiseRecord, whenText, thenText } from "@/lib/mindsOrders";
+import { followedBy, outcomesOf, recordOf } from "@/lib/mindsRecord";
 import { boardToken } from "@/lib/mindsStats";
 import { normalizeAddress } from "@/lib/address";
 
@@ -28,6 +29,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     const plan = standing ? { ...standing, progress: b ? progressOf(standing, { holders: b.holders, mcapEth: b.mcapEth, burnedTokens: b.burnedTokens, curveBps: b.curveBps, phase: b.phase }) : null } : null;
     // its standing orders: the ones armed, then the most recent that fired, lapsed or were cancelled
     const orders = ordersOf(token).map((o) => ({ id: o.id, status: o.status, when: whenText(o.when), then: thenText(o.then), said: o.said, promise: o.promise, createdAt: o.createdAt, expiresAt: o.expiresAt, firedAt: o.firedAt, note: o.note }));
-    return NextResponse.json({ ...t, mind, plan, orders, promises: promiseRecord(token) }, { headers: { "Cache-Control": "public, max-age=10" } });
+    // its track record: every move carried out, what it was followed by an hour later, and the lesson it wrote
+    const record = { summary: recordOf(token), moves: outcomesOf(token, 20).map((o) => ({ ...o, followedBy: followedBy(o) })) };
+    return NextResponse.json({ ...t, mind, plan, orders, promises: promiseRecord(token), record }, { headers: { "Cache-Control": "public, max-age=10" } });
   });
 }

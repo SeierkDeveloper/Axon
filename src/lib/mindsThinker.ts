@@ -96,6 +96,9 @@ export const standInThinker: Thinker = async (model, system, prompt) => {
     }
     if (orders.length) Object.assign(out, { orders });
   }
+  // and a plain lesson for each of its moves that has been measured and has none
+  const waiting = prompt.split("\n").map((line) => /^ {2}#(\d+) (buyback|reward|\$AXON burn) with .*No lesson yet/.exec(line) && { move: Number(/#(\d+)/.exec(line)![1]), did: /#\d+ (buyback|reward|\$AXON burn)/.exec(line)![1], pct: /ETH \(([+-]?[0-9.]+)%\)/.exec(line)?.[1] }).filter(Boolean) as { move: number; did: string; pct?: string }[];
+  if (waiting.length) Object.assign(out, { lessons: waiting.map((w) => ({ move: w.move, lesson: w.pct === undefined ? `This ${w.did} was carried out. I am watching what follows the next one.` : `An hour after this ${w.did} the market cap stood ${Number(w.pct) >= 0 ? "higher" : "lower"} by ${Math.abs(Number(w.pct))}%. One move shows little; I keep the size measured.` })) });
   const text = JSON.stringify(out);
   const inputTokens = Math.ceil((system.length + prompt.length) / 4), outputTokens = Math.ceil(text.length / 4);
   return { text, inputTokens, outputTokens, costUsd: priceUsd(model, inputTokens, outputTokens) };

@@ -32,6 +32,7 @@ import { indexMinds } from "../lib/mindsIndex";
 import { refreshStats } from "../lib/mindsStats";
 import { thinkDue } from "../lib/mindsMind";
 import { fireDue, settleOrders } from "../lib/mindsOrders";
+import { trackOutcomes } from "../lib/mindsRecord";
 import { actDue, settleSent, payThinkingDue, keepUp } from "../lib/mindsAct";
 
 // Agents that append live market prices to their task message
@@ -703,7 +704,8 @@ export async function startWorkerLoops(): Promise<void> {
       .then(() => settleSent())
       .then(() => actDue())
       .then((r) => { if (r && (r.done || r.failed || r.dropped)) logger.info("minds.act", "Minds acted", { ...r }); })
-      .then(() => { settleOrders(); })
+      // close the orders that fired, write down every move carried out, and measure the ones whose hour is up
+      .then(() => { settleOrders(); trackOutcomes(); })
       .then(() => payThinkingDue())
       // every few minutes: move fees to their splitters and let ready pots burn
       .then(() => (++mindsTicks % 15 === 0 ? keepUp() : null))
