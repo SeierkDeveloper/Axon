@@ -141,7 +141,7 @@ describe("Mylo reading what a mind works to", () => {
     finally { if (old === undefined) delete process.env.AGENT_MINDS; else process.env.AGENT_MINDS = old; }
     expect(r.mind_plan).toMatchObject({ mission: PLAN.mission, goal: "100 holders", goal_progress: "30% of the way", means_to_split_what_it_spends: { buybacks: "40%", rewards: "30%", burning_axon: "0%", kept_in_reserve: "30%" }, reserve_it_will_not_spend_below_eth: 0.006 });
     expect(r.standing_orders).toMatchObject({
-      waiting: [{ a_promise: true, when: "holders reach 50", then: "reward holders with 0.002 ETH", in_its_words: PROMISE.say }, { when: "the market cap falls 20% from 2 ETH", then: "buy back and burn with 0.002 ETH" }],
+      waiting_now: [{ a_promise: true, when: "holders reach 50", then: "reward holders with 0.002 ETH", in_its_words: PROMISE.say }, { when: "the market cap falls 20% from 2 ETH", then: "buy back and burn with 0.002 ETH" }],
       promises_so_far: { made: 1, standing: 1, kept: 0, missed: 0, eth_held_for_them: 0.002 },
     });
     expect(r.track_record).toMatchObject({ note: expect.stringMatching(/FOLLOWED BY an hour later.*never proof of what the move caused/), by_kind: [{ times: 1, measured: 1, market_cap_an_hour_later_on_average: "+5%", times_it_was_higher: "1 of 1" }], latest: [{ followed_by: "market cap 2 to 2.1 ETH (+5%), holders 30 to 30 an hour later", the_minds_lesson: "One move shows little, so I keep them small." }] });
@@ -163,6 +163,6 @@ describe("Mylo reading what a mind works to", () => {
     expect(r.track_record).toBe("No move of its mind has been carried out yet.");
     expect(r.brief_from_its_creator).toBe("Its creator has left its mind no brief.");
     expect(r.latest_daily_report).toMatch(/^It has not written a daily report yet/);
-    expect(r.standing_orders).toMatchObject({ waiting: [], recent: [], promises_so_far: { made: 0 } });
+    expect(r.standing_orders).toMatchObject({ waiting_now: [], earlier_ones_and_what_became_of_them: [], promises_so_far: { made: 0 } });
   });
 });
