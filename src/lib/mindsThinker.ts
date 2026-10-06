@@ -99,6 +99,15 @@ export const standInThinker: Thinker = async (model, system, prompt) => {
   // and a plain lesson for each of its moves that has been measured and has none
   const waiting = prompt.split("\n").map((line) => /^ {2}#(\d+) (buyback|reward|\$AXON burn) with .*No lesson yet/.exec(line) && { move: Number(/#(\d+)/.exec(line)![1]), did: /#\d+ (buyback|reward|\$AXON burn)/.exec(line)![1], pct: /ETH \(([+-]?[0-9.]+)%\)/.exec(line)?.[1] }).filter(Boolean) as { move: number; did: string; pct?: string }[];
   if (waiting.length) Object.assign(out, { lessons: waiting.map((w) => ({ move: w.move, lesson: w.pct === undefined ? `This ${w.did} was carried out. I am watching what follows the next one.` : `An hour after this ${w.did} the market cap stood ${Number(w.pct) >= 0 ? "higher" : "lower"} by ${Math.abs(Number(w.pct))}%. One move shows little; I keep the size measured.` })) });
+  // its daily report: the facts it was handed, said plainly
+  const day = /your_day \(([^,]+),[^\n]*\n((?: {2}[^\n]+\n)+)/.exec(prompt);
+  if (day && /this_answer: your daily report/.test(prompt)) {
+    const facts = day[2].split("\n").map((l) => l.trim()).filter(Boolean);
+    const pick = (re: RegExp) => facts.find((f) => re.test(f));
+    const said = [pick(/^market cap/), pick(/^holders/), pick(/^you carried out/), pick(/^you thought/)].filter(Boolean).map((f) => `${f![0].toUpperCase()}${f!.slice(1)}.`.replace(/^You /, "I ").replace(/ of your own/, " of my own"));
+    Object.assign(out, { thought: `My report for ${day[1]}. ${said.join(" ")}`.slice(0, 590), action: null });
+    delete (out as Record<string, unknown>).orders; delete (out as Record<string, unknown>).plan;
+  }
   const text = JSON.stringify(out);
   const inputTokens = Math.ceil((system.length + prompt.length) / 4), outputTokens = Math.ceil(text.length / 4);
   return { text, inputTokens, outputTokens, costUsd: priceUsd(model, inputTokens, outputTokens) };

@@ -80,8 +80,8 @@ interface TokenRow { model: string | null; tax_bps: number | null; mcap_eth: num
 export function pulseState(token: string, now: number, c: { usdPerEth: number | null; treasuryEth?: number; ceilingEth?: number }): Pulse {
   const db = getDb(), t = token.toLowerCase();
   const m = db.prepare("SELECT t.model, t.tax_bps, s.mcap_eth, COALESCE(s.holders, 0) holders, COALESCE(s.treasury_eth, 0) treasury_eth FROM mind_tokens t JOIN mind_stats s ON s.token = t.token WHERE t.token = ?").get(t) as TokenRow | undefined;
-  // its own last look: a standing order firing is not one
-  const last = db.prepare("SELECT at, mcap_eth, holders FROM mind_thoughts WHERE token = ? AND source != 'order' ORDER BY id DESC LIMIT 1").get(t) as { at: string; mcap_eth: number | null; holders: number | null } | undefined;
+  // its own last look: a standing order firing is not one, and neither is its daily report
+  const last = db.prepare("SELECT at, mcap_eth, holders FROM mind_thoughts WHERE token = ? AND source NOT IN ('order', 'report') ORDER BY id DESC LIMIT 1").get(t) as { at: string; mcap_eth: number | null; holders: number | null } | undefined;
   // a mind that has never thought has nothing to check in on: its first thought is woken by its launch
   if (!m || !last) return NONE;
 
@@ -93,7 +93,7 @@ export function pulseState(token: string, now: number, c: { usdPerEth: number | 
   // how many check-ins in a row found nothing to do; anything else in between (an event, an action, an order firing) starts the count again
   const recent = db.prepare("SELECT source, action FROM mind_thoughts WHERE token = ? AND status = 'thought' ORDER BY id DESC LIMIT 12").all(t) as { source: string; action: string | null }[];
   let quiet = 0;
-  for (const r of recent) { if (r.source === "pulse" && !r.action) quiet++; else break; }
+  for (const r of recent) { if (r.source === "report") continue; if (r.source === "pulse" && !r.action) quiet++; else break; }
   const cap = last.mcap_eth && m.mcap_eth ? Math.abs(((m.mcap_eth - last.mcap_eth) / last.mcap_eth) * 100) : 0;
   const moved = cap >= MOVED_PCT || (last.holders !== null && last.holders !== m.holders);
   const everyMs = moved ? base : Math.min(PULSE_MAX_MS, base * (1 + quiet));

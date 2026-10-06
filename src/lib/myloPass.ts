@@ -113,8 +113,8 @@ const ACTED: Record<string, (ticker: string, eth: string) => { title: (name: str
 
 /**
  * What Agent Minds tells people, in their inbox. A token's creator: each thing its mind did, with the mind's own reason,
- * each holder milestone, and its graduation. A holder: only a reward that is theirs to claim, so nobody is written to
- * about a token just for holding it. Every notice has its own key, so looking back over the same hours adds nothing.
+ * each holder milestone, its graduation, and its mind's daily report. A holder: a reward that is theirs to claim, and
+ * the daily report of a token they hold if they use Mylo, so nobody who never came here is written to. Every notice has its own key, so looking back over the same hours adds nothing.
  */
 function mindNotices(since: string): number {
   const db = getDb();
@@ -150,6 +150,20 @@ function mindNotices(since: string): number {
     const by = new Date(r.end_at * 1000).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
     for (const s of sharesOf.all(r.token, r.reward_id) as { idx: number; account: string; amount_wei: string }[]) {
       told(notify(s.account, "reward", `A reward from ${r.name ?? "a token you hold"} is waiting for you`, `${eth(Number(BigInt(s.amount_wei) / 10n ** 9n) / 1e9)}, set aside by its mind for holders of ${r.symbol ? `$${r.symbol}` : "the token"}. Claim it from your own wallet on the token's page before ${by}.`, page(r.token), `mind-reward:${r.token}:${r.reward_id}:${s.idx}`, r.created_at));
+    }
+  }
+
+  // a mind's daily report: to its creator, and to the holders who use Mylo
+  const reports = db.prepare(`
+    SELECT r.token, r.day, r.text, r.at, t.creator, t.name FROM mind_reports r JOIN mind_tokens t ON t.token = r.token WHERE r.text != '' AND r.at >= ?`).all(since) as { token: string; day: string; text: string; at: string; creator: string; name: string | null }[];
+  const readers = db.prepare(`
+    SELECT LOWER(h.address) address FROM mind_holders h WHERE h.token = ? AND h.balance != '0' AND LOWER(h.address) != ?
+      AND EXISTS (SELECT 1 FROM mylo_conversations c WHERE c.owner = LOWER(h.address)) LIMIT 500`);
+  for (const r of reports) {
+    const name = r.name ?? "your token", on = new Date(`${r.day}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
+    told(notify(r.creator, "report", `${r.name ?? "Your token"}'s mind reported on ${on}`, r.text, page(r.token), `mind-report:${r.token}:${r.day}:${r.creator.toLowerCase()}`, r.at));
+    for (const h of readers.all(r.token, r.creator.toLowerCase()) as { address: string }[]) {
+      told(notify(h.address, "report", `Daily report from ${name}'s mind, ${on}`, r.text, page(r.token), `mind-report:${r.token}:${r.day}:${h.address}`, r.at));
     }
   }
   return notices;

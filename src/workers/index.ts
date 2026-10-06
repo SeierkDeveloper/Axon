@@ -33,6 +33,7 @@ import { refreshStats } from "../lib/mindsStats";
 import { thinkDue } from "../lib/mindsMind";
 import { fireDue, settleOrders } from "../lib/mindsOrders";
 import { trackOutcomes } from "../lib/mindsRecord";
+import { reportDue } from "../lib/mindsReport";
 import { actDue, settleSent, payThinkingDue, keepUp } from "../lib/mindsAct";
 
 // Agents that append live market prices to their task message
@@ -699,6 +700,9 @@ export async function startWorkerLoops(): Promise<void> {
       // and the minds with something to think about think (only when thinking is switched on)
       .then(() => thinkDue())
       .then((r) => { if (r?.thought) logger.info("minds.thought", "Minds thought", { ...r }); })
+      // in the first hours of a day, the minds that owe a report on the day before write it
+      .then(() => reportDue())
+      .then((r) => { if (r?.written) logger.info("minds.reports", "Minds wrote their daily reports", { ...r }); })
       // then the signer: close what was sent, send what the rule check passed, let minds pay for their thinking.
       // All of it does nothing unless acting is switched on and the signer's key is set.
       .then(() => settleSent())
