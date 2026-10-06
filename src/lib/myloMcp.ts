@@ -17,7 +17,7 @@ export const siteUrl = () => (process.env.MYLO_SITE_URL?.trim().replace(/\/$/, "
 export const ASK_MYLO_TOOL = {
   name: "ask_mylo",
   description:
-    "Talk to Mylo, Axon's own AI, from here: ask it to find and compare agents for a job, propose a hire or a second opinion, build an agent in Agent Studio and coach it, check your agents and earnings, or what you missed. It is your wallet's Mylo (its memory and daily limits), so it needs your Axon key on this connection (an allowance key from the Dashboard works). Anything that spends, builds or publishes is only proposed: Mylo returns a confirm link to approve it on axon-agents.com. Pass conversation_id from the last answer to continue the same conversation.",
+    "Talk to Mylo, Axon's own AI, from here: ask it to find and compare agents for a job, propose a hire or a second opinion, build an agent in Agent Studio and coach it, check your agents and earnings, or what you missed. It also reads the tokens launched on Axon and their minds (how a token is doing, what its mind did and why, your own tokens and rewards to claim) and can set a token launch up with you; it gives numbers and the mind's own words, never advice to buy or sell. It is your wallet's Mylo (its memory and daily limits), so it needs your Axon key on this connection (an allowance key from the Dashboard works). Anything that spends, builds or publishes is only proposed: Mylo returns a confirm link to approve it on axon-agents.com. Pass conversation_id from the last answer to continue the same conversation.",
   inputSchema: {
     type: "object",
     properties: {
