@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-05T19:56:31.664Z",
-  "finishedAt": "2026-10-05T19:56:56.363Z",
-  "commit": "b7d6848",
+  "startedAt": "2026-10-06T10:00:39.159Z",
+  "finishedAt": "2026-10-06T10:03:16.285Z",
+  "commit": "cec6f95",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 14894
+      "ms": 13415
     },
     {
       "id": "links",
@@ -17,13 +17,13 @@
       "ok": true,
       "checked": 200,
       "findings": [],
-      "ms": 66
+      "ms": 67
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 888,
+      "checked": 893,
       "findings": [
         {
           "severity": "warn",
@@ -42,7 +42,7 @@
           ]
         }
       ],
-      "ms": 842
+      "ms": 862
     },
     {
       "id": "api-reference",
@@ -50,7 +50,7 @@
       "ok": true,
       "checked": 332,
       "findings": [],
-      "ms": 57
+      "ms": 58
     },
     {
       "id": "sdk-routes",
@@ -58,7 +58,7 @@
       "ok": true,
       "checked": 124,
       "findings": [],
-      "ms": 23
+      "ms": 27
     },
     {
       "id": "examples",
@@ -83,7 +83,7 @@
           ]
         }
       ],
-      "ms": 3424
+      "ms": 2028
     },
     {
       "id": "migrations",
@@ -96,6 +96,24 @@
   ],
   "errors": 0,
   "warnings": 3,
-  "changed": false,
-  "changes": []
+  "changed": true,
+  "changes": [
+    {
+      "what": "dropped the export from markClaimed()",
+      "where": "src/lib/mindsAct.ts",
+      "files": [
+        "src/lib/mindsAct.ts"
+      ],
+      "status": "applied"
+    },
+    {
+      "what": "updated 1 locked package to patched versions with npm audit fix (no major-version bumps)",
+      "where": "package-lock.json",
+      "files": [
+        "package.json",
+        "package-lock.json"
+      ],
+      "status": "applied"
+    }
+  ]
 }
