@@ -10,6 +10,7 @@
 
 import { getDb } from "./db";
 import { validateAgentText } from "./agentContent";
+import { plain } from "./mindsText";
 
 /** A move is measured this long after it was made. */
 export const MEASURE_AFTER_MS = 3_600_000;
@@ -102,7 +103,7 @@ export function recordOf(token: string): TrackRecord {
 
 const signed = (v: number, unit = "") => `${v > 0 ? "+" : ""}${v}${unit}`;
 const ago = (iso: string, now: number): string => { const m = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000)); return m < 60 ? `${m} min ago` : m < 2880 ? `${Math.floor(m / 60)} h ago` : `${Math.floor(m / 1440)} days ago`; };
-const eth = (v: number) => +v.toPrecision(4);
+const eth = (v: number) => plain(v);
 
 /** What one move was followed by, in words. */
 export function followedBy(o: Outcome): string {

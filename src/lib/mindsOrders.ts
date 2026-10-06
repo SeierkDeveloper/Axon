@@ -25,6 +25,7 @@ import { reserveOf } from "./mindsPlan";
 import { addEvent } from "./mindsStats";
 import { mindsHalted } from "./mindsAdmin";
 import { validateAgentText } from "./agentContent";
+import { plain } from "./mindsText";
 import { logger } from "./logger";
 
 export type WhenKind = "market_cap_below" | "market_cap_above" | "market_cap_drops_pct" | "market_cap_rises_pct" | "holders_reach" | "treasury_reaches" | "graduates";
@@ -57,7 +58,7 @@ const toOrder = (r: Row): Order => ({
 });
 
 const num = (v: unknown): number => (typeof v === "number" ? v : typeof v === "string" && /^\d+(\.\d+)?$/.test(v.trim()) ? Number(v) : NaN);
-const trim = (v: number, digits = 4) => +v.toPrecision(digits);
+const trim = (v: number, digits = 4) => plain(v, digits);
 
 /** Whether an order's condition holds for these numbers. A number that could not be read never meets a condition. */
 export function met(w: Order["when"], n: Measures): boolean {

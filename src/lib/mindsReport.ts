@@ -20,6 +20,7 @@ import { pulseState } from "./mindsPulse";
 import { mindsHalted } from "./mindsAdmin";
 import { OWN_MIND } from "./mindsModels";
 import { ethUsd } from "./ethPrice";
+import { plain } from "./mindsText";
 import { logger } from "./logger";
 
 /** A report on yesterday is written in the first hours of today, and not after this hour (UTC). */
@@ -46,7 +47,7 @@ export const dayLabel = (day: string): string => new Date(`${day}T00:00:00Z`).to
 
 export interface DayFacts { day: string; label: string; /** whether anything happened that is worth a report */ eventful: boolean; lines: string[] }
 
-const eth = (v: number) => +v.toPrecision(4);
+const eth = (v: number) => plain(v);
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** What happened to a token and what its mind did on one UTC day, read from Axon's own records. */
