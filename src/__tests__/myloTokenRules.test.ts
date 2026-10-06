@@ -3,6 +3,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { MINDS_NOTE, MYLO_SYSTEM, requestBytes } from "@/lib/myloChat";
 import { myloToolDefs, MINDS_TOOL_DEFS } from "@/lib/myloTools";
+import MarkdownOutput from "@/components/MarkdownOutput";
+import type { ReactElement } from "react";
 
 describe("what Mylo is told about tokens", () => {
   it("is told to report and never to advise, predict or act for anyone", () => {
@@ -31,6 +33,12 @@ describe("what Mylo is told about tokens", () => {
     expect(MINDS_NOTE).toMatch(/A mind on their own server cannot be set from here/);
   });
 
+  it("is told the hard limits, and not to drag a launch out", () => {
+    expect(MINDS_NOTE).toMatch(/tax 0 to 10%/);
+    expect(MINDS_NOTE).toMatch(/Never answer "changed" or "got it" to a number the screen would refuse/);
+    expect(MINDS_NOTE).toMatch(/Never ask about the payout wallet, links or the mind's limits unless they bring them up/);
+  });
+
   it("says nothing in his instructions that reads as written by a machine", () => {
     expect(MINDS_NOTE).not.toMatch(/—/);
   });
@@ -43,5 +51,15 @@ describe("what Mylo is told about tokens", () => {
     expect(withMinds).toBeGreaterThan(without);
     expect(withMinds - without).toBeGreaterThan(JSON.stringify(MINDS_TOOL_DEFS).length);
     expect(myloToolDefs().map((t) => t.name as string)).toContain("my_tokens");
+  });
+});
+
+describe("Mylo's answers on the page", () => {
+  it("gives every block its own key, so a list being written is never left beside its finished self", () => {
+    const text = ["Where should the fees go?", "", "- You", "- Burn the token", "- Burn $AXON", "- The mind", "", "What split?", "- one more", "", "```", "code", "```", "1. first", "2. second"].join("\n");
+    const blocks = (MarkdownOutput({ text }) as ReactElement<{ children: ReactElement[] }>).props.children;
+    const keys = blocks.map((b) => String(b.key));
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys.filter((k) => k.startsWith("list-"))).toEqual(["list-2", "list-8"]);
   });
 });

@@ -79,12 +79,15 @@ export default function MarkdownOutput({ text, links = false }: { text: string; 
     // Bullet
     else if (line.match(/^[-*] /)) {
       const items: string[] = [];
+      // keyed by where the list starts: keyed by where it ends, it shared a key with the line after it, and a list
+      // still being written was left on the page beside its finished self
+      const start = i;
       while (i < lines.length && lines[i].match(/^[-*] /)) {
         items.push(lines[i].slice(2));
         i++;
       }
       elements.push(
-        <ul key={i} className="list-disc space-y-0.5 my-2 pl-5 text-gray-700 marker:text-gray-400 dark:text-gray-300">
+        <ul key={`list-${start}`} className="list-disc space-y-0.5 my-2 pl-5 text-gray-700 marker:text-gray-400 dark:text-gray-300">
           {items.map((item, idx) => <li key={idx} className="text-sm">{renderInline(item, links)}</li>)}
         </ul>
       );
