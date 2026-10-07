@@ -137,8 +137,9 @@ describe("the facts of a day", () => {
       "standing orders that fired: 1 carried out",
       "promises: 1 made",
     ]);
-    // the day before and the day after are their own days
-    expect(dayFacts(t.token, "2026-10-07")).toMatchObject({ eventful: false, lines: ["market cap and holders: not read on that day", "you did not think that day", "you carried out no moves"] });
+    // another day is its own day. (A fixed day well before the story: a few of the rows above are stamped with the
+    // real clock, so a day near the present stops being quiet the day the calendar reaches it.)
+    expect(dayFacts(t.token, "2026-09-20")).toMatchObject({ eventful: false, lines: ["market cap and holders: not read on that day", "you did not think that day", "you carried out no moves"] });
   });
 
   it("says a day was not worth a report when nothing happened on it", async () => {

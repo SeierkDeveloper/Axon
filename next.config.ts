@@ -4,6 +4,10 @@ const isDev = process.env.NODE_ENV !== "production";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // A page opened in the last half minute is drawn again from what the browser already holds, so going back and
+  // forth between sections asks the server nothing. Live figures on a page keep reading themselves on their own
+  // timers, and anything that changes data calls for a fresh page itself.
+  experimental: { staleTimes: { dynamic: 30, static: 180 } },
   // Enable standalone output for Docker — copies only the minimal files needed
   output: process.env.DOCKER_BUILD === "1" ? "standalone" : undefined,
   // libsql loads its native binding via a computed `require(`@libsql/${target}`)`

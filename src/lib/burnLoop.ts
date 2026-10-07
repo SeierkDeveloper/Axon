@@ -58,6 +58,8 @@ interface Shared {
   /** Set while a burn transaction is in flight, so a slow confirm cannot start a second one. */
   burning: boolean;
   lastComplaint: number;
+  /** when the burn page's reading was last refreshed from here */
+  lastWarm?: number;
   state: LoopState;
 }
 const shared: Shared = ((globalThis as typeof globalThis & { __axonBurnLoop?: Shared }).__axonBurnLoop ??= {
@@ -106,10 +108,21 @@ function complainIfStuck(readyForSeconds: number, amount: bigint, gasEth: number
   logger.error("burn.stuck", "The burn is not running as it should", { problems });
 }
 
+/** How often the loop refreshes the burn page's reading, so no visitor is the one who waits on the node. */
+const WARM_MS = 30_000;
+
 async function tick(): Promise<void> {
   const pot = burnPotAddress();
   const key = process.env.BOT_PRIVATE_KEY?.trim();
   if (!pot || !key) return;
+
+  // The burn page shares one reading of the pot between everybody looking (burnLive.ts), but the first visitor
+  // after a quiet minute used to wait on the node for it. This loop is awake anyway: it asks for the reading
+  // twice a minute, so the page always has a recent one to show at once. Never in the way of a burn.
+  if (Date.now() - (shared.lastWarm ?? 0) >= WARM_MS) {
+    shared.lastWarm = Date.now();
+    void import("./burnLive").then((m) => m.getBurnLive()).catch(() => {});
+  }
 
   const reader = publicClient();
   const { account, client } = walletClientFor(key);

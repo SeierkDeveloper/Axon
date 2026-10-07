@@ -31,6 +31,20 @@ const LINKS: { href: string; label: string; desktopOnly?: boolean }[] = [
   { href: "/launch",        label: "Launch" },
 ];
 
+/**
+ * A link to a section. Its page is fetched whole the moment the link is pointed at, touched or reached by keyboard,
+ * so the click that follows has nothing left to wait for. Links nobody goes near cost the server nothing.
+ */
+function NavLink({ href, className, children }: { href: string; className: string; children: React.ReactNode }) {
+  const [near, setNear] = useState(false);
+  const warm = () => setNear(true);
+  return (
+    <Link href={href} prefetch={near ? true : null} onMouseEnter={warm} onTouchStart={warm} onFocus={warm} className={className}>
+      {children}
+    </Link>
+  );
+}
+
 export default function SiteNav() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -62,7 +76,7 @@ export default function SiteNav() {
           {/* Desktop links */}
           <div className="hidden md:flex items-center gap-8">
             {LINKS.map(({ href, label }) => (
-              <Link
+              <NavLink
                 key={href}
                 href={href}
                 className={`text-sm transition-colors ${
@@ -72,7 +86,7 @@ export default function SiteNav() {
                 }`}
               >
                 {label}
-              </Link>
+              </NavLink>
             ))}
           </div>
 
@@ -156,7 +170,7 @@ export default function SiteNav() {
           >
             <div className="px-6 py-4 space-y-1">
               {LINKS.filter((l) => !l.desktopOnly).map(({ href, label }) => (
-                <Link
+                <NavLink
                   key={href}
                   href={href}
                   className={`flex items-center justify-between py-2.5 text-sm border-b border-gray-50 dark:border-gray-800 last:border-0 transition-colors ${
@@ -167,7 +181,7 @@ export default function SiteNav() {
                 >
                   {label}
                   {isActive(href) && <span className="w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-white" />}
-                </Link>
+                </NavLink>
               ))}
               <WalletMenu mobile onDone={() => setOpen(false)} />
               <div className="pt-3 flex items-center gap-3">
