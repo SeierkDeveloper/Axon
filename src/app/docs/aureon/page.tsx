@@ -168,17 +168,18 @@ export default function AureonDocsPage() {
 
       <section className="mb-12">
         <h2 className={h2}>The three answers</h2>
-        <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-800 mb-4">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-900">
-              <tr><th className={th}>AUREON answers</th><th className={th}>When</th><th className={th}>What Axon does</th></tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-              <tr><td className={td}><code className={code}>allow</code></td><td className={td}>The hire fits the objective, and the objective does not ask for a separate approval.</td><td className={td}>Continues and pays from the allowance.</td></tr>
-              <tr><td className={td}><code className={code}>refuse</code></td><td className={td}>The hire is over the objective&apos;s cap, is not in an asset it allows, or the objective is paused.</td><td className={td}>Stops. Shows the reason. Nothing is charged.</td></tr>
-              <tr><td className={td}><code className={code}>authorization_required</code></td><td className={td}>The hire fits the objective, and the objective still wants you to approve it.</td><td className={td}>Stops. Tells you it needs your approval first. Nothing is charged.</td></tr>
-            </tbody>
-          </table>
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800 mb-4">
+          {[
+            ["allow", "The hire fits the objective, and the objective does not ask for a separate approval.", "Axon continues and pays from the allowance."],
+            ["refuse", "The hire is over the objective's cap, is not in an asset it allows, or the objective is paused.", "Axon stops and shows the reason. Nothing is charged."],
+            ["authorization_required", "The hire fits the objective, and the objective still wants you to approve it.", "Axon stops and tells you it needs your approval first. Nothing is charged."],
+          ].map(([answer, when, then]) => (
+            <div key={answer} className="px-5 py-4">
+              <p className="mb-2"><code className={code}>{answer}</code></p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed mb-1">{when}</p>
+              <p className="text-sm font-medium text-gray-900 dark:text-white leading-relaxed">{then}</p>
+            </div>
+          ))}
         </div>
         <p className={p}>
           A hire that is over the cap is refused even on an objective that asks for approval: the cap wins.
