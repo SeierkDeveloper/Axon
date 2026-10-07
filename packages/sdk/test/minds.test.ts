@@ -4,15 +4,16 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { AxonClient, AxonApiError } from "../src/client";
 
-interface Call { method: string; path: string; search: string }
+interface Call { method: string; path: string; search: string; body?: unknown }
 
 function stub(responses: Record<string, unknown>) {
   const calls: Call[] = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     const u = new URL(url);
     const method = init.method ?? "GET";
-    calls.push({ method, path: u.pathname, search: u.search });
-    const body = responses[`${method} ${u.pathname}`];
+    calls.push({ method, path: u.pathname, search: u.search, ...(init.body ? { body: JSON.parse(String(init.body)) } : {}) });
+    const body = responses[`${method} ${u.pathname}`] as { __status?: number } | undefined;
+    if (body?.__status) return new Response(JSON.stringify(body), { status: body.__status });
     return new Response(JSON.stringify(body ?? { error: "No such token.", code: "NOT_FOUND" }), { status: body ? 200 : 404 });
   }));
   return calls;
@@ -92,5 +93,35 @@ describe("agent minds", () => {
     expect(calls[0].search).toBe(`?account=${wallet}`);
     expect(out).toEqual([share]);
     expect(out[0].amountWei).toBe("1234567890123456789");
+  });
+
+  it("getMindBrief reads the brief, the ones before it and when it may change", async () => {
+    const state = { brief: { token: TOKEN, text: "Reward holders before buying back.", setBy: "0xabc", setAt: "2026-10-07T10:00:00.000Z" }, log: [{ text: "Reward holders before buying back.", setBy: "0xabc", at: "2026-10-07T10:00:00.000Z" }], maxChars: 280, canChangeAt: "2026-10-07T16:00:00.000Z" };
+    const calls = stub({ [`GET /api/minds/tokens/${TOKEN}/brief`]: state });
+    expect(await client().getMindBrief(TOKEN)).toEqual(state);
+    expect(calls[0]).toEqual({ method: "GET", path: `/api/minds/tokens/${TOKEN}/brief`, search: "" });
+  });
+
+  it("setMindBrief posts the text and says whether it changed anything", async () => {
+    const brief = { token: TOKEN, text: "Keep a reserve.", setBy: "0xabc", setAt: "2026-10-07T10:00:00.000Z" };
+    const calls = stub({ [`POST /api/minds/tokens/${TOKEN}/brief`]: { brief, changed: true } });
+    expect(await client().setMindBrief(TOKEN, "Keep a reserve.")).toEqual({ brief, changed: true });
+    expect(calls[0]).toMatchObject({ method: "POST", path: `/api/minds/tokens/${TOKEN}/brief`, body: { text: "Keep a reserve." } });
+  });
+
+  it("clearMindBrief takes the brief back with an empty one", async () => {
+    const calls = stub({ [`POST /api/minds/tokens/${TOKEN}/brief`]: { brief: null, changed: true } });
+    expect(await client().clearMindBrief(TOKEN)).toEqual({ brief: null, changed: true });
+    expect(calls[0].body).toEqual({ text: "" });
+  });
+
+  it("setMindBrief gives the server's reason when it is not the creator, and asks once when it is too soon", async () => {
+    let calls = stub({ [`POST /api/minds/tokens/${TOKEN}/brief`]: { __status: 403, error: "Only the wallet that launched this token can leave its mind a brief.", code: "FORBIDDEN" } });
+    await expect(client().setMindBrief(TOKEN, "Buy back more.")).rejects.toMatchObject({ status: 403, code: "FORBIDDEN", message: "Only the wallet that launched this token can leave its mind a brief." });
+    vi.unstubAllGlobals();
+    calls = stub({ [`POST /api/minds/tokens/${TOKEN}/brief`]: { __status: 429, error: "A brief stands for six hours once it is left.", code: "RATE_LIMITED" } });
+    await expect(client().setMindBrief(TOKEN, "Buy back more.")).rejects.toMatchObject({ status: 429, code: "RATE_LIMITED" });
+    // Waiting out six hours is the caller's call: the SDK does not sit and retry a brief.
+    expect(calls).toHaveLength(1);
   });
 });

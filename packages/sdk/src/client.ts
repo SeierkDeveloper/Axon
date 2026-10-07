@@ -101,6 +101,8 @@ import type {
   MindThought,
   ListMindThoughtsOptions,
   MindRewardShare,
+  MindBriefState,
+  SetMindBriefResult,
 } from "./types";
 import { hire as hireHelper } from "./hire";
 import { buildAxonTools } from "./tools";
@@ -658,7 +660,7 @@ export class AxonClient {
   // ── Agent Minds ─────────────────────────────────────────────────────────────
   //
   // A token launched on Axon can carry a mind: an AI with its own treasury that works in public. These read what
-  // it has made public. None of them needs a key with any special right, and none of them can move anything.
+  // it has made public, and let a token's creator leave it a brief. None of them can move anything.
 
   /**
    * The tokens launched with a mind, a page at a time, with the numbers last read from the chain, the totals across
@@ -700,6 +702,32 @@ export class AxonClient {
   async getMindRewards(account: string): Promise<MindRewardShare[]> {
     const res = (await this.get(`/api/minds/rewards?account=${encodeURIComponent(account)}`)) as { shares: MindRewardShare[] };
     return res.shares;
+  }
+
+  /**
+   * The brief a token's creator has left its mind, the ones before it, how long a brief may be, and when it may be
+   * changed next. Public: anyone can read it.
+   */
+  async getMindBrief(token: string): Promise<MindBriefState> {
+    return this.get(`/api/minds/tokens/${pathPart(token)}/brief`) as Promise<MindBriefState>;
+  }
+
+  /**
+   * Leave a token's mind a brief: a short public note on what its creator would like it to care about. The mind
+   * reads it every time it thinks and weighs it with its own judgment. It steers and nothing more: it cannot widen
+   * what the mind may do, raise a limit or move money.
+   *
+   * Needs a full key of the wallet that launched the token (`AxonApiError` 403 otherwise). A brief stands six
+   * hours once it is left; changing it sooner throws 429 with the time left in the message, and `getMindBrief`
+   * gives that time as `canChangeAt`.
+   */
+  async setMindBrief(token: string, text: string): Promise<SetMindBriefResult> {
+    return this.post(`/api/minds/tokens/${pathPart(token)}/brief`, { text }) as Promise<SetMindBriefResult>;
+  }
+
+  /** Take a token's brief back, so its mind goes on with no note from its creator. Same rules as `setMindBrief`. */
+  async clearMindBrief(token: string): Promise<SetMindBriefResult> {
+    return this.setMindBrief(token, "");
   }
 
   /**

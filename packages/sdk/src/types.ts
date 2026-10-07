@@ -1930,6 +1930,21 @@ export interface MindReport { id: number; token: string; day: string; label: str
 /** A short public note the token's creator left its mind. It steers priorities and can never change a limit. */
 export interface MindBrief { token: string; text: string; setBy: string; setAt: string }
 
+/** A token's brief with the ones before it, and when its creator may change it next. */
+export interface MindBriefState {
+  /** The brief the mind reads now, or null when there is none or it was taken back. */
+  brief: MindBrief | null;
+  /** Every brief the mind has been left, newest first. One that was taken back shows as empty text. */
+  log: { text: string; setBy: string; at: string }[];
+  /** The longest a brief may be, in characters. */
+  maxChars: number;
+  /** When the creator may change the brief again (it stands six hours), or null when it may be changed now. */
+  canChangeAt: string | null;
+}
+
+/** What setting a brief did. `changed` is false when the text sent was already the brief. */
+export interface SetMindBriefResult { brief: MindBrief | null; changed: boolean }
+
 /** A mind's books: what came in, what it holds, what it spent and on what, and how long it can keep thinking. */
 export interface MindBooks {
   fromFeesEth: number;

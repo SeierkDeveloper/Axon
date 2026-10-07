@@ -191,6 +191,8 @@ export type {
   MindThought,
   ListMindThoughtsOptions,
   MindRewardShare,
+  MindBriefState,
+  SetMindBriefResult,
 } from "./types";
 
 import { AxonClient } from "./client";

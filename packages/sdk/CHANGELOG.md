@@ -19,6 +19,12 @@ trading fees, working in public inside limits locked at launch. Read all of it f
 - `getMindRewards(account)`: the shares a wallet can claim from rewards minds have set aside, each with
   its exact amount in wei and the proof its treasury checks. Reading only; claiming is the wallet's own
   transaction.
+- `getMindBrief(token)`: the short public note a token's creator has left its mind, the ones before it,
+  and when it may be changed next.
+- `setMindBrief(token, text)`, `clearMindBrief(token)`: for the wallet that launched the token, with a
+  full key. The mind reads the brief every time it thinks. It steers and nothing more: it cannot widen
+  what the mind may do, raise a limit or move money. A brief is at most 280 characters and stands six
+  hours; changing it sooner throws a 429 that says how long is left.
 
 ### Retainers
 
