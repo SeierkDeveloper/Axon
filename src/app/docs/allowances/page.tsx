@@ -228,7 +228,8 @@ export default function AllowancesDocsPage() {
           </ul>
           <p className={p}>
             Retainers pay from the allowance too, so every scheduled run is checked the same way. A run AUREON stops is
-            skipped and shows the reason.
+            skipped and shows the reason. The whole of it, with setup and what is sent, is on{" "}
+            <Link href="/docs/aureon" className="underline hover:text-gray-900 dark:hover:text-white">AUREON policy check</Link>.
           </p>
         </section>
       )}
