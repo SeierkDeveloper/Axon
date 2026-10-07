@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-07T14:49:23.536Z",
-  "finishedAt": "2026-10-07T14:52:08.213Z",
-  "commit": "613de36",
+  "startedAt": "2026-10-07T20:01:41.651Z",
+  "finishedAt": "2026-10-07T20:02:08.870Z",
+  "commit": "1244cc9",
   "checks": [
     {
       "id": "install-commands",
@@ -9,15 +9,15 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 12642
+      "ms": 16878
     },
     {
       "id": "links",
       "title": "Internal links point at real pages",
       "ok": true,
-      "checked": 203,
+      "checked": 204,
       "findings": [],
-      "ms": 61
+      "ms": 88
     },
     {
       "id": "dead-exports",
@@ -42,7 +42,7 @@
           ]
         }
       ],
-      "ms": 889
+      "ms": 1126
     },
     {
       "id": "api-reference",
@@ -50,23 +50,23 @@
       "ok": true,
       "checked": 336,
       "findings": [],
-      "ms": 54
+      "ms": 55
     },
     {
       "id": "sdk-routes",
       "title": "The SDK calls routes that exist",
       "ok": true,
-      "checked": 124,
+      "checked": 130,
       "findings": [],
-      "ms": 23
+      "ms": 31
     },
     {
       "id": "examples",
       "title": "Examples import what the SDK exports",
       "ok": true,
-      "checked": 37,
+      "checked": 39,
       "findings": [],
-      "ms": 8
+      "ms": 12
     },
     {
       "id": "packages",
@@ -83,7 +83,7 @@
           ]
         }
       ],
-      "ms": 1958
+      "ms": 3262
     },
     {
       "id": "migrations",
@@ -96,15 +96,6 @@
   ],
   "errors": 0,
   "warnings": 3,
-  "changed": true,
-  "changes": [
-    {
-      "what": "added 1 public route to the API reference, written from their route files",
-      "where": "src/app/api/openapi/route.ts",
-      "files": [
-        "src/app/api/openapi/route.ts"
-      ],
-      "status": "applied"
-    }
-  ]
+  "changed": false,
+  "changes": []
 }
