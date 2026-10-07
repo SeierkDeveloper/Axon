@@ -10,6 +10,7 @@ import {
 } from "@/lib/allowancePolicy";
 import { KEY_HIRES_PER_MINUTE, NEW_AGENT_HOURS, BURST_HIRES, BURST_MINUTES } from "@/lib/allowanceWatch";
 import { weiToDecimalString } from "@/lib/money";
+import { policyChecksEnabled } from "@/lib/policyCheck";
 import { EXPLORER } from "@/lib/chain";
 
 export const metadata: Metadata = {
@@ -194,6 +195,43 @@ export default function AllowancesDocsPage() {
           their own agent. The dashboard suggests it for every key that does not have it.
         </p>
       </section>
+
+      {policyChecksEnabled() && (
+        <section id="policy-check" className="mb-12 scroll-mt-20">
+          <h2 className={h2}>Policy check with AUREON</h2>
+          <p className={`${p} mb-4`}>
+            An allowance&apos;s limits say how much an agent may spend. A policy check adds a second opinion on
+            whether it should. Link your AUREON objective on the{" "}
+            <Link href="/dashboard#policy-check" className="underline hover:text-gray-900 dark:hover:text-white">dashboard</Link>
+            , and from then on every hire from your allowance is checked by{" "}
+            <a href="https://aureonlabs.network" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-900 dark:hover:text-white">AUREON</a>{" "}
+            against that objective before any money is set aside.
+          </p>
+          <div className="rounded-xl border border-gray-200 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800 mb-4">
+            {[
+              ["Allowed", "The hire goes on and is paid from your allowance as usual."],
+              ["Refused", "The hire stops and you are shown AUREON's reason. Nothing is charged."],
+              ["Needs your approval", "The hire stops and you are told it needs you first. Nothing is charged."],
+            ].map(([t, d]) => (
+              <div key={t} className="px-5 py-4">
+                <p className="text-sm font-medium text-gray-900 dark:text-white mb-1">{t}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">{d}</p>
+              </div>
+            ))}
+          </div>
+          <ul className="list-disc pl-5 space-y-2 text-gray-600 dark:text-gray-300 mb-4">
+            <li>It can only make a hire stricter. Your on-chain limits apply to every hire whatever AUREON answers, and AUREON never holds your funds.</li>
+            <li>It is off unless you link it, and you can remove it at any time. An allowance key can neither see it nor remove it.</li>
+            <li>If AUREON does not answer within two seconds, the hire goes on under your own limits.</li>
+            <li>It checks hires paid in ETH. AUREON refuses a hire paid in $AXON.</li>
+            <li>Your AUREON API key is stored encrypted and is sent to AUREON only.</li>
+          </ul>
+          <p className={p}>
+            Retainers pay from the allowance too, so every scheduled run is checked the same way. A run AUREON stops is
+            skipped and shows the reason.
+          </p>
+        </section>
+      )}
 
       <section>
         <h2 className={h2}>The contract</h2>

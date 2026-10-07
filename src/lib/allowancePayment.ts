@@ -18,13 +18,14 @@ import { randomUUID } from "node:crypto";
 import type { Hex } from "viem";
 import { getDb } from "./db";
 import { syncToTurso } from "./db-turso";
-import { parsePaymentAmount, weiToEth, formatEth } from "./money";
+import { parsePaymentAmount, weiToEth, formatEth, weiToDecimalString } from "./money";
 import { checkBudget } from "./budgets";
 import { getQuote, isExpired, createQuote, axonPaymentsEnabled } from "./axonQuote";
 import { getAgentById } from "./agents";
 import { axonPaymentRefusal, createAxonPayment } from "./axonPayment";
 import { isTransientRpcError, isOutOfGas } from "./evm";
 import { keyLimitError } from "./allowanceKeys";
+import { policyGate } from "./policyCheck";
 import { logger } from "./logger";
 import {
   allowancesEnabled,
@@ -150,6 +151,13 @@ export async function payFromAllowance(h: AllowanceHire): Promise<AllowancePaid>
   let reserveTx: Hex;
   try {
     await preflight(h.owner, token, aKey, amount);
+    // The wallet's own limits have passed. If it has linked an outside policy provider, that is asked next, and
+    // only its answer can stop the hire here: no answer in time and the hire goes on under the limits above.
+    const stopped = await policyGate({
+      owner: h.owner, taskId: h.taskId, fromAgent: h.fromAgent, toAgent: h.toAgent,
+      asset: token === NATIVE_TOKEN ? "ETH" : "AXON", amount: weiToDecimalString(amount),
+    });
+    if (stopped) throw new AllowancePaymentError(stopped);
     ({ txHash: reserveTx } = await reserveOnChain({ owner: h.owner, token, taskKey: tKey, agentKey: aKey, amount }));
   } catch (err) {
     if (err instanceof AllowancePaymentError) throw err;

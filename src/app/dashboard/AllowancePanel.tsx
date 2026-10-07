@@ -60,6 +60,32 @@ interface AllowanceKey {
   warnings: { code: string; message: string }[];
 }
 
+/** The outside policy check on this allowance: the provider linked, if any, and its latest answers. */
+type Policy =
+  | { enabled: false }
+  | {
+    enabled: true;
+    providers: { id: string; name: string }[];
+    timeoutMs: number;
+    link: { provider: string; providerName: string; objectiveId: string; keyHint: string; linkedAt: string } | null;
+    recent: { id: number; toAgent: string; asset: string; amount: string; outcome: string; reason: string | null; at: string }[];
+  };
+
+const POLICY_WORD: Record<string, string> = {
+  allow: "allowed",
+  refuse: "refused",
+  authorization_required: "needs approval",
+  not_recognised: "link not recognised",
+  unavailable: "no answer, went on",
+};
+const POLICY_STYLE: Record<string, string> = {
+  allow: "border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400",
+  refuse: "border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400",
+  authorization_required: "border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400",
+  not_recognised: "border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400",
+  unavailable: "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300",
+};
+
 const input =
   "w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 px-2 py-1.5 text-sm text-gray-900 dark:text-gray-100 outline-none focus:border-gray-400 dark:focus:border-gray-500";
 const button =
@@ -116,6 +142,9 @@ export default function AllowancePanel({
   const [keyDays, setKeyDays] = useState(String(DEFAULT_EXPIRY_DAYS));
   const [keyAgents, setKeyAgents] = useState("");
   const [newKey, setNewKey] = useState<string | null>(null);
+  const [policy, setPolicy] = useState<Policy>({ enabled: false });
+  const [policyKey, setPolicyKey] = useState("");
+  const [policyObjective, setPolicyObjective] = useState("");
   const [refreshes, setRefreshes] = useState(0);
   const [now, setNow] = useState(0);
 
@@ -147,6 +176,9 @@ export default function AllowancePanel({
         if (!alive) return;
         setPayments((p as { payments: Payment[] }).payments);
         setKeys((k as { keys: AllowanceKey[] }).keys);
+        // Its own request, so a fault in it never takes the allowance off the page.
+        const pol = (await authed("/api/allowance/policy").catch(() => ({ enabled: false }))) as Policy;
+        if (alive) setPolicy(pol);
       } catch {
         if (alive) setStatus({ enabled: false });
       }
@@ -276,6 +308,36 @@ export default function AllowancePanel({
       load();
     } catch (e) {
       onToast("error", e instanceof Error ? e.message : "Could not create the key");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function linkPolicyCheck() {
+    setBusy("policy");
+    try {
+      const next = (await authed("/api/allowance/policy", {
+        method: "PUT",
+        body: JSON.stringify({ provider: "aureon", apiKey: policyKey.trim(), objectiveId: policyObjective.trim() }),
+      })) as Policy;
+      setPolicy(next);
+      setPolicyKey("");
+      setPolicyObjective("");
+      onToast("success", "AUREON now checks every hire from this allowance");
+    } catch (e) {
+      onToast("error", e instanceof Error ? e.message : "Could not link AUREON");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function removePolicyCheck() {
+    setBusy("policy");
+    try {
+      setPolicy((await authed("/api/allowance/policy", { method: "DELETE" })) as Policy);
+      onToast("success", "Policy check removed");
+    } catch (e) {
+      onToast("error", e instanceof Error ? e.message : "Could not remove the policy check");
     } finally {
       setBusy(null);
     }
@@ -489,6 +551,70 @@ export default function AllowancePanel({
           </div>
         )}
       </div>
+
+      {/* policy check */}
+      {policy.enabled && (
+        <div id="policy-check" className="border-t border-gray-100 dark:border-gray-800 pt-5 mb-6">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">Policy check</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            Have AUREON check every hire from this allowance against an objective you set there, before any money moves.
+            It answers allowed, refused or needs your approval. It can only make a hire stricter: the limits above
+            always apply. If AUREON does not answer within {policy.timeoutMs / 1000} seconds, the hire goes on under
+            those limits.
+          </p>
+          {policy.link ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm text-gray-800 dark:text-gray-200">
+                  {policy.link.providerName} <span className="font-mono text-xs text-gray-400 break-all">{policy.link.objectiveId}</span>
+                </p>
+                <p className="text-xs text-gray-400">
+                  Key ending {policy.link.keyHint} · linked {when(policy.link.linkedAt)}
+                </p>
+                <p className="text-xs text-gray-400">AUREON checks hires paid in ETH. It refuses a hire paid in $AXON.</p>
+              </div>
+              <button onClick={() => void removePolicyCheck()} disabled={busy !== null} className={`${button} hover:border-red-300 hover:text-red-600`}>
+                {busy === "policy" ? "Removing…" : "Remove"}
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="grid sm:grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label className={label} htmlFor="policy-objective">AUREON objective ID</label>
+                  <input id="policy-objective" placeholder="obj_…" value={policyObjective} onChange={(e) => setPolicyObjective(e.target.value)} autoComplete="off" spellCheck={false} className={`${input} font-mono text-xs`} />
+                </div>
+                <div>
+                  <label className={label} htmlFor="policy-key">AUREON API key</label>
+                  <input id="policy-key" type="password" placeholder="aureon_…" value={policyKey} onChange={(e) => setPolicyKey(e.target.value)} autoComplete="off" spellCheck={false} className={`${input} font-mono text-xs`} />
+                </div>
+              </div>
+              <button onClick={() => void linkPolicyCheck()} disabled={busy !== null || !policyKey.trim() || !policyObjective.trim()} className={button}>
+                {busy === "policy" ? "Linking…" : "Link AUREON"}
+              </button>
+              <p className="text-xs text-gray-400 mt-2">Both come from your AUREON account. The key is stored encrypted and never shown again.</p>
+            </>
+          )}
+
+          {policy.recent.length > 0 && (
+            <div className="mt-3 divide-y divide-gray-100 dark:divide-gray-800">
+              {policy.recent.map((c) => (
+                <div key={c.id} className="py-2.5 flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm text-gray-800 dark:text-gray-200">
+                      {c.amount} {c.asset === "ETH" ? "ETH" : "$AXON"} to {c.toAgent}
+                    </p>
+                    <p className="text-xs text-gray-400">{c.reason ? `${c.reason} · ` : ""}{when(c.at)}</p>
+                  </div>
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full border ${POLICY_STYLE[c.outcome] ?? POLICY_STYLE.unavailable}`}>
+                    {POLICY_WORD[c.outcome] ?? c.outcome}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* history */}
       <div className="border-t border-gray-100 dark:border-gray-800 pt-5">
