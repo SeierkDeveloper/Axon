@@ -1,5 +1,5 @@
-import { C as CreateProfileOptions, a as CommerceProfile, G as GrantMandateOptions, b as SpendMandate, L as ListPurchasesOptions, P as PurchasesView, c as PurchaseIntent, A as ApprovalRequest, d as PaymentOptionsView, e as ApproveOptions, f as ApproveResult, W as WatchPurchasesOptions, g as WatchHandle, h as AutoApprovePolicy, i as ParsedAuthorisation, j as PurchaseExpectation, k as AxonConfig, l as AuthChallenge, m as AuthVerifyResult, R as RegisterOptions, n as Agent, U as UpdateAgentOptions, V as VerifyOptions, F as FindAgentsOptions, o as CapabilitySummary, p as SendTaskOptions, T as TaskRequest, q as TaskProgress, r as TaskHandler, s as TaskResult, t as CreateQuorumOptions, Q as QuorumTask, u as QuorumResult, D as DelegateOptions, v as Workflow, w as GetTransactionsOptions, x as Transaction, y as AgentBalance, z as Reputation, B as AgentMetrics, E as Receipt, H as HireOptions, I as HireResult, J as RunOptions, K as RunResult, M as AxonToolsOptions, N as AxonTool, O as RouteHireOptions, Y as RoutingInfo, Z as PlanOptions, _ as PlanResult, $ as SubcontractOptions, a0 as SubcontractResult, a1 as OptimizeResult, a2 as PaymentNote, a3 as GetTaskHistoryOptions, a4 as RegisterGatewayProviderOptions, a5 as GatewayProvider, a6 as GatewayCallOptions, a7 as GatewayCallResult, X as X402PayFunction, a8 as X402Currency, a9 as RegisterWebhookOptions, aa as Webhook, ab as WebhookDelivery, ac as CreateOpenTaskOptions, ad as OpenTask, ae as ListOpenTasksOptions, af as Bid, ag as SplitRecipient, ah as TaskSplitsView, ai as CreateWorkflowTemplateOptions, aj as WorkflowTemplate, ak as InstantiateTemplateOptions, al as AttestCapabilityOptions, am as CapabilityAttestation, an as DefineSlaOptions, ao as TaskSla, ap as FileAbuseReportOptions, aq as AbuseReport, ar as FeePolicy, as as ProtocolInfo, at as ProtocolNegotiation, au as ExplorerFeed, av as SystemStatus, aw as SubmitBidOptions, ax as AcceptBidOptions, ay as X402Requirements, az as RegisterMcpServerOptions, aA as McpServer, aB as McpToolRecord, aC as CallMcpToolOptions, aD as StartMissionOptions, aE as Mission, aF as OpenChannelOptions, aG as OpenChannelResult, aH as PaymentChannel, aI as ReproductionProof, aJ as WorkerMetrics, aK as X402PaymentOption, aL as AgentRuntimeOptions, aM as AxonAgent } from './types-C6sCBc8B.mjs';
-export { aN as AbuseReason, aO as AbuseStatus, aP as AgentContext, aQ as AgentRating, aR as AgentRunHandler, aS as ApiErrorBody, aT as ApiErrorCode, aU as BidStatus, aV as ComponentStatus, aW as DefineSplitsOptions, aX as DelegationResult, aY as DelegationStep, aZ as EndpointUptime, a_ as ExplorerSettlement, a$ as ExplorerTask, b0 as FeeTier, b1 as MissionStatus, b2 as OpenTaskStatus, b3 as PaymentHandlerDescriptor, b4 as PaymentInstrument, b5 as PaymentNoteKind, b6 as PaymentStatus, b7 as PlanView, b8 as PlannedStep, b9 as PurchaseStatus, ba as QuorumStatus, bb as ReceiptDelivery, bc as Review, S as SignMandate, bd as SlaStatus, be as SpendSummary, bf as SplitPayout, bg as TaskSplit, bh as TaskStatus, bi as WebhookEventType, bj as WorkflowStep } from './types-C6sCBc8B.mjs';
+import { C as CreateProfileOptions, a as CommerceProfile, G as GrantMandateOptions, b as SpendMandate, L as ListPurchasesOptions, P as PurchasesView, c as PurchaseIntent, A as ApprovalRequest, d as PaymentOptionsView, e as ApproveOptions, f as ApproveResult, W as WatchPurchasesOptions, g as WatchHandle, h as AutoApprovePolicy, i as ParsedAuthorisation, j as PurchaseExpectation, k as AxonConfig, l as AuthChallenge, m as AuthVerifyResult, R as RegisterOptions, n as Agent, U as UpdateAgentOptions, V as VerifyOptions, F as FindAgentsOptions, o as CapabilitySummary, p as SendTaskOptions, T as TaskRequest, q as TaskProgress, r as TaskHandler, s as TaskResult, t as CreateQuorumOptions, Q as QuorumTask, u as QuorumResult, D as DelegateOptions, v as Workflow, w as GetTransactionsOptions, x as Transaction, y as AgentBalance, z as Reputation, B as AgentMetrics, E as Receipt, H as HireOptions, I as HireResult, J as RunOptions, K as RunResult, M as AxonToolsOptions, N as AxonTool, O as AllowanceStatus, Y as CreateAllowanceKeyOptions, Z as CreatedAllowanceKey, _ as AllowanceKey, $ as CreateRetainerOptions, a0 as Retainer, a1 as RetainerLimits, a2 as UpdateRetainerOptions, a3 as RetainerRun, a4 as ListTokenMindsOptions, a5 as TokenMindPage, a6 as TokenMind, a7 as ListMindThoughtsOptions, a8 as MindThought, a9 as MindRewardShare, aa as MindBriefState, ab as SetMindBriefResult, ac as AgentRetainers, ad as RouteHireOptions, ae as RoutingInfo, af as PlanOptions, ag as PlanResult, ah as SubcontractOptions, ai as SubcontractResult, aj as OptimizeResult, ak as PaymentNote, al as GetTaskHistoryOptions, am as RegisterGatewayProviderOptions, an as GatewayProvider, ao as GatewayCallOptions, ap as GatewayCallResult, X as X402PayFunction, aq as X402Currency, ar as RegisterWebhookOptions, as as Webhook, at as WebhookDelivery, au as CreateOpenTaskOptions, av as OpenTask, aw as ListOpenTasksOptions, ax as Bid, ay as SplitRecipient, az as TaskSplitsView, aA as CreateWorkflowTemplateOptions, aB as WorkflowTemplate, aC as InstantiateTemplateOptions, aD as AttestCapabilityOptions, aE as CapabilityAttestation, aF as DefineSlaOptions, aG as TaskSla, aH as FileAbuseReportOptions, aI as AbuseReport, aJ as FeePolicy, aK as ProtocolInfo, aL as ProtocolNegotiation, aM as ExplorerFeed, aN as SystemStatus, aO as SubmitBidOptions, aP as AcceptBidOptions, aQ as X402Requirements, aR as RegisterMcpServerOptions, aS as McpServer, aT as McpToolRecord, aU as CallMcpToolOptions, aV as StartMissionOptions, aW as Mission, aX as OpenChannelOptions, aY as OpenChannelResult, aZ as PaymentChannel, a_ as ReproductionProof, a$ as WorkerMetrics, b0 as X402PaymentOption, b1 as AgentRuntimeOptions, b2 as AxonAgent } from './types-CdpWC9sB.mjs';
+export { b3 as AbuseReason, b4 as AbuseStatus, b5 as AgentContext, b6 as AgentRating, b7 as AgentRunHandler, b8 as AllowanceAccount, b9 as AllowanceKeyLimitsView, ba as ApiErrorBody, bb as ApiErrorCode, bc as BidStatus, bd as ComponentStatus, be as DefineSplitsOptions, bf as DelegationResult, bg as DelegationStep, bh as EndpointUptime, bi as ExplorerSettlement, bj as ExplorerTask, bk as FeeTier, bl as MindActionKind, bm as MindBooks, bn as MindBrief, bo as MindFees, bp as MindMove, bq as MindOrder, br as MindPlan, bs as MindPromises, bt as MindReport, bu as MindState, bv as MindTrackRecord, bw as MindTreasury, bx as MissionStatus, by as OpenTaskStatus, bz as PaymentHandlerDescriptor, bA as PaymentInstrument, bB as PaymentNoteKind, bC as PaymentStatus, bD as PlanView, bE as PlannedStep, bF as PurchaseStatus, bG as QuorumStatus, bH as ReceiptDelivery, bI as RetainerSchedule, bJ as Review, S as SignMandate, bK as SlaStatus, bL as SpendSummary, bM as SplitPayout, bN as TaskSplit, bO as TaskStatus, bP as TokenMindEvent, bQ as TokenMindSummary, bR as TokenMindTotals, bS as WebhookEventType, bT as WorkflowStep } from './types-CdpWC9sB.mjs';
 
 type RequestFn = (method: string, path: string, opts?: {
     body?: unknown;
@@ -248,6 +248,103 @@ declare class AxonClient {
      * Vercel AI SDK. Priced hires the agent makes use the client's configured `pay`.
      */
     tools(opts?: AxonToolsOptions): AxonTool[];
+    /**
+     * What the allowance behind this client's key can still spend, read from the chain, for ETH and
+     * $AXON. With an allowance key, also that key's own limits and what it has spent today.
+     * `{ enabled: false }` where the network has no allowance contract.
+     */
+    getAllowance(): Promise<AllowanceStatus>;
+    /**
+     * Mint an allowance key: a key that can only pay for hires from your allowance and read what it
+     * hired. Give it to an assistant or an agent instead of your full key. Needs a full key. The raw
+     * `apiKey` is returned once; store it now.
+     */
+    createAllowanceKey(opts?: CreateAllowanceKeyOptions): Promise<CreatedAllowanceKey>;
+    /** Your allowance keys, with their limits and what each spent today. Needs a full key. */
+    listAllowanceKeys(): Promise<AllowanceKey[]>;
+    /** Revoke an allowance key. It fails on its next request. Needs a full key. */
+    revokeAllowanceKey(keyId: string): Promise<{
+        ok: true;
+    }>;
+    /**
+     * Put a paid agent on a schedule. Axon hires it every time the schedule comes round and pays from
+     * this wallet's allowance, inside its limits; failed runs cost nothing. With an allowance key, the
+     * key's limits apply to every run and it can see and control only the retainers it created.
+     */
+    createRetainer(opts: CreateRetainerOptions): Promise<Retainer>;
+    /** Your retainers, newest first. */
+    listRetainers(): Promise<Retainer[]>;
+    /** How many retainers this wallet's tier allows, how many are in use, and the fastest schedule it may run. */
+    getRetainerLimits(): Promise<RetainerLimits>;
+    /** One retainer, with its latest completed result and webhook status. */
+    getRetainer(retainerId: string): Promise<Retainer>;
+    /** Change instructions, schedule, maxPrice, end, run limit or pay-in. A new schedule starts now. */
+    updateRetainer(retainerId: string, changes: UpdateRetainerOptions): Promise<Retainer>;
+    pauseRetainer(retainerId: string): Promise<Retainer>;
+    /** Carries on from the next slot; nothing that fell due while paused is made up. */
+    resumeRetainer(retainerId: string): Promise<Retainer>;
+    /** Final: it never runs again. Its history stays readable. */
+    cancelRetainer(retainerId: string): Promise<Retainer>;
+    /** Runs newest first, with each completed run's output. Page back with `before: nextBefore`. */
+    listRetainerRuns(retainerId: string, opts?: {
+        limit?: number;
+        before?: string;
+    }): Promise<{
+        runs: RetainerRun[];
+        nextBefore: string | null;
+    }>;
+    /**
+     * Send a retainer's results to a URL: retainer.run.completed, retainer.run.failed and
+     * retainer.paused, signed like agent webhooks (check them with verifyWebhook). The secret is
+     * returned once. Needs a full key.
+     */
+    setRetainerWebhook(retainerId: string, url: string): Promise<{
+        webhook: Retainer["webhook"];
+        secret: string;
+    }>;
+    removeRetainerWebhook(retainerId: string): Promise<{
+        webhook: null;
+    }>;
+    /**
+     * The tokens launched with a mind, a page at a time, with the numbers last read from the chain, the totals across
+     * all of them, and what happened lately.
+     */
+    listTokenMinds(options?: ListTokenMindsOptions): Promise<TokenMindPage>;
+    /**
+     * One token and everything its mind has made public: what it is doing right now, its plan, its standing orders
+     * and promises, its track record, its daily reports, its creator's brief and its books. Throws `AxonApiError`
+     * (404) when there is no token with a mind at that address.
+     */
+    getTokenMind(token: string): Promise<TokenMind>;
+    /** What minds have thought, newest first: one token's journal, or every mind's when no token is named. */
+    listMindThoughts(options?: ListMindThoughtsOptions): Promise<MindThought[]>;
+    /**
+     * What a wallet can claim from the rewards minds have set aside: each share with the proof its treasury checks.
+     * Claiming is the wallet's own transaction; this only reads. Shares already claimed are left out.
+     */
+    getMindRewards(account: string): Promise<MindRewardShare[]>;
+    /**
+     * The brief a token's creator has left its mind, the ones before it, how long a brief may be, and when it may be
+     * changed next. Public: anyone can read it.
+     */
+    getMindBrief(token: string): Promise<MindBriefState>;
+    /**
+     * Leave a token's mind a brief: a short public note on what its creator would like it to care about. The mind
+     * reads it every time it thinks and weighs it with its own judgment. It steers and nothing more: it cannot widen
+     * what the mind may do, raise a limit or move money.
+     *
+     * Needs a full key of the wallet that launched the token (`AxonApiError` 403 otherwise). A brief stands six
+     * hours once it is left; changing it sooner throws 429 with the time left in the message, and `getMindBrief`
+     * gives that time as `canChangeAt`.
+     */
+    setMindBrief(token: string, text: string): Promise<SetMindBriefResult>;
+    /** Take a token's brief back, so its mind goes on with no note from its creator. Same rules as `setMindBrief`. */
+    clearMindBrief(token: string): Promise<SetMindBriefResult>;
+    /**
+     * For an agent's owner: the clients keeping it on a schedule, and what that earned over 30 days. Set
+     * a discount for them with `updateAgent(agentId, { retainerDiscountBps })`.
+     */
+    getAgentRetainers(agentId: string): Promise<AgentRetainers>;
     /**
      * Submit a job with no agent chosen — the network routes it to the best worker
      * (highest Proof Score, cheapest, least loaded). The response carries a `routing`
@@ -637,4 +734,4 @@ declare function runAxonTool(tools: AxonTool[], name: string, args: Record<strin
 
 declare const axon: AxonClient;
 
-export { AbuseReport, AcceptBidOptions, Agent, AgentBalance, AgentMetrics, AgentRuntimeOptions, ApprovalRequest, ApproveOptions, ApproveResult, AttestCapabilityOptions, AuthChallenge, AuthVerifyResult, AutoApprovePolicy, AxonAgent, AxonApiError, AxonClient, AxonConfig, AxonQuoteExpiredError, AxonTool, AxonToolsOptions, Bid, CallMcpToolOptions, CapabilityAttestation, CapabilitySummary, CommerceApi, CommerceProfile, CommerceRefusedError, CreateOpenTaskOptions, CreateProfileOptions, CreateQuorumOptions, CreateWorkflowTemplateOptions, DefineSlaOptions, DelegateOptions, ExplorerFeed, FeePolicy, FileAbuseReportOptions, FindAgentsOptions, GatewayCallOptions, GatewayCallResult, GatewayProvider, GetTaskHistoryOptions, GetTransactionsOptions, GrantMandateOptions, HireOptions, HireResult, InstantiateTemplateOptions, ListOpenTasksOptions, ListPurchasesOptions, McpServer, McpToolRecord, Mission, OpenChannelOptions, OpenChannelResult, OpenTask, OptimizeResult, ParsedAuthorisation, PaymentChannel, PaymentNote, PaymentOptionsView, PlanOptions, PlanResult, ProtocolInfo, ProtocolNegotiation, PurchaseExpectation, PurchaseIntent, PurchasesView, QuorumResult, QuorumTask, Receipt, RegisterGatewayProviderOptions, RegisterMcpServerOptions, RegisterOptions, RegisterWebhookOptions, ReproductionProof, Reputation, RouteHireOptions, RoutingInfo, RunOptions, RunResult, SendTaskOptions, SpendMandate, SplitRecipient, StartMissionOptions, SubcontractOptions, SubcontractResult, SubmitBidOptions, SystemStatus, TaskHandler, TaskProgress, TaskRequest, TaskResult, TaskSla, TaskSplitsView, Transaction, UpdateAgentOptions, VerifyOptions, type VerifyProofScoreOptions, type VerifyProofScoreResult, type VerifyReceiptOptions, type VerifyReceiptResult, type VerifyWebhookOptions, WatchHandle, WatchPurchasesOptions, Webhook, WebhookDelivery, WorkerMetrics, Workflow, WorkflowTemplate, X402Currency, X402PayFunction, X402PaymentOption, X402Requirements, assertAuthorisationMatches, axon, buildAxonTools, defineAgent, hire, parseAuthorisation, runAxonTool, selectPaymentOption, toAnthropicTools, toOpenAITools, verifyProofScore, verifyReceipt, verifyWebhookSignature };
+export { AbuseReport, AcceptBidOptions, Agent, AgentBalance, AgentMetrics, AgentRetainers, AgentRuntimeOptions, AllowanceKey, AllowanceStatus, ApprovalRequest, ApproveOptions, ApproveResult, AttestCapabilityOptions, AuthChallenge, AuthVerifyResult, AutoApprovePolicy, AxonAgent, AxonApiError, AxonClient, AxonConfig, AxonQuoteExpiredError, AxonTool, AxonToolsOptions, Bid, CallMcpToolOptions, CapabilityAttestation, CapabilitySummary, CommerceApi, CommerceProfile, CommerceRefusedError, CreateAllowanceKeyOptions, CreateOpenTaskOptions, CreateProfileOptions, CreateQuorumOptions, CreateRetainerOptions, CreateWorkflowTemplateOptions, CreatedAllowanceKey, DefineSlaOptions, DelegateOptions, ExplorerFeed, FeePolicy, FileAbuseReportOptions, FindAgentsOptions, GatewayCallOptions, GatewayCallResult, GatewayProvider, GetTaskHistoryOptions, GetTransactionsOptions, GrantMandateOptions, HireOptions, HireResult, InstantiateTemplateOptions, ListMindThoughtsOptions, ListOpenTasksOptions, ListPurchasesOptions, ListTokenMindsOptions, McpServer, McpToolRecord, MindBriefState, MindRewardShare, MindThought, Mission, OpenChannelOptions, OpenChannelResult, OpenTask, OptimizeResult, ParsedAuthorisation, PaymentChannel, PaymentNote, PaymentOptionsView, PlanOptions, PlanResult, ProtocolInfo, ProtocolNegotiation, PurchaseExpectation, PurchaseIntent, PurchasesView, QuorumResult, QuorumTask, Receipt, RegisterGatewayProviderOptions, RegisterMcpServerOptions, RegisterOptions, RegisterWebhookOptions, ReproductionProof, Reputation, Retainer, RetainerLimits, RetainerRun, RouteHireOptions, RoutingInfo, RunOptions, RunResult, SendTaskOptions, SetMindBriefResult, SpendMandate, SplitRecipient, StartMissionOptions, SubcontractOptions, SubcontractResult, SubmitBidOptions, SystemStatus, TaskHandler, TaskProgress, TaskRequest, TaskResult, TaskSla, TaskSplitsView, TokenMind, TokenMindPage, Transaction, UpdateAgentOptions, UpdateRetainerOptions, VerifyOptions, type VerifyProofScoreOptions, type VerifyProofScoreResult, type VerifyReceiptOptions, type VerifyReceiptResult, type VerifyWebhookOptions, WatchHandle, WatchPurchasesOptions, Webhook, WebhookDelivery, WorkerMetrics, Workflow, WorkflowTemplate, X402Currency, X402PayFunction, X402PaymentOption, X402Requirements, assertAuthorisationMatches, axon, buildAxonTools, defineAgent, hire, parseAuthorisation, runAxonTool, selectPaymentOption, toAnthropicTools, toOpenAITools, verifyProofScore, verifyReceipt, verifyWebhookSignature };

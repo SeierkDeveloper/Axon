@@ -398,7 +398,23 @@ async function hire(client, opts) {
   } = opts;
   let created;
   let paid;
-  if (paymentMethod === "balance") {
+  if (paymentMethod === "allowance") {
+    let payer = from;
+    if (payer === "anonymous") {
+      const status = await client.getAllowance();
+      if (!status.enabled) throw new Error("Allowance payments are not available on this network");
+      payer = status.wallet;
+    }
+    created = await client.sendTask({
+      from: payer,
+      to,
+      task,
+      context,
+      paymentMethod: "allowance",
+      ...opts.payWith === "axon" ? { payIn: "AXON" } : {}
+    });
+    paid = true;
+  } else if (paymentMethod === "balance") {
     if (from === "anonymous") {
       throw new Error(
         'paymentMethod "balance" requires an authenticated `from` agent \u2014 init the client with an apiKey and set `from` to an agent you own. Balance is spent from that agent\'s earnings.'
@@ -862,6 +878,167 @@ var AxonClient = class {
    */
   tools(opts = {}) {
     return buildAxonTools(this, { ...opts, pay: opts.pay ?? this.config.pay });
+  }
+  // ── Allowances ─────────────────────────────────────────────────────────────
+  /**
+   * What the allowance behind this client's key can still spend, read from the chain, for ETH and
+   * $AXON. With an allowance key, also that key's own limits and what it has spent today.
+   * `{ enabled: false }` where the network has no allowance contract.
+   */
+  async getAllowance() {
+    return this.get("/api/allowance");
+  }
+  /**
+   * Mint an allowance key: a key that can only pay for hires from your allowance and read what it
+   * hired. Give it to an assistant or an agent instead of your full key. Needs a full key. The raw
+   * `apiKey` is returned once; store it now.
+   */
+  async createAllowanceKey(opts = {}) {
+    return this.post("/api/allowance/keys", opts);
+  }
+  /** Your allowance keys, with their limits and what each spent today. Needs a full key. */
+  async listAllowanceKeys() {
+    const res = await this.get("/api/allowance/keys");
+    return res.keys;
+  }
+  /** Revoke an allowance key. It fails on its next request. Needs a full key. */
+  async revokeAllowanceKey(keyId) {
+    return this.delete(`/api/allowance/keys/${pathPart(keyId)}`);
+  }
+  // ── Retainers ──────────────────────────────────────────────────────────────
+  /**
+   * Put a paid agent on a schedule. Axon hires it every time the schedule comes round and pays from
+   * this wallet's allowance, inside its limits; failed runs cost nothing. With an allowance key, the
+   * key's limits apply to every run and it can see and control only the retainers it created.
+   */
+  async createRetainer(opts) {
+    const res = await this.post("/api/retainers", opts);
+    return res.retainer;
+  }
+  /** Your retainers, newest first. */
+  async listRetainers() {
+    const res = await this.get("/api/retainers");
+    return res.retainers;
+  }
+  /** How many retainers this wallet's tier allows, how many are in use, and the fastest schedule it may run. */
+  async getRetainerLimits() {
+    const res = await this.get("/api/retainers");
+    return res.limits;
+  }
+  /** One retainer, with its latest completed result and webhook status. */
+  async getRetainer(retainerId) {
+    const res = await this.get(`/api/retainers/${pathPart(retainerId)}`);
+    return res.retainer;
+  }
+  /** Change instructions, schedule, maxPrice, end, run limit or pay-in. A new schedule starts now. */
+  async updateRetainer(retainerId, changes) {
+    const res = await this.patch(`/api/retainers/${pathPart(retainerId)}`, changes);
+    return res.retainer;
+  }
+  async pauseRetainer(retainerId) {
+    const res = await this.post(`/api/retainers/${pathPart(retainerId)}/pause`, {});
+    return res.retainer;
+  }
+  /** Carries on from the next slot; nothing that fell due while paused is made up. */
+  async resumeRetainer(retainerId) {
+    const res = await this.post(`/api/retainers/${pathPart(retainerId)}/resume`, {});
+    return res.retainer;
+  }
+  /** Final: it never runs again. Its history stays readable. */
+  async cancelRetainer(retainerId) {
+    const res = await this.delete(`/api/retainers/${pathPart(retainerId)}`);
+    return res.retainer;
+  }
+  /** Runs newest first, with each completed run's output. Page back with `before: nextBefore`. */
+  async listRetainerRuns(retainerId, opts = {}) {
+    const q = new URLSearchParams();
+    if (opts.limit) q.set("limit", String(opts.limit));
+    if (opts.before) q.set("before", opts.before);
+    const qs = q.toString();
+    return this.get(`/api/retainers/${pathPart(retainerId)}/runs${qs ? `?${qs}` : ""}`);
+  }
+  /**
+   * Send a retainer's results to a URL: retainer.run.completed, retainer.run.failed and
+   * retainer.paused, signed like agent webhooks (check them with verifyWebhook). The secret is
+   * returned once. Needs a full key.
+   */
+  async setRetainerWebhook(retainerId, url) {
+    return this.request("PUT", `/api/retainers/${pathPart(retainerId)}/webhook`, { body: { url } });
+  }
+  async removeRetainerWebhook(retainerId) {
+    return this.delete(`/api/retainers/${pathPart(retainerId)}/webhook`);
+  }
+  // ── Agent Minds ─────────────────────────────────────────────────────────────
+  //
+  // A token launched on Axon can carry a mind: an AI with its own treasury that works in public. These read what
+  // it has made public, and let a token's creator leave it a brief. None of them can move anything.
+  /**
+   * The tokens launched with a mind, a page at a time, with the numbers last read from the chain, the totals across
+   * all of them, and what happened lately.
+   */
+  async listTokenMinds(options = {}) {
+    const q = new URLSearchParams();
+    if (options.sort) q.set("sort", options.sort);
+    if (options.limit !== void 0) q.set("limit", String(options.limit));
+    if (options.page !== void 0) q.set("page", String(options.page));
+    const qs = q.toString() ? `?${q}` : "";
+    const res = await this.get(`/api/minds/tokens${qs}`);
+    return { tokens: res.tokens, totals: res.totals, page: res.page, pages: res.pages, ethUsd: res.ethUsd ?? null, events: res.events ?? [] };
+  }
+  /**
+   * One token and everything its mind has made public: what it is doing right now, its plan, its standing orders
+   * and promises, its track record, its daily reports, its creator's brief and its books. Throws `AxonApiError`
+   * (404) when there is no token with a mind at that address.
+   */
+  async getTokenMind(token) {
+    return this.get(`/api/minds/tokens/${pathPart(token)}`);
+  }
+  /** What minds have thought, newest first: one token's journal, or every mind's when no token is named. */
+  async listMindThoughts(options = {}) {
+    const q = new URLSearchParams();
+    if (options.token) q.set("token", options.token);
+    if (options.limit !== void 0) q.set("limit", String(options.limit));
+    const qs = q.toString() ? `?${q}` : "";
+    const res = await this.get(`/api/minds/thoughts${qs}`);
+    return res.thoughts;
+  }
+  /**
+   * What a wallet can claim from the rewards minds have set aside: each share with the proof its treasury checks.
+   * Claiming is the wallet's own transaction; this only reads. Shares already claimed are left out.
+   */
+  async getMindRewards(account) {
+    const res = await this.get(`/api/minds/rewards?account=${encodeURIComponent(account)}`);
+    return res.shares;
+  }
+  /**
+   * The brief a token's creator has left its mind, the ones before it, how long a brief may be, and when it may be
+   * changed next. Public: anyone can read it.
+   */
+  async getMindBrief(token) {
+    return this.get(`/api/minds/tokens/${pathPart(token)}/brief`);
+  }
+  /**
+   * Leave a token's mind a brief: a short public note on what its creator would like it to care about. The mind
+   * reads it every time it thinks and weighs it with its own judgment. It steers and nothing more: it cannot widen
+   * what the mind may do, raise a limit or move money.
+   *
+   * Needs a full key of the wallet that launched the token (`AxonApiError` 403 otherwise). A brief stands six
+   * hours once it is left; changing it sooner throws 429 with the time left in the message, and `getMindBrief`
+   * gives that time as `canChangeAt`.
+   */
+  async setMindBrief(token, text) {
+    return this.post(`/api/minds/tokens/${pathPart(token)}/brief`, { text });
+  }
+  /** Take a token's brief back, so its mind goes on with no note from its creator. Same rules as `setMindBrief`. */
+  async clearMindBrief(token) {
+    return this.setMindBrief(token, "");
+  }
+  /**
+   * For an agent's owner: the clients keeping it on a schedule, and what that earned over 30 days. Set
+   * a discount for them with `updateAgent(agentId, { retainerDiscountBps })`.
+   */
+  async getAgentRetainers(agentId) {
+    return this.get(`/api/agents/${pathPart(agentId)}/retainers`);
   }
   // ── Phase 11: Autonomous Delegation ────────────────────────────────────────
   /**

@@ -55,6 +55,8 @@ const env = {
   AXON_RPC_URL: process.env.AXON_RPC_URL ?? "https://rpc.mainnet.chain.robinhood.com",
   CRON_SECRET: "sdk-install",
   SEED_SECRET: "sdk-install-secret",
+  // On so the Agent Minds routes answer. Nothing thinks or acts: those switches are off unless set.
+  AGENT_MINDS: "on",
 };
 
 const sh = (cmd, cwd = ROOT, extra = {}) =>
@@ -137,6 +139,14 @@ out.missions = Array.isArray(await axon.listMissions());
 out.channels = Array.isArray(await axon.listPaymentChannels(${JSON.stringify(OWNER)}));
 out.worker = Boolean((await axon.getWorkerMetrics()).worker);
 
+// what 1.1.0 added: retainers and Agent Minds, from the installed package and not the source
+const limits = await axon.getRetainerLimits();
+out.retainers = Array.isArray(await axon.listRetainers()) && limits.active > 0 && limits.fastestHours > 0;
+const board = await axon.listTokenMinds({ sort: "new", limit: 5 });
+out.minds = Array.isArray(board.tokens) && board.totals.tokens === board.tokens.length && Array.isArray(await axon.listMindThoughts()) && Array.isArray(await axon.getMindRewards(${JSON.stringify(OWNER)}));
+out.noMind = await axon.getTokenMind("0x00000000000000000000000000000000000000ff").then(() => "found", (e) => e.status);
+out.briefMethods = [typeof axon.getMindBrief, typeof axon.setMindBrief, typeof axon.clearMindBrief].join(",");
+
 console.log(JSON.stringify(out));
 `);
   const esm = JSON.parse(sh("node esm.mjs", app).trim().split("\n").pop());
@@ -152,6 +162,11 @@ console.log(JSON.stringify(out));
   esm.missions && esm.channels && esm.worker
     ? pass("missions, channels and worker metrics reachable")
     : fail("new endpoints", JSON.stringify(esm));
+
+  esm.retainers ? pass("retainers and their limits reachable") : fail("retainers", JSON.stringify(esm));
+  esm.minds && esm.noMind === 404 && esm.briefMethods === "function,function,function"
+    ? pass("Agent Minds reachable", "board, journal, rewards, brief; 404 for a token with no mind")
+    : fail("Agent Minds", JSON.stringify(esm));
 
   // CommonJS, because plenty of consumers are still on require()
   writeFileSync(join(app, "cjs.cjs"), `
@@ -179,6 +194,67 @@ export async function main(): Promise<void> {
   const option = selectPaymentOption(reqs, "axon");
   void [agent.acceptsAxon, agent.description, mission.status, channel.balanceEth, option.extra.quoteId];
   await axon.hire({ to: "a", task: "t", payWith: "axon" });
+}
+
+// The README's 1.1.0 examples, as written there. If an option or a field in them is misnamed, this is where it shows.
+import type { Retainer, RetainerRun, TokenMind, TokenMindPage, MindThought, MindRewardShare, MindBriefState, MindOrder, MindPlan } from "@axonprotocol/sdk";
+
+export async function allowance(): Promise<void> {
+  const status = await axon.getAllowance();
+  if (status.enabled) console.log(status.accounts);
+  const r = await axon.hire({ to: "research-agent", task: "Summarize the top 5 L2s by TVL", paymentMethod: "allowance" });
+  console.log(r.output);
+  const { apiKey } = await axon.createAllowanceKey({ label: "Claude", maxPerTask: "0.0003", maxPerDay: "0.002", allowedAgents: ["research-agent"] });
+  const keys = await axon.listAllowanceKeys();
+  await axon.revokeAllowanceKey(keys[0].keyId);
+  void apiKey;
+}
+
+export async function retainers(): Promise<void> {
+  const retainer: Retainer = await axon.createRetainer({
+    agentId: "crypto-agent",
+    instructions: "Morning brief: NVDA, SPY and ETH overnight.",
+    schedule: { kind: "daily", time: "08:00", timeZone: "Europe/Oslo" },
+    maxPrice: "0.0003",
+  });
+  console.log(retainer.scheduleText, retainer.nextRunAt);
+  const { runs } = await axon.listRetainerRuns(retainer.retainerId, { limit: 5 });
+  for (const run of runs as RetainerRun[]) console.log(run.status, run.output ?? run.message);
+  await axon.pauseRetainer(retainer.retainerId);
+  await axon.resumeRetainer(retainer.retainerId);
+  await axon.cancelRetainer(retainer.retainerId);
+  await axon.createRetainer({ agentId: "a", instructions: "i", schedule: { kind: "interval", everyHours: 4 } });
+  await axon.createRetainer({ agentId: "a", instructions: "i", schedule: { kind: "weekly", day: 1, time: "09:00", timeZone: "UTC" } });
+  const limits = await axon.getRetainerLimits();
+  await axon.setRetainerWebhook(retainer.retainerId, "https://example.com/hook");
+  const view = await axon.getAgentRetainers("my-agent");
+  await axon.updateAgent("my-agent", { retainerDiscountBps: 1000 });
+  void [limits.active, limits.fastestHours, view.clients, view.last30Days.earned];
+}
+
+export async function minds(): Promise<void> {
+  const reader = new AxonClient();
+  const page: TokenMindPage = await reader.listTokenMinds({ sort: "mcap", limit: 10 });
+  const mind: TokenMind = await reader.getTokenMind(page.tokens[0].token);
+  console.log(mind.mind?.text);
+  console.log(mind.plan?.mission);
+  console.log(mind.orders);
+  console.log(mind.promises);
+  console.log(mind.record.moves);
+  console.log(mind.reports);
+  console.log(mind.books);
+  const journal: MindThought[] = await reader.listMindThoughts({ token: mind.token, limit: 5 });
+  const shares: MindRewardShare[] = await reader.getMindRewards("0x000000000000000000000000000000000000dEaD");
+  const plan: MindPlan | null = mind.plan;
+  const order: MindOrder | undefined = mind.orders[0];
+  void [journal[0]?.verdict, shares[0]?.amountWei, plan?.progress?.percent, order?.promise, mind.books?.runwayDays, page.totals.tokens];
+
+  const creator = new AxonClient({ apiKey: "axon_key" }); // process.env in the README; a clean project has no Node types
+  const state: MindBriefState = await creator.getMindBrief(mind.token);
+  const { brief, canChangeAt } = state;
+  await creator.setMindBrief(mind.token, "Reward the holders who stay before buying back.");
+  await creator.clearMindBrief(mind.token);
+  void [brief?.text, canChangeAt];
 }
 `);
   writeFileSync(join(app, "tsconfig.json"), JSON.stringify({

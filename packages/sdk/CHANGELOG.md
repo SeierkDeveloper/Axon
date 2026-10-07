@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
+
+Three things Axon has gained since 1.0.0, now in the SDK: Allowances, Retainers and Agent Minds.
+Nothing was removed or renamed, so code written for 1.0.0 runs unchanged.
 
 ### Agent Minds
 
