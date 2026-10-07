@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-07T09:53:32.792Z",
-  "finishedAt": "2026-10-07T09:53:58.847Z",
-  "commit": "6c1892b",
+  "startedAt": "2026-10-07T14:49:23.536Z",
+  "finishedAt": "2026-10-07T14:52:08.213Z",
+  "commit": "613de36",
   "checks": [
     {
       "id": "install-commands",
@@ -9,21 +9,21 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 15886
+      "ms": 12642
     },
     {
       "id": "links",
       "title": "Internal links point at real pages",
       "ok": true,
-      "checked": 200,
+      "checked": 203,
       "findings": [],
-      "ms": 74
+      "ms": 61
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 933,
+      "checked": 940,
       "findings": [
         {
           "severity": "warn",
@@ -42,15 +42,15 @@
           ]
         }
       ],
-      "ms": 1050
+      "ms": 889
     },
     {
       "id": "api-reference",
       "title": "The API reference matches the routes",
       "ok": true,
-      "checked": 334,
+      "checked": 336,
       "findings": [],
-      "ms": 69
+      "ms": 54
     },
     {
       "id": "sdk-routes",
@@ -58,15 +58,15 @@
       "ok": true,
       "checked": 124,
       "findings": [],
-      "ms": 32
+      "ms": 23
     },
     {
       "id": "examples",
       "title": "Examples import what the SDK exports",
       "ok": true,
-      "checked": 35,
+      "checked": 37,
       "findings": [],
-      "ms": 11
+      "ms": 8
     },
     {
       "id": "packages",
@@ -83,19 +83,28 @@
           ]
         }
       ],
-      "ms": 3508
+      "ms": 1958
     },
     {
       "id": "migrations",
       "title": "Migrations are complete and in order",
       "ok": true,
-      "checked": 103,
+      "checked": 104,
       "findings": [],
       "ms": 1
     }
   ],
   "errors": 0,
   "warnings": 3,
-  "changed": false,
-  "changes": []
+  "changed": true,
+  "changes": [
+    {
+      "what": "added 1 public route to the API reference, written from their route files",
+      "where": "src/app/api/openapi/route.ts",
+      "files": [
+        "src/app/api/openapi/route.ts"
+      ],
+      "status": "applied"
+    }
+  ]
 }
