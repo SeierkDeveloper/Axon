@@ -2220,6 +2220,12 @@ const SPEC = {
     "/minds/tokens": {
       get: { summary: "The worker last read from the chain, the totals across all of them, and what happened lately", tags: ["Minds"], security: [] },
     },
+
+    "/allowance/policy": {
+      get: { tags: ["Allowance"] },
+      put: { tags: ["Allowance"] },
+      delete: { summary: "All three need a full key", tags: ["Allowance"] },
+    },
   },
 };
 
