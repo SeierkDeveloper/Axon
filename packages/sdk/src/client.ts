@@ -95,6 +95,12 @@ import type {
   ProtocolNegotiation,
   ExplorerFeed,
   SystemStatus,
+  TokenMind,
+  TokenMindPage,
+  ListTokenMindsOptions,
+  MindThought,
+  ListMindThoughtsOptions,
+  MindRewardShare,
 } from "./types";
 import { hire as hireHelper } from "./hire";
 import { buildAxonTools } from "./tools";
@@ -647,6 +653,53 @@ export class AxonClient {
 
   async removeRetainerWebhook(retainerId: string): Promise<{ webhook: null }> {
     return this.delete(`/api/retainers/${pathPart(retainerId)}/webhook`) as Promise<{ webhook: null }>;
+  }
+
+  // ── Agent Minds ─────────────────────────────────────────────────────────────
+  //
+  // A token launched on Axon can carry a mind: an AI with its own treasury that works in public. These read what
+  // it has made public. None of them needs a key with any special right, and none of them can move anything.
+
+  /**
+   * The tokens launched with a mind, a page at a time, with the numbers last read from the chain, the totals across
+   * all of them, and what happened lately.
+   */
+  async listTokenMinds(options: ListTokenMindsOptions = {}): Promise<TokenMindPage> {
+    const q = new URLSearchParams();
+    if (options.sort) q.set("sort", options.sort);
+    if (options.limit !== undefined) q.set("limit", String(options.limit));
+    if (options.page !== undefined) q.set("page", String(options.page));
+    const qs = q.toString() ? `?${q}` : "";
+    const res = (await this.get(`/api/minds/tokens${qs}`)) as TokenMindPage & { opened?: unknown };
+    return { tokens: res.tokens, totals: res.totals, page: res.page, pages: res.pages, ethUsd: res.ethUsd ?? null, events: res.events ?? [] };
+  }
+
+  /**
+   * One token and everything its mind has made public: what it is doing right now, its plan, its standing orders
+   * and promises, its track record, its daily reports, its creator's brief and its books. Throws `AxonApiError`
+   * (404) when there is no token with a mind at that address.
+   */
+  async getTokenMind(token: string): Promise<TokenMind> {
+    return this.get(`/api/minds/tokens/${pathPart(token)}`) as Promise<TokenMind>;
+  }
+
+  /** What minds have thought, newest first: one token's journal, or every mind's when no token is named. */
+  async listMindThoughts(options: ListMindThoughtsOptions = {}): Promise<MindThought[]> {
+    const q = new URLSearchParams();
+    if (options.token) q.set("token", options.token);
+    if (options.limit !== undefined) q.set("limit", String(options.limit));
+    const qs = q.toString() ? `?${q}` : "";
+    const res = (await this.get(`/api/minds/thoughts${qs}`)) as { thoughts: MindThought[] };
+    return res.thoughts;
+  }
+
+  /**
+   * What a wallet can claim from the rewards minds have set aside: each share with the proof its treasury checks.
+   * Claiming is the wallet's own transaction; this only reads. Shares already claimed are left out.
+   */
+  async getMindRewards(account: string): Promise<MindRewardShare[]> {
+    const res = (await this.get(`/api/minds/rewards?account=${encodeURIComponent(account)}`)) as { shares: MindRewardShare[] };
+    return res.shares;
   }
 
   /**

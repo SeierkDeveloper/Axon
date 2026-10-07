@@ -1737,3 +1737,298 @@ export interface CreateRetainerOptions {
 }
 
 export type UpdateRetainerOptions = Partial<Omit<CreateRetainerOptions, "agentId">>;
+
+// ── Agent Minds ───────────────────────────────────────────────────────────────
+//
+// A token launched on Axon can carry a mind: an AI with a treasury of its own, filled by a share of the token's
+// trading fees, that works in public inside limits locked at launch. Everything below is read as the page reads it.
+// Amounts ending in `Eth` are ETH as a number, for reading; amounts ending in `Wei` are exact, for arithmetic.
+
+/** What a mind is doing or waiting for. `text` says the same in a sentence or two. */
+export type MindState =
+  | "halted" | "stopped" | "frozen" | "paused" | "unread" | "no_treasury" | "cannot_pay" | "thinking_capped"
+  | "budget" | "actions_used" | "resting" | "about_to_think" | "waiting";
+
+export type MindActionKind = "buyback" | "reward" | "burn_axon";
+
+/** A token with a mind, as the board lists it: its settings and the numbers last read from the chain. */
+export interface TokenMindSummary {
+  token: string;
+  name: string | null;
+  symbol: string | null;
+  logo: string | null;
+  creator: string;
+  launchedAt: string;
+  txHash: string;
+  /** The agent the token was launched with, if any. */
+  agentId: string | null;
+  agentName: string | null;
+  pot: string;
+  splitter: string;
+  vault: string;
+  payout: string;
+  attached: boolean;
+  /** The tax on every trade and where the fees go, in basis points (100 = 1%). Locked at launch. */
+  taxBps: number;
+  creatorBps: number;
+  burnBps: number;
+  axonBps: number;
+  mindBps: number;
+  /** The model the mind runs on, chosen at launch. */
+  model: string | null;
+  /** 0 on its bonding curve, 1 moving to its pool, 2 trading in its pool. */
+  phase: number;
+  priceEth: number | null;
+  mcapEth: number | null;
+  /** How far along its curve, in basis points. */
+  curveBps: number;
+  holders: number;
+  feesEth: number;
+  toMindEth: number;
+  burnedTokens: number;
+  burnedEth: number;
+  burns: number;
+  treasuryEth: number;
+  rewardsEth: number;
+  boughtEth: number;
+  axonEth: number;
+  thinkingPaidEth: number;
+  thoughts: number;
+  stopped: boolean;
+}
+
+export interface TokenMindTotals { tokens: number; feesEth: number; burnedEth: number; toMindEth: number; treasuryEth: number }
+
+/** Something that happened to a token with a mind, newest first on the board. */
+export interface TokenMindEvent {
+  id: number;
+  token: string;
+  kind: "launch" | "fees" | "burn" | "graduated" | "holders" | "earned" | "thought" | "bought" | "axon" | "rewarded" | "attached" | "topup" | "brief";
+  eth: number | null;
+  tokens: number | null;
+  at: string;
+  name: string | null;
+  symbol: string | null;
+  logo: string | null;
+}
+
+export interface ListTokenMindsOptions {
+  /** `new` (default), `mcap` or `burned`. */
+  sort?: "new" | "mcap" | "burned";
+  /** 1 to 200 a page. */
+  limit?: number;
+  page?: number;
+}
+
+export interface TokenMindPage {
+  tokens: TokenMindSummary[];
+  totals: TokenMindTotals;
+  page: number;
+  pages: number;
+  /** The ETH price in dollars the server last read, or null when it could not. */
+  ethUsd: number | null;
+  events: TokenMindEvent[];
+}
+
+/** A mind's treasury, read from its contract. */
+export interface MindTreasury {
+  availableEth: number;
+  reservedEth: number;
+  boughtBackEth: number;
+  axonBurnedEth: number;
+  rewardedEth: number;
+  claimedEth: number;
+  thinkingEth: number;
+  rewards: number;
+  paused: boolean;
+  frozen: boolean;
+  active: boolean;
+  /** What the mind may do and spend. Locked at launch: `allowed` is a set of bit flags (1 buy back, 2 reward, 4 burn $AXON). */
+  limits: { allowed: number; maxPerDayEth: number; maxPerActionEth: number; maxActionsPerDay: number; maxCostPerDayEth: number };
+}
+
+export interface MindFees {
+  totalEth: number;
+  toCreatorEth: number;
+  toBurnEth: number;
+  toAxonEth: number;
+  toMindEth: number;
+  pendingCreatorEth: number;
+  burnedEth: number;
+  burnedTokens: number;
+  burns: number;
+}
+
+/** The plan a mind wrote for itself. Its reserve is enforced: the rule check refuses a move below it. */
+export interface MindPlan {
+  mission: string;
+  goal: { kind: "holders" | "market_cap_eth" | "burned_tokens" | "graduate"; target: number } | null;
+  /** How it means to use its treasury, in percent. Adds up to 100. */
+  split: { buyback: number; reward: number; burnAxon: number; reserve: number };
+  reserveEth: number;
+  thesis: string;
+  setAt: string;
+  revisions: number;
+  thoughtId: number | null;
+  /** The goal in words, e.g. "40 holders". */
+  goalText: string | null;
+  progress: { now: number; target: number; percent: number; reached: boolean } | null;
+}
+
+/** A standing order: a condition the mind set ahead of time, and what happens when it is met. A promise cannot be taken back. */
+export interface MindOrder {
+  id: number;
+  status: "armed" | "fired" | "kept" | "missed" | "lapsed" | "cancelled";
+  /** The condition in words, e.g. "holders reach 30". */
+  when: string;
+  /** What it does, in words. */
+  then: string;
+  /** The mind's own sentence about it. */
+  said: string | null;
+  promise: boolean;
+  createdAt: string;
+  expiresAt: string;
+  firedAt: string | null;
+  note: string | null;
+}
+
+export interface MindPromises { made: number; standing: number; kept: number; missed: number; notCalled: number; beingKept: number; heldEth: number }
+
+/** One move the mind carried out, and what it was followed by an hour later. Followed by, never caused. */
+export interface MindMove {
+  actionId: number;
+  token: string;
+  kind: MindActionKind;
+  eth: number;
+  at: string;
+  mcapBefore: number | null;
+  holdersBefore: number | null;
+  mcapAfter: number | null;
+  holdersAfter: number | null;
+  measuredAt: string | null;
+  capPct: number | null;
+  holdersDelta: number | null;
+  /** What the mind wrote it learned from this move, if it wrote anything. */
+  lesson: string | null;
+  lessonThoughtId: number | null;
+  /** The measurement in words. */
+  followedBy: string;
+}
+
+export interface MindTrackRecord {
+  summary: {
+    moves: number;
+    measured: number;
+    byKind: { kind: MindActionKind; moves: number; measured: number; avgCapPct: number | null; timesUp: number; avgHolders: number | null; eth: number }[];
+  };
+  moves: MindMove[];
+}
+
+/** A mind's daily report: one short account of the day, written by the mind. */
+export interface MindReport { id: number; token: string; day: string; label: string; text: string | null; thoughtId: number | null; at: string }
+
+/** A short public note the token's creator left its mind. It steers priorities and can never change a limit. */
+export interface MindBrief { token: string; text: string; setBy: string; setAt: string }
+
+/** A mind's books: what came in, what it holds, what it spent and on what, and how long it can keep thinking. */
+export interface MindBooks {
+  fromFeesEth: number;
+  holdsEth: number;
+  setAsideEth: number;
+  spent: { buybackEth: number; rewardEth: number; burnAxonEth: number; thinkingEth: number };
+  owedThinkingEth: number;
+  reserveEth: number;
+  heldForPromisesEth: number;
+  freeEth: number;
+  thinkingPerDayEth: number;
+  /** Days of thinking its treasury covers at the current pace, or null when that cannot be worked out. */
+  runwayDays: number | null;
+}
+
+/** One token and everything its mind has made public. Anything the chain could not be read for is null. */
+export interface TokenMind {
+  token: string;
+  creator: string;
+  agentId: string | null;
+  agentRef: string | null;
+  pot: string;
+  splitter: string;
+  vault: string;
+  payout: string;
+  taxBps: number;
+  creatorBps: number;
+  burnBps: number;
+  axonBps: number;
+  mindBps: number;
+  attached: boolean;
+  name: string | null;
+  symbol: string | null;
+  logo: string | null;
+  description: string | null;
+  model: string | null;
+  /** Where the mind runs when its creator hosts it on a server of their own. Null for a mind Axon runs. */
+  mindUrl: string | null;
+  blockNumber: number;
+  txHash: string;
+  launchedAt: string;
+  agent: { agentId: string; name: string; earnedEth: number } | null;
+  treasury: MindTreasury | null;
+  fees: MindFees | null;
+  /** What the mind is doing or waiting for right now, and how many of today's actions it has used. */
+  mind: { state: MindState; text: string; actionsToday: number | null; actionsAllowed: number | null } | null;
+  plan: MindPlan | null;
+  /** Standing orders: the ones armed first, then the most recent that fired, lapsed or were cancelled. */
+  orders: MindOrder[];
+  promises: MindPromises;
+  record: MindTrackRecord;
+  /** The last seven daily reports, newest first. */
+  reports: MindReport[];
+  brief: MindBrief | null;
+  /** When the creator may change the brief again (it stands six hours), or null when it may be changed now. */
+  briefCanChangeAt: string | null;
+  books: MindBooks | null;
+}
+
+export interface ListMindThoughtsOptions {
+  /** One token's journal. Left out, every mind's thoughts. */
+  token?: string;
+  /** Default 10. */
+  limit?: number;
+}
+
+/** One thought from a mind's public journal: what it noticed, what it proposed, and what became of it. */
+export interface MindThought {
+  id: number;
+  token: string;
+  name: string | null;
+  symbol: string | null;
+  logo: string | null;
+  at: string;
+  /** The model that thought it, or "Standing order" for an order that fired by itself. */
+  modelLabel: string;
+  /** Woken by something that happened, a check-in of its own, a standing order firing, or its daily report. */
+  source: "event" | "pulse" | "order" | "report";
+  thought: string | null;
+  action: { kind: MindActionKind; eth: number } | null;
+  /** What the rule check said about the proposal. */
+  verdict: "none" | "approved" | "refused";
+  verdictReason: string | null;
+  /** What became of an approved proposal: sent, done, or why not. Null when there was nothing to send. */
+  sent: { status: string; txHash: string | null; error: string | null } | null;
+}
+
+/** A share of a reward a wallet can claim, with the proof its treasury checks. Claiming is the wallet's own transaction. */
+export interface MindRewardShare {
+  token: string;
+  symbol: string | null;
+  name: string | null;
+  vault: string;
+  rewardId: number;
+  index: number;
+  amountWei: string;
+  amountEth: number;
+  proof: string[];
+  /** Unix seconds: when claims open and when they close. */
+  startAt: number;
+  endAt: number;
+}
