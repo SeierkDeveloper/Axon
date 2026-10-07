@@ -1713,6 +1713,7 @@ export interface Retainer {
   runsDone: number;
   maxRuns: number | null;
   endsAt: string | null;
+  /** The next slot. A paused retainer keeps the slot it was waiting for; nothing runs until it is resumed, and resuming sets the next slot from then. */
   nextRunAt: string | null;
   createdByKey: boolean;
   /** Set up by an allowance key: when that key expires, which pauses the retainer until it is resumed. */

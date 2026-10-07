@@ -4,8 +4,8 @@
 //   node scripts/sdk-e2e.mjs
 //
 // Boots the built app on a scratch database, registers an agent to experiment on, mints a key for
-// its owner, runs packages/sdk/test/live.integration.test.ts against it, and tears the whole thing
-// down again. Nothing touches production and nothing spends money: the payment tests use
+// its owner, puts two tokens with a mind in the database (scripts/sdk-e2e-seed.ts), runs
+// packages/sdk/test/live.integration.test.ts against it, and tears the whole thing down again. Nothing touches production and nothing spends money: the payment tests use
 // transactions that do not exist, so what they prove is the refusal and what it leaves behind.
 //
 // The one thing it needs from the outside is a chain to read the pool price from, because a token
@@ -28,6 +28,8 @@ const PORT = Number(process.env.PORT ?? 3199);
 const URL = `http://127.0.0.1:${PORT}`;
 const ROOT = new globalThis.URL("..", import.meta.url).pathname;
 const OWNER = "0x1111111111111111111111111111111111111111";
+// Somebody else with a full key of their own: the wallet that may not touch what OWNER launched.
+const STRANGER = "0x2222222222222222222222222222222222222222";
 const AGENT = "sdk-e2e-agent";
 
 const AXON_TOKEN = "0xB5E40b5F16996E9D76ec2B16E7A4Ead3c06a9Fa2";
@@ -78,6 +80,16 @@ const env = {
   ANTHROPIC_API_KEY: "",
   OPENAI_API_KEY: "",
   XAI_API_KEY: "",
+  OPENROUTER_API_KEY: "",
+  // Agent Minds on, so its routes answer, with every part that thinks, acts or signs switched off: the tests read
+  // what a mind has made public and leave it a brief, and no mind does anything here.
+  AGENT_MINDS: "on",
+  MINDS_THINKING: "off",
+  MINDS_ACTING: "off",
+  MINDS_PULSE: "off",
+  MINDS_REPORTS: "off",
+  MINDS_ORDERS: "off",
+  MIND_SIGNER_KEY: "",
 };
 
 /**
@@ -175,6 +187,13 @@ async function main() {
     throw new Error(`could not register the test agent: ${registered.status} ${await registered.text()}`);
   }
 
+  say("putting two tokens with a mind into the scratch database");
+  const minds = JSON.parse(run("npx tsx scripts/sdk-e2e-seed.ts", { E2E_MIND_CREATOR: OWNER }).trim().split("\n").pop());
+  const strangerKey = run(
+    `npx tsx -e 'import { createApiKey } from "@/lib/identity"; console.log(createApiKey("${STRANGER}").apiKey);'`,
+  ).trim().split("\n").pop();
+  const mindsEnv = { AXON_E2E_MIND_TOKEN: minds.chain, AXON_E2E_MIND_TOKEN_NO_CHAIN: minds.noChain, AXON_E2E_STRANGER_KEY: strangerKey };
+
   const allowanceEnv = {};
   if (chain) {
     allowanceEnv.AXON_E2E_ALLOWANCE_OWNER = chain.owner;
@@ -186,7 +205,7 @@ async function main() {
   say("running the live tests\n");
   execSync("npx vitest run test/live.integration.test.ts --reporter=verbose", {
     cwd: join(ROOT, "packages/sdk"),
-    env: { ...process.env, AXON_E2E_URL: URL, AXON_E2E_KEY: key, AXON_E2E_OWNER: OWNER, AXON_E2E_AGENT: AGENT, ...allowanceEnv },
+    env: { ...process.env, AXON_E2E_URL: URL, AXON_E2E_KEY: key, AXON_E2E_OWNER: OWNER, AXON_E2E_AGENT: AGENT, ...mindsEnv, ...allowanceEnv },
     stdio: "inherit",
   });
 }
