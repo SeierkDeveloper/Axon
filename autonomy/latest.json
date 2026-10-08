@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-07T20:01:41.651Z",
-  "finishedAt": "2026-10-07T20:02:08.870Z",
-  "commit": "1244cc9",
+  "startedAt": "2026-10-08T12:49:16.554Z",
+  "finishedAt": "2026-10-08T12:52:42.280Z",
+  "commit": "95875cc",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 16878
+      "ms": 12885
     },
     {
       "id": "links",
@@ -17,13 +17,13 @@
       "ok": true,
       "checked": 204,
       "findings": [],
-      "ms": 88
+      "ms": 72
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 940,
+      "checked": 955,
       "findings": [
         {
           "severity": "warn",
@@ -42,7 +42,7 @@
           ]
         }
       ],
-      "ms": 1126
+      "ms": 890
     },
     {
       "id": "api-reference",
@@ -50,7 +50,7 @@
       "ok": true,
       "checked": 336,
       "findings": [],
-      "ms": 55
+      "ms": 57
     },
     {
       "id": "sdk-routes",
@@ -58,7 +58,7 @@
       "ok": true,
       "checked": 130,
       "findings": [],
-      "ms": 31
+      "ms": 24
     },
     {
       "id": "examples",
@@ -66,7 +66,7 @@
       "ok": true,
       "checked": 39,
       "findings": [],
-      "ms": 12
+      "ms": 9
     },
     {
       "id": "packages",
@@ -83,7 +83,7 @@
           ]
         }
       ],
-      "ms": 3262
+      "ms": 2031
     },
     {
       "id": "migrations",
@@ -91,11 +91,28 @@
       "ok": true,
       "checked": 104,
       "findings": [],
-      "ms": 1
+      "ms": 0
     }
   ],
   "errors": 0,
   "warnings": 3,
-  "changed": false,
-  "changes": []
+  "changed": true,
+  "changes": [
+    {
+      "what": "dropped the export from hasRoomFor()",
+      "where": "src/lib/backup.ts",
+      "files": [
+        "src/lib/backup.ts"
+      ],
+      "status": "applied"
+    },
+    {
+      "what": "dropped the export from etagOf()",
+      "where": "src/lib/httpCache.ts",
+      "files": [
+        "src/lib/httpCache.ts"
+      ],
+      "status": "applied"
+    }
+  ]
 }
