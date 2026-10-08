@@ -9,6 +9,11 @@ import { resolveAgentTools, hasTools, toolsActiveFor } from "./agentTools";
 import { payNative, PAYMENT_RECEIVER_WALLET_ADDRESS } from "./evm";
 import type { GrowDeps, GrowCandidate } from "./growRunner";
 
+// The reads below go to this same server. A read that hangs is retried by the poll loop or fails the step;
+// it must not hold a mission open forever. The hire itself (POST /api/tasks) has no client-side timeout on
+// purpose: giving up on it while the server is still creating and paying the task would invite a second hire.
+const READ_TIMEOUT_MS = 20_000;
+
 const THINK_SYSTEM =
   "You are an autonomous agent operating on the Axon marketplace with a real budget. You reason concisely and produce concrete, usable output, no filler.";
 
@@ -30,7 +35,7 @@ function parsePrice(price?: string | null): number | null {
 /** ETH amount settled/escrowed for a task, from its public receipt (0 if unavailable). */
 async function receiptCost(base: string, taskId: string): Promise<number> {
   try {
-    const rr = await fetch(`${base}/api/receipts/${encodeURIComponent(taskId)}/public`);
+    const rr = await fetch(`${base}/api/receipts/${encodeURIComponent(taskId)}/public`, { signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
     if (rr.ok) {
       const pr = (await rr.json()) as { settlement?: { amount: number; currency: string } };
       if (pr.settlement?.currency === "ETH") return pr.settlement.amount;
@@ -66,7 +71,7 @@ export function buildGrowDeps(cfg: GrowWiringConfig): GrowDeps {
   const search: GrowDeps["search"] = async (q) => {
     const params = new URLSearchParams({ sort: "proven", limit: String(q.limit ?? 10) });
     if (q.capability) params.set("capabilities", q.capability);
-    const res = await fetch(`${base}/api/agents?${params.toString()}`, { headers: auth });
+    const res = await fetch(`${base}/api/agents?${params.toString()}`, { headers: auth, signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
     if (!res.ok) throw new Error(`agent search failed: HTTP ${res.status}`);
     const { agents } = (await res.json()) as { agents: ApiAgent[] };
     const ceiling = q.maxPriceEth ?? Infinity;
@@ -97,7 +102,7 @@ export function buildGrowDeps(cfg: GrowWiringConfig): GrowDeps {
         // The on-chain payment is irreversible and happens BEFORE task creation, so
         // confirm the specialist still exists and pay its CURRENT exact price — never
         // pay for a hire that won't be created, and never under/overpay a stale price.
-        const agRes = await fetch(`${base}/api/agents/${encodeURIComponent(to)}`, { headers: auth });
+        const agRes = await fetch(`${base}/api/agents/${encodeURIComponent(to)}`, { headers: auth, signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
         if (!agRes.ok) throw new Error(`specialist ${to} unavailable before payment (HTTP ${agRes.status}), not paying`);
         const amount = parsePrice((await agRes.json() as { price?: string | null }).price);
         if (amount === null) throw new Error(`specialist ${to} is no longer ETH-priced, not paying`);
@@ -139,7 +144,7 @@ export function buildGrowDeps(cfg: GrowWiringConfig): GrowDeps {
       }
       await new Promise((r) => setTimeout(r, 2500));
       try {
-        const t = await fetch(`${base}/api/tasks/${encodeURIComponent(taskId)}`, { headers: auth });
+        const t = await fetch(`${base}/api/tasks/${encodeURIComponent(taskId)}`, { headers: auth, signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
         if (t.ok) {
           const tj = (await t.json()) as { status: string; output?: string; error?: string };
           status = tj.status;
@@ -178,7 +183,7 @@ export function buildGrowDeps(cfg: GrowWiringConfig): GrowDeps {
 
   /** The full output of a finished hire, straight from its task. */
   const fetchOutput: GrowDeps["fetchOutput"] = async (taskId) => {
-    const r = await fetch(`${base}/api/tasks/${encodeURIComponent(taskId)}`, { headers: auth });
+    const r = await fetch(`${base}/api/tasks/${encodeURIComponent(taskId)}`, { headers: auth, signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
     if (!r.ok) return null;
     const t = (await r.json()) as { output?: string };
     return t.output ?? null;

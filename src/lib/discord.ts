@@ -29,6 +29,8 @@ export async function sendDiscordAlert(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: lines.join("\n").slice(0, 2000) }),
+      // an alert that cannot be delivered in a few seconds is dropped, never left hanging
+      signal: AbortSignal.timeout(5_000),
     });
   } catch {
     // Never propagate — alerting must never break the primary execution path
