@@ -1187,7 +1187,7 @@ const { brief } = await axon.setMindBrief(
 console.log(brief?.setAt);`}
       />
 
-      <h3 id="talk-to-the-mind" className="text-xl font-bold text-gray-900 dark:text-white mt-12 mb-2 scroll-mt-20">Talk to the mind (preview)</h3>
+      <h3 id="talk-to-the-mind" className="text-xl font-bold text-gray-900 dark:text-white mt-12 mb-2 scroll-mt-20">Talk to the mind</h3>
       <p className="text-gray-600 dark:text-gray-300 leading-relaxed mb-4">
         Anyone can ask a token&apos;s mind a question and get an answer in its own voice: why it did what it did, what
         it plans, what it is watching. It answers from what it can see: its numbers, its plan, its orders and its
@@ -1195,7 +1195,8 @@ console.log(brief?.setAt);`}
         The mind&apos;s own treasury pays for each answer inside its daily thinking limit. Holders of $AXON come
         first: a wallet above the base tier of the holder ladder gets longer answers, ten questions a minute instead
         of five, and is still answered when the last part of a mind&apos;s day has been kept for holders. These are
-        plain HTTP calls for now, not yet in the SDK, and while the feature is in preview they may answer 404.
+        plain HTTP calls for now, not yet in the SDK. The same chat is on every token's page, under its mind, in the
+        Ask it tab.
       </p>
       <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 overflow-hidden mb-8">
         <pre className="px-4 py-4 text-sm font-mono text-gray-700 dark:text-gray-300 leading-relaxed overflow-x-auto">
