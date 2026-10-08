@@ -254,17 +254,17 @@ export const mindsChain = {
     return { name, symbol };
   },
 
+  /** Everything the vault reports, in one round trip: twelve separate calls tripped the public node's rate limit. */
   async treasury(vault: string): Promise<Treasury> {
     const c = publicClient();
     const address = vault as `0x${string}`;
-    const read = <F extends "available" | "reserved" | "totalBuyback" | "totalAxon" | "totalRewarded" | "totalClaimed" | "totalThinking" | "rewardCount">(functionName: F) =>
-      c.readContract({ address, abi: VAULT_ABI, functionName }) as Promise<bigint>;
-    const flag = (functionName: "paused" | "frozen" | "active") => c.readContract({ address, abi: VAULT_ABI, functionName }) as Promise<boolean>;
-    const [limits, available, reserved, buyback, axon, rewarded, claimed, thinking, rewards, paused, frozen, active] = await Promise.all([
-      c.readContract({ address, abi: VAULT_ABI, functionName: "limits" }),
-      read("available"), read("reserved"), read("totalBuyback"), read("totalAxon"), read("totalRewarded"), read("totalClaimed"), read("totalThinking"), read("rewardCount"),
-      flag("paused"), flag("frozen"), flag("active"),
-    ]);
+    const names = ["limits", "available", "reserved", "totalBuyback", "totalAxon", "totalRewarded", "totalClaimed", "totalThinking", "rewardCount", "paused", "frozen", "active"] as const;
+    const r = (await c.multicall({
+      multicallAddress: MULTICALL,
+      allowFailure: false,
+      contracts: names.map((functionName) => ({ address, abi: VAULT_ABI, functionName })),
+    })) as unknown as [readonly [number, bigint, bigint, number, bigint], bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint, boolean, boolean, boolean];
+    const [limits, available, reserved, buyback, axon, rewarded, claimed, thinking, rewards, paused, frozen, active] = r;
     return {
       availableEth: eth(available), reservedEth: eth(reserved), boughtBackEth: eth(buyback), axonBurnedEth: eth(axon), rewardedEth: eth(rewarded),
       claimedEth: eth(claimed), thinkingEth: eth(thinking), rewards: Number(rewards), paused, frozen, active,

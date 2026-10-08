@@ -40,7 +40,7 @@ import { setBrief } from "@/lib/mindsBrief";
 import { mindStatus } from "@/lib/mindsStatus";
 import { createApiKey } from "@/lib/identity";
 import {
-  askMind, listChats, chatEnabled, cleanQuestion, answerText, estimateChatUsd, chatCostToday,
+  askMind, listChats, chatEnabled, cleanQuestion, answerText, estimateChatUsd, chatCostToday, _clearTreasuryMemo,
   QUESTION_CHARS, ANSWER_CHARS, HOLDER_ANSWER_CHARS, CHAT_MAX_OUTPUT_TOKENS, HOLDER_MAX_OUTPUT_TOKENS, CHAT_PER_MINUTE, HOLDER_PER_MINUTE, ANON_PER_DAY_PER_MIND, VISITOR_SHARE, type AskResult,
 } from "@/lib/mindsChat";
 import { GET as chatGET, POST as chatPOST } from "@/app/api/minds/tokens/[token]/chat/route";
@@ -103,7 +103,7 @@ const refused = (r: AskResult) => (r.ok ? "answered" : `${r.status} ${r.refused}
 const gotThought = (r: Thought | { skipped: string }): Thought => { if ("skipped" in r) throw new Error(`skipped: ${r.skipped}`); return r; };
 const TABLES = "DELETE FROM mind_tokens; DELETE FROM mind_launches; DELETE FROM mind_cursor; DELETE FROM mind_stats; DELETE FROM mind_holders; DELETE FROM mind_events; DELETE FROM mind_thoughts; DELETE FROM mind_actions; DELETE FROM mind_plans; DELETE FROM mind_plan_log; DELETE FROM mind_history; DELETE FROM mind_orders; DELETE FROM mind_briefs; DELETE FROM mind_brief_log; DELETE FROM mind_chats; DELETE FROM rate_limit_windows;";
 
-beforeEach(() => { setHalted(false); fake.treasuries.clear(); tierOf.wallets.clear(); getDb().exec(TABLES); });
+beforeEach(() => { setHalted(false); fake.treasuries.clear(); tierOf.wallets.clear(); _clearTreasuryMemo(); getDb().exec(TABLES); });
 
 describe("the switch", () => {
   it("is off unless MINDS_CHAT=on, and a mind cannot be asked anything while it is off", async () => {
@@ -458,9 +458,12 @@ describe("the routes", () => {
     const r = await post(t.token, { question: "Hi?" });
     expect(r.status).toBe(409);
     expect(await r.json()).toEqual({ error: "This mind is paused, so it is not answering questions right now.", code: "CONFLICT", details: { refused: "paused" } });
-    // a treasury that cannot be read is a clean error, not a crash
+    // a read that fails right after a good one goes on from that reading (still paused here); one that fails with
+    // nothing recent is a clean error, not a crash
     fake.treasuries.delete(t.vault);
-    const u = await post(t.token, { question: "Hi?" }, { "x-forwarded-for": "10.0.0.2" });
+    expect((await post(t.token, { question: "Hi?" }, { "x-forwarded-for": "10.0.0.2" })).status).toBe(409);
+    _clearTreasuryMemo();
+    const u = await post(t.token, { question: "Hi?" }, { "x-forwarded-for": "10.0.0.3" });
     expect(u.status).toBe(503);
     expect(((await u.json()) as { details: { refused: string } }).details.refused).toBe("unavailable");
   });

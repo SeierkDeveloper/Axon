@@ -108,6 +108,25 @@ export function mindKnown(token: string): boolean {
   return Boolean(getDb().prepare("SELECT 1 FROM mind_tokens WHERE token = ?").get(token.toLowerCase()));
 }
 
+// The public node refuses bursts of reads. An answer reads the treasury fresh, but when that read fails and a reading
+// from the last minute exists, the answer goes on from it: a question does not need the treasury fresh to the block,
+// and nothing is spent from it here.
+const TREASURY_FALLBACK_MS = 60_000;
+const treasuries = new Map<string, { at: number; value: Treasury }>();
+async function recentTreasury(chain: MindsChain, vault: string, now: number): Promise<Treasury> {
+  try {
+    const value = await chain.treasury(vault);
+    treasuries.set(vault, { at: now, value });
+    return value;
+  } catch (err) {
+    const hit = treasuries.get(vault);
+    if (hit && now - hit.at < TREASURY_FALLBACK_MS) return hit.value;
+    throw err;
+  }
+}
+/** Only for tests, which must not inherit another test's reading. */
+export function _clearTreasuryMemo(): void { treasuries.clear(); }
+
 const dayStart = (now: number) => new Date(Math.floor(now / 86_400_000) * 86_400_000).toISOString();
 /** What a mind's answers have cost since midnight UTC, in ETH (stand-in answers counted, as its thoughts are). */
 export const chatCostToday = (token: string, now: number): number =>
@@ -189,7 +208,7 @@ export async function askMind(input: { mindId: string; wallet: string | null | u
   const estimateEth = estimateChatUsd(model, holder) / usdPerEth;
 
   let treasury: Treasury;
-  try { treasury = await chain.treasury(m.vault); } catch { return no(503, "unavailable", "Its treasury could not be read just now. Try again in a minute."); }
+  try { treasury = await recentTreasury(chain, m.vault, now); } catch { return no(503, "unavailable", "Its treasury could not be read just now. Try again in a minute."); }
   if (treasury.frozen || treasury.paused || !treasury.active) return no(409, "paused", "This mind is paused, so it is not answering questions right now.");
   const owed = owedThinkingEth(m.token);
   // it pays for its own answers: none starts that its treasury could not cover on top of what it already owes
