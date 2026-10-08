@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-08T12:49:16.554Z",
-  "finishedAt": "2026-10-08T12:52:42.280Z",
-  "commit": "95875cc",
+  "startedAt": "2026-10-08T20:02:29.911Z",
+  "finishedAt": "2026-10-08T20:02:57.038Z",
+  "commit": "520bac0",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 12885
+      "ms": 16167
     },
     {
       "id": "links",
@@ -17,13 +17,13 @@
       "ok": true,
       "checked": 204,
       "findings": [],
-      "ms": 72
+      "ms": 79
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 955,
+      "checked": 964,
       "findings": [
         {
           "severity": "warn",
@@ -42,15 +42,15 @@
           ]
         }
       ],
-      "ms": 890
+      "ms": 1160
     },
     {
       "id": "api-reference",
       "title": "The API reference matches the routes",
       "ok": true,
-      "checked": 336,
+      "checked": 338,
       "findings": [],
-      "ms": 57
+      "ms": 61
     },
     {
       "id": "sdk-routes",
@@ -58,7 +58,7 @@
       "ok": true,
       "checked": 130,
       "findings": [],
-      "ms": 24
+      "ms": 33
     },
     {
       "id": "examples",
@@ -66,7 +66,7 @@
       "ok": true,
       "checked": 39,
       "findings": [],
-      "ms": 9
+      "ms": 12
     },
     {
       "id": "packages",
@@ -83,36 +83,19 @@
           ]
         }
       ],
-      "ms": 2031
+      "ms": 4214
     },
     {
       "id": "migrations",
       "title": "Migrations are complete and in order",
       "ok": true,
-      "checked": 104,
+      "checked": 105,
       "findings": [],
-      "ms": 0
+      "ms": 1
     }
   ],
   "errors": 0,
   "warnings": 3,
-  "changed": true,
-  "changes": [
-    {
-      "what": "dropped the export from hasRoomFor()",
-      "where": "src/lib/backup.ts",
-      "files": [
-        "src/lib/backup.ts"
-      ],
-      "status": "applied"
-    },
-    {
-      "what": "dropped the export from etagOf()",
-      "where": "src/lib/httpCache.ts",
-      "files": [
-        "src/lib/httpCache.ts"
-      ],
-      "status": "applied"
-    }
-  ]
+  "changed": false,
+  "changes": []
 }
