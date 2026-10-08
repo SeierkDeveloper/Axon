@@ -22,6 +22,8 @@ import { getDb, getDbPath } from "./db";
 import { logger } from "./logger";
 
 const NIGHTLY_SUFFIX = ".nightly.db";
+// a copy in progress, and the journal files SQLite may have made beside it
+const PART_RE = /\.part(-wal|-shm|-journal)?$/;
 const HOUR_MS = 3_600_000;
 
 export function backupDir(dbPath = getDbPath()): string {
@@ -118,9 +120,12 @@ export async function takeSnapshot(opts: { db?: Database.Database; dbPath?: stri
     const tmp = `${target}.part`;
     const db = opts.db ?? getDb();
     await db.backup(tmp);
-    // a snapshot that will not open is worse than none: it would be the one restored
-    const check = new Database(tmp, { readonly: true, fileMustExist: true });
+    // A snapshot that will not open is worse than none: it would be the one restored. The copy carries
+    // the live database's WAL mode, and opening a WAL file (even read-only) leaves -wal and -shm files
+    // beside it, so it is switched to a plain rollback journal: one self-contained file.
+    const check = new Database(tmp, { fileMustExist: true });
     try {
+      check.pragma("journal_mode = DELETE");
       check.prepare("SELECT COUNT(*) FROM sqlite_master").get();
     } finally {
       check.close();
@@ -129,9 +134,11 @@ export async function takeSnapshot(opts: { db?: Database.Database; dbPath?: stri
 
     const all = listSnapshots(dir);
     for (const old of all.slice(keep())) {
-      try {
-        fs.unlinkSync(path.join(dir, old.file));
-      } catch { /* already gone */ }
+      for (const f of [old.file, `${old.file}-wal`, `${old.file}-shm`]) {
+        try {
+          fs.unlinkSync(path.join(dir, f));
+        } catch { /* already gone */ }
+      }
     }
     state.lastError = null;
     state.lastSkip = null;
@@ -143,7 +150,7 @@ export async function takeSnapshot(opts: { db?: Database.Database; dbPath?: stri
     state.lastError = err instanceof Error ? err.message : String(err);
     logger.warn("backup.failed", "Database snapshot failed", { err: state.lastError });
     try {
-      for (const f of fs.readdirSync(dir)) if (f.endsWith(".part")) fs.unlinkSync(path.join(dir, f));
+      for (const f of fs.readdirSync(dir)) if (PART_RE.test(f)) fs.unlinkSync(path.join(dir, f));
     } catch { /* nothing to clean */ }
     return null;
   } finally {
@@ -197,9 +204,14 @@ export function startBackupLoop(): void {
   const g = globalThis as typeof globalThis & { __axonBackupLoop?: boolean };
   if (g.__axonBackupLoop || !backupsEnabled()) return;
   g.__axonBackupLoop = true;
+  // A throw inside a timer would take the whole process down, so the tick never throws.
   const tick = () => {
-    const now = new Date();
-    if (snapshotDue(listSnapshots()[0], now)) void takeSnapshot({ now });
+    try {
+      const now = new Date();
+      if (snapshotDue(listSnapshots()[0], now)) void takeSnapshot({ now });
+    } catch (err) {
+      state.lastError = err instanceof Error ? err.message : String(err);
+    }
   };
   setTimeout(tick, 10 * 60_000).unref();
   setInterval(tick, HOUR_MS).unref();

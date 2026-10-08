@@ -28,6 +28,17 @@ export async function register() {
       /* Never block startup on the burn loop */
     }
 
+    // Nightly snapshots of the database onto its own volume, with rotation. Does nothing for an
+    // in-memory or relative database path, under tests, or with AXON_BACKUPS=off.
+    if (process.env.NODE_ENV !== "test") {
+      try {
+        const { startBackupLoop } = await import("./lib/backup");
+        startBackupLoop();
+      } catch {
+        /* Never block startup on the snapshot loop */
+      }
+    }
+
     // Pick up paid builds a restart interrupted (deploys kill the in-flight
     // pipeline; the job rows are durable). Fire-and-forget: each resumed
     // pipeline runs in the background exactly like a fresh one.
