@@ -1,13 +1,14 @@
-import { NextResponse } from "next/server";
+import { type NextRequest } from "next/server";
+import { publicJson } from "@/lib/httpCache";
 import { getRecentPosts } from "@/lib/telegram";
 import { getNetworkStats } from "@/lib/analytics";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const posts = getRecentPosts(20);
   const stats = getNetworkStats();
-  return NextResponse.json({
+  return publicJson(req, {
     posts,
     stats: {
       totalAgents: stats.agents.total,

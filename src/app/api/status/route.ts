@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { publicJson } from "@/lib/httpCache";
 import { getSystemStatus } from "@/lib/status";
 import { checkRateLimit, getClientIp, tooManyRequests, rateLimitHeaders } from "@/lib/rateLimit";
 
@@ -15,7 +16,7 @@ export async function GET(req: NextRequest) {
   const rl = checkRateLimit(`status:${ip}`, RATE_LIMIT, RATE_WINDOW_MS);
   if (!rl.allowed) return tooManyRequests(rl);
 
-  return NextResponse.json(getSystemStatus(), {
+  return publicJson(req, getSystemStatus(), {
     headers: { ...rateLimitHeaders(rl, RATE_LIMIT), "Cache-Control": "public, max-age=10" },
   });
 }

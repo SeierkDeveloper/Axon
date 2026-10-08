@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getExplorerFeed } from "@/lib/explorer";
+import { publicJson } from "@/lib/httpCache";
 import { checkRateLimit, getClientIp, tooManyRequests, rateLimitHeaders } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
 
   const raw = new URL(req.url).searchParams.get("limit");
   const limit = raw ? Number(raw) : undefined;
-  return NextResponse.json(getExplorerFeed(limit), {
+  return publicJson(req, getExplorerFeed(limit), {
     headers: { ...rateLimitHeaders(rl, RATE_LIMIT), "Cache-Control": "public, max-age=10" },
   });
 }

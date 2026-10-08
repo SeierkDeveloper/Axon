@@ -19,6 +19,7 @@ import { verifyAgentEndpoint } from "@/lib/verification";
 import { notifyNewAgent } from "@/lib/telegram";
 import { normalizeAddress, sameAddress } from "@/lib/address";
 import { validateAgentContent } from "@/lib/agentContent";
+import { publicJson } from "@/lib/httpCache";
 
 const VALID_SORT_FIELDS = new Set<string>(["proven", "reputation", "price", "createdAt", "activity", "successRate", "latency", "reviews"]);
 const VALID_PROVIDERS: InferenceProvider[] = ["anthropic", "ollama", "openai", "grok"];
@@ -52,7 +53,7 @@ export async function GET(req: NextRequest) {
   if (q) {
     const semanticResults = await semanticSearchAgents(q, { ...sharedOpts, q });
     if (semanticResults !== null) {
-      return NextResponse.json({ agents: tagOwnerVerified(semanticResults), semanticQuery: q });
+      return publicJson(req, { agents: tagOwnerVerified(semanticResults), semanticQuery: q });
     }
     // Fall through to keyword search if embeddings unavailable
   }
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest) {
     sort: sort && VALID_SORT_FIELDS.has(sort) ? sort as SortField : undefined,
   });
 
-  return NextResponse.json({ agents: tagOwnerVerified(agents) });
+  return publicJson(req, { agents: tagOwnerVerified(agents) });
 }
 
 // Tag each listed agent with whether its owner wallet is verified (one batched

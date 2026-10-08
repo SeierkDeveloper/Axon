@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { publicJson } from "@/lib/httpCache";
 import { getAgentTrackRecord } from "@/lib/trackRecord";
 import { apiError } from "@/lib/apiError";
 import { checkRateLimit, getClientIp, tooManyRequests } from "@/lib/rateLimit";
@@ -27,7 +28,7 @@ export async function GET(
   // The body is public and cacheable; per-client rate-limit headers are NOT —
   // a shared/CDN cache would serve one caller's counter to the next. Keep them
   // off the cacheable response (the 429 path above still carries its own).
-  return NextResponse.json(record, {
+  return publicJson(req, record, {
     headers: { "Cache-Control": "public, max-age=30" },
   });
 }

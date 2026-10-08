@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { type NextRequest } from "next/server";
+import { publicBody } from "@/lib/httpCache";
 
 const SPEC = {
   openapi: "3.1.0",
@@ -2229,10 +2230,12 @@ const SPEC = {
   },
 };
 
-export async function GET() {
-  return new NextResponse(JSON.stringify(SPEC, null, 2), {
+// The document never changes while the process runs, so it is serialized once.
+const SPEC_JSON = JSON.stringify(SPEC, null, 2);
+
+export async function GET(req: NextRequest) {
+  return publicBody(req, SPEC_JSON, "application/json", {
     headers: {
-      "Content-Type": "application/json",
       "Content-Disposition": 'attachment; filename="axon-openapi.json"',
     },
   });

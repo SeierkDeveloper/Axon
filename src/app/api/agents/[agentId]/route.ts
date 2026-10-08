@@ -8,10 +8,11 @@ import { validatePublicHttpUrl } from "@/lib/urlSecurity";
 import { updateAgentSchema, parseBody } from "@/lib/schemas";
 import { validateToolGrants, modelSupportsServerTools, usesServerTools } from "@/lib/agentTools";
 import { withRequestContext } from "@/lib/withRequestContext";
+import { publicJson } from "@/lib/httpCache";
 
 // GET /api/agents/[agentId]
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ agentId: string }> }
 ) {
   const { agentId } = await params;
@@ -23,7 +24,7 @@ export async function GET(
 
   // Surface the verified-owner badge so callers can see the wallet behind this
   // agent has cryptographically authenticated.
-  return NextResponse.json({ ...toPublicAgent(agent), ownerVerified: isOwnerVerified(agentId) });
+  return publicJson(req, { ...toPublicAgent(agent), ownerVerified: isOwnerVerified(agentId) });
 }
 
 // PATCH /api/agents/[agentId] — update mutable agent fields

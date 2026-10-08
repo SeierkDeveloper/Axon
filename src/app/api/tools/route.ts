@@ -17,6 +17,7 @@ import { publicOrigin } from "@/lib/publicUrl";
 import { MCP_TOOLS, agentToolset, type McpTool } from "@/lib/mcpServer";
 import { tooManyRequests } from "@/lib/rateLimit";
 import { checkTieredRateLimit } from "@/lib/tieredRateLimit";
+import { publicJson } from "@/lib/httpCache";
 
 export const runtime = "nodejs";
 
@@ -99,7 +100,8 @@ export async function GET(req: NextRequest) {
   const set = agentId ? agentToolset(agentId) : null;
   if (agentId && !set) return NextResponse.json({ error: `No agent '${agentId}' to hire` }, { status: 404, headers: CORS });
 
-  return NextResponse.json(
+  return publicJson(
+    req,
     {
       format,
       // Said in the payload, so a caller that typo'd the format sees what it actually got rather

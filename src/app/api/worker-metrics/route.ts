@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { type NextRequest } from "next/server";
+import { memoFor, publicJson } from "@/lib/httpCache";
 import { getDb } from "@/lib/db";
 import { isoHoursAgo } from "@/lib/sqlTime";
 import { SUCCESS_RATE_WINDOW_HOURS } from "@/lib/analytics";
@@ -12,7 +13,16 @@ function percentile(sorted: number[], p: number): number {
   return Math.round(sorted[Math.max(0, idx)]);
 }
 
-export async function GET() {
+// The workers page polls this every 15 seconds per viewer, and it reads every task ever (the per-agent
+// totals are all-time), about 100 to 200 ms of synchronous work at production size. Computed at most
+// once per 10 seconds however many viewers or callers there are; updatedAt says when.
+const MEMO_MS = 10_000;
+
+export async function GET(req: NextRequest) {
+  return publicJson(req, memoFor("worker-metrics", MEMO_MS, computeWorkerMetrics));
+}
+
+function computeWorkerMetrics() {
   const db = getDb();
 
   const counts = db.prepare(`
@@ -35,8 +45,8 @@ export async function GET() {
     SELECT
       COUNT(*) FILTER (WHERE completed_at >= ?) AS today,
       COUNT(*) FILTER (WHERE completed_at >= ?) AS last24h
-    FROM tasks WHERE status = 'completed'
-  `).get(cutoffToday, cutoff24h) as { today: number; last24h: number };
+    FROM tasks WHERE +status = 'completed' AND completed_at >= ?
+  `).get(cutoffToday, cutoff24h, cutoff24h < cutoffToday ? cutoff24h : cutoffToday) as { today: number; last24h: number };
 
   const rawByHour = db.prepare(`
     SELECT
@@ -61,7 +71,7 @@ export async function GET() {
   const processingRaw = (db.prepare(`
     SELECT ROUND((julianday(completed_at) - julianday(started_at)) * 86400000) AS ms
     FROM tasks
-    WHERE status = 'completed' AND started_at IS NOT NULL AND completed_at IS NOT NULL
+    WHERE +status = 'completed' AND started_at IS NOT NULL AND completed_at IS NOT NULL
       AND completed_at >= started_at
       AND completed_at >= ?
     ORDER BY completed_at DESC LIMIT 200
@@ -113,7 +123,7 @@ export async function GET() {
     ORDER BY created_at DESC LIMIT 20
   `).all();
 
-  return NextResponse.json({
+  return {
     worker: { queueDepth: counts.queued, running: counts.running, lastSeenMs },
     throughput: { today: throughput.today, last24h: throughput.last24h, byHour },
     latency: {
@@ -128,5 +138,5 @@ export async function GET() {
     errorRateWindowHours: SUCCESS_RATE_WINDOW_HOURS,
     recentTasks,
     updatedAt: new Date().toISOString(),
-  });
+  };
 }
