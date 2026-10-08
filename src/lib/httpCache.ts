@@ -29,7 +29,7 @@ function gzipFor(etag: string, body: string): Buffer {
 }
 
 /** A weak validator for a body: the same bytes always give the same tag. */
-export function etagOf(body: string | Buffer): string {
+function etagOf(body: string | Buffer): string {
   return `W/"${createHash("sha1").update(body).digest("base64url")}"`;
 }
 

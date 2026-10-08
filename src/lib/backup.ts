@@ -77,7 +77,7 @@ const state: State = ((globalThis as typeof globalThis & { __axonBackupState?: S
 });
 
 /** Enough room for one more copy, with the same again to spare. */
-export function hasRoomFor(dir: string, bytes: number): boolean {
+function hasRoomFor(dir: string, bytes: number): boolean {
   try {
     const s = fs.statfsSync(dir);
     return s.bavail * s.bsize > bytes * 2;
