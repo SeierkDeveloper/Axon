@@ -11,6 +11,7 @@ import type { BoardToken, BoardTotals, MindEvent, BoardSort } from "@/lib/mindsS
 import { mindLabel } from "@/lib/mindsModels";
 import TokenCard, { tokenCardFrame } from "./TokenCard";
 import { Plan, Brief, Orders, Record as TrackRecord, Reports, Books, type MindWorkData } from "./MindWork";
+import MindChat, { type ChatItem } from "./MindChat";
 
 /**
  * The launch terminal: every token launched on Axon, with the numbers its contracts report, and a running log of what
@@ -79,7 +80,7 @@ interface MindNow { state: string; text: string; actionsToday: number | null; ac
 const SAID_ELSEWHERE = new Set(["halted", "stopped", "frozen", "paused"]);
 /** How a journal entry came about, when it was not something happening to the token. */
 const CAME_FROM: Record<string, string> = { pulse: "check-in", report: "daily report" };
-type Tab = "journal" | "orders" | "record" | "reports" | "books";
+type Tab = "journal" | "orders" | "record" | "reports" | "books" | "ask";
 const PAUSE_ABI = parseAbi(["function setPaused(bool paused)"]);
 
 /** The creator's own switch. The treasury takes it from that one wallet and from nobody else, Axon included. */
@@ -129,6 +130,8 @@ function Mind({ t }: { t: BoardToken }) {
   const [mind, setMind] = useState<MindNow | null>(null);
   const [work, setWork] = useState<MindWorkData | null>(null);
   const [tab, setTab] = useState<Tab>("journal");
+  // talk to the mind: null while the chat is switched off (the endpoint answers 404), so the page is then what it always was
+  const [chats, setChats] = useState<{ items: ChatItem[]; maxChars: number } | null>(null);
   const [again, setAgain] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -136,6 +139,7 @@ function Mind({ t }: { t: BoardToken }) {
     const load = () => {
       void fetch(`/api/minds/thoughts?token=${t.token}&limit=5`).then((r) => (r.ok ? (r.json() as Promise<{ thoughts: ThoughtView[] }>) : null)).then((d) => { if (alive && d) { setItems(d.thoughts); setNow(Date.now()); } }).catch(() => {});
       // whether its treasury is running is the chain's to say, so it is read from there rather than kept
+      void fetch(`/api/minds/tokens/${t.token}/chat`).then((r) => (r.ok ? (r.json() as Promise<{ chats: ChatItem[]; maxChars: number }>) : null)).then((d) => { if (alive && d) setChats({ items: d.chats, maxChars: d.maxChars }); }).catch(() => {});
       void fetch(`/api/minds/tokens/${t.token}`).then((r) => (r.ok ? (r.json() as Promise<{ treasury: ChainState | null; mind?: MindNow | null } & Partial<MindWorkData>>) : null)).then((d) => {
         if (!alive || !d) return;
         if (d.treasury) setChain({ paused: d.treasury.paused, frozen: d.treasury.frozen, active: d.treasury.active });
@@ -179,14 +183,15 @@ function Mind({ t }: { t: BoardToken }) {
       {work && <Brief token={t.token} creator={t.creator} brief={work.brief} canChangeAt={work.briefCanChangeAt} now={now} onChanged={() => setAgain((n) => n + 1)} />}
       {work && (
         <div role="tablist" aria-label="Its mind" className="-mx-1 mb-4 flex gap-1 overflow-x-auto border-b border-gray-200 px-1 dark:border-gray-800">
-          {([["journal", "Journal", t.thoughts], ["orders", "Orders", work.orders.filter((o) => o.status === "armed").length], ["record", "Track record", work.record?.summary.moves ?? 0], ["reports", "Reports", work.reports.length], ["books", "Books", null]] as [Tab, string, number | null][]).map(([id, label, n]) => (
+          {([["journal", "Journal", t.thoughts], ["orders", "Orders", work.orders.filter((o) => o.status === "armed").length], ["record", "Track record", work.record?.summary.moves ?? 0], ["reports", "Reports", work.reports.length], ["books", "Books", null], ...(chats ? [["ask", "Ask it", chats.items.length]] : [])] as [Tab, string, number | null][]).map(([id, label, n]) => (
             <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={(e) => { setTab(id); e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" }); }} className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition ${tab === id ? "border-gray-900 font-semibold text-gray-900 dark:border-white dark:text-white" : "border-transparent text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"}`}>
               {label}{n ? <span className="ml-1.5 font-mono text-[11px] tabular-nums text-gray-400">{n}</span> : null}
             </button>
           ))}
         </div>
       )}
-      {work && tab === "orders" ? <Orders orders={work.orders} promises={work.promises} now={now} />
+      {work && tab === "ask" && chats ? <MindChat token={t.token} symbol={t.symbol} chats={chats.items} maxChars={chats.maxChars} now={now} stopped={Boolean(t.stopped || halted)} onAsked={(c) => setChats({ items: [c, ...chats.items].slice(0, 50), maxChars: chats.maxChars })} />
+        : work && tab === "orders" ? <Orders orders={work.orders} promises={work.promises} now={now} />
         : work && tab === "record" ? <TrackRecord record={work.record} now={now} />
         : work && tab === "reports" ? <Reports reports={work.reports} />
         : work && tab === "books" ? <Books books={work.books} attached={t.attached} />
