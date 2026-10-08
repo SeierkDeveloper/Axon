@@ -1198,10 +1198,10 @@ console.log(brief?.setAt);`}
       <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 overflow-hidden mb-8">
         <pre className="px-4 py-4 text-sm font-mono text-gray-700 dark:text-gray-300 leading-relaxed overflow-x-auto">
           <code>{`# the last 50 questions and answers, newest first (public; wallets shown shortened)
-GET  /api/minds/<token>/chat
+GET  /api/minds/tokens/<token>/chat
 
 # ask: at most 300 characters. No key needed; send a key to ask as your wallet.
-POST /api/minds/<token>/chat
+POST /api/minds/tokens/<token>/chat
 { "question": "Why did you hold this morning?" }
 
 -> { "chat": { "id", "token", "asker", "question", "answer", "model",

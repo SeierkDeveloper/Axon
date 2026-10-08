@@ -37,7 +37,7 @@ import {
   askMind, listChats, chatEnabled, cleanQuestion, answerText, estimateChatUsd, chatCostToday,
   QUESTION_CHARS, ANSWER_CHARS, CHAT_MAX_OUTPUT_TOKENS, CHAT_PER_MINUTE, ANON_PER_DAY_PER_MIND, type AskResult,
 } from "@/lib/mindsChat";
-import { GET as chatGET, POST as chatPOST } from "@/app/api/minds/[mindId]/chat/route";
+import { GET as chatGET, POST as chatPOST } from "@/app/api/minds/tokens/[token]/chat/route";
 import { unreadChain } from "./helpers/unreadChain";
 
 let n = 0;
@@ -407,8 +407,8 @@ describe("the routes", () => {
   afterEach(() => { for (const k of Object.keys(ENV)) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
 
   const post = (token: string, body: unknown, headers: Record<string, string> = {}) =>
-    chatPOST(new NextRequest(`http://x/api/minds/${token}/chat`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "10.0.0.1", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) }), { params: Promise.resolve({ mindId: token }) });
-  const get = (token: string) => chatGET(new NextRequest(`http://x/api/minds/${token}/chat`), { params: Promise.resolve({ mindId: token }) });
+    chatPOST(new NextRequest(`http://x/api/minds/tokens/${token}/chat`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "10.0.0.1", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) }), { params: Promise.resolve({ token }) });
+  const get = (token: string) => chatGET(new NextRequest(`http://x/api/minds/tokens/${token}/chat`), { params: Promise.resolve({ token }) });
 
   it("do not exist while the switch is off", async () => {
     const w = world(), t = await w.launch("ROFF");

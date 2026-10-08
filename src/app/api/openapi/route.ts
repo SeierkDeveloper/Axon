@@ -2218,8 +2218,8 @@ const SPEC = {
       post: { summary: "Leave the token's mind a brief, or take it back with an empty one. Only the wallet that launched the token can, and a brief stands for six hours", tags: ["Minds"] },
     },
 
-    "/minds/{mindId}/chat": {
-      parameters: [{ name: "mindId", in: "path", required: true, schema: { type: "string" }, description: "The token's address" }],
+    "/minds/tokens/{token}/chat": {
+      parameters: [{ name: "token", in: "path", required: true, schema: { type: "string" }, description: "The token's address" }],
       get: { summary: "The last 50 questions asked of a token's mind and its answers, newest first. Wallets are shown shortened", tags: ["Minds"], security: [] },
       post: {
         summary: "Ask a token's mind a question and get its answer in its own voice. A question never changes what the mind does; its own treasury pays for the answer. Anyone may ask; send a key to ask as your wallet",
