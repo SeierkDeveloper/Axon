@@ -220,15 +220,73 @@ export function createApiKey(walletAddress: string, opts: { scope?: ApiKeyScope;
   return { keyId, apiKey, keyPrefix, walletAddress: owner };
 }
 
+// ── Hash cache ───────────────────────────────────────────────────────────────
+//
+// scrypt is slow on purpose, about 47 ms of CPU for one key, and it ran on every authenticated
+// request on the event loop, so nothing else in the process moved while it did. An SDK polling a task
+// once a second cost a twentieth of the whole server: measured before this cache, the server answered
+// about 20 authenticated requests a second at most.
+//
+// What is cached is only the result of the derivation for a key that was found, never the decision:
+// the row is still read from the database on every request, so revoking a key takes effect at once,
+// in every process. Keyed by a SHA-256 of the salt and the key, so the raw key is not held as a map
+// key. Keys that are not found are not cached, so random keys cannot push real ones out.
+const HASH_CACHE_MAX = 5000;
+const hashCache = new Map<string, string>();
+
+function hashCacheKey(apiKey: string): string {
+  return createHash("sha256").update(getScryptSalt()).update(apiKey).digest("hex");
+}
+
+function cachedScryptHash(apiKey: string): { hash: string; cacheKey: string; cached: boolean } {
+  const cacheKey = hashCacheKey(apiKey);
+  const hit = hashCache.get(cacheKey);
+  if (hit) {
+    hashCache.delete(cacheKey);
+    hashCache.set(cacheKey, hit);
+    return { hash: hit, cacheKey, cached: true };
+  }
+  return { hash: hashApiKeyScrypt(apiKey), cacheKey, cached: false };
+}
+
+function rememberHash(cacheKey: string, hash: string): void {
+  hashCache.set(cacheKey, hash);
+  if (hashCache.size > HASH_CACHE_MAX) hashCache.delete(hashCache.keys().next().value as string);
+}
+
+// last_used_at is only ever shown to the key's owner, so it is written at most once a minute per key
+// rather than as one database write on every authenticated request.
+const LAST_USED_WRITE_MS = 60_000;
+const lastUsedWritten = new Map<string, number>();
+
+function touchLastUsed(keyId: string): void {
+  const now = Date.now();
+  if (now - (lastUsedWritten.get(keyId) ?? 0) < LAST_USED_WRITE_MS) return;
+  if (lastUsedWritten.size > HASH_CACHE_MAX) lastUsedWritten.clear();
+  lastUsedWritten.set(keyId, now);
+  getDb().prepare("UPDATE api_keys SET last_used_at = ? WHERE key_id = ?")
+    .run(new Date(now).toISOString(), keyId);
+}
+
+/** Test seams: how many derivations are held, and forget them. */
+export function apiKeyHashCacheSize(): number {
+  return hashCache.size;
+}
+export function clearApiKeyHashCache(): void {
+  hashCache.clear();
+  lastUsedWritten.clear();
+}
+
 /** The stored row for a presented key, upgrading a legacy hash on first sight. Null if unknown. */
 function lookupApiKey(apiKey: string): ApiKeyRow | null {
   const db = getDb();
 
   // Try scrypt (new keys)
-  const scryptHash = hashApiKeyScrypt(apiKey);
+  const { hash: scryptHash, cacheKey, cached } = cachedScryptHash(apiKey);
   let row = db
     .prepare("SELECT key_id, wallet_address, hash_algorithm, scope FROM api_keys WHERE key_hash = ? AND hash_algorithm = 'scrypt'")
     .get(scryptHash) as ApiKeyRow | undefined;
+  if (row && !cached) rememberHash(cacheKey, scryptHash);
 
   if (!row) {
     // Transparent migration: look up legacy SHA-256 hash and upgrade on first auth
@@ -240,6 +298,7 @@ function lookupApiKey(apiKey: string): ApiKeyRow | null {
     if (legacyRow) {
       db.prepare("UPDATE api_keys SET key_hash = ?, hash_algorithm = 'scrypt' WHERE key_id = ?")
         .run(scryptHash, legacyRow.key_id);
+      rememberHash(cacheKey, scryptHash);
       row = legacyRow;
     }
   }
@@ -255,8 +314,7 @@ export function authenticateApiKey(req: NextRequest, opts: AuthenticateOptions =
   const scope: ApiKeyScope = row.scope === "allowance" ? "allowance" : "full";
   if (scope === "allowance" && !opts.allowAllowanceScope) return null;
 
-  getDb().prepare("UPDATE api_keys SET last_used_at = ? WHERE key_id = ?")
-    .run(new Date().toISOString(), row.key_id);
+  touchLastUsed(row.key_id);
 
   return { keyId: row.key_id, walletAddress: row.wallet_address, scope };
 }
@@ -278,7 +336,8 @@ export function revokeApiKey(req: NextRequest): boolean {
   if (!apiKey) return false;
   const db = getDb();
 
-  const scryptHash = hashApiKeyScrypt(apiKey);
+  const { hash: scryptHash, cacheKey } = cachedScryptHash(apiKey);
+  hashCache.delete(cacheKey);
   if (db.prepare("DELETE FROM api_keys WHERE key_hash = ? AND hash_algorithm = 'scrypt'").run(scryptHash).changes > 0) {
     void syncToTurso();
     return true;
