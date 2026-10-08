@@ -16,6 +16,8 @@ export interface ChatItem {
   answer: string;
   modelLabel: string;
   standin: boolean;
+  /** the asker's $AXON holder tier when they asked: base, holder, builder or operator */
+  tier: string;
   at: string;
 }
 
@@ -44,7 +46,19 @@ export default function MindChat({ token, symbol, chats, maxChars, now, stopped,
   const [state, setState] = useState<"idle" | "asking">("idle");
   const [note, setNote] = useState<string | null>(null);
   const [fresh, setFresh] = useState<number | null>(null);
+  // the signed-in wallet's own $AXON tier, so it knows whether it asks as a holder; kept with the wallet it was read
+  // for, so a change of wallet shows nothing stale
+  const [tierRead, setTierRead] = useState<{ address: string; tier: string } | null>(null);
+  const tier = address && tierRead?.address === address ? tierRead.tier : null;
   const box = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!address) return;
+    let alive = true;
+    const forAddress = address;
+    fetch(`/api/tier?wallet=${forAddress}`).then((r) => (r.ok ? (r.json() as Promise<{ tier: { name: string } | null }>) : null)).then((d) => { if (alive) setTierRead({ address: forAddress, tier: d?.tier?.name ?? "base" }); }).catch(() => { if (alive) setTierRead({ address: forAddress, tier: "base" }); });
+    return () => { alive = false; };
+  }, [address]);
 
   // the answer that just arrived is marked for a moment so the eye finds it in the list
   useEffect(() => {
@@ -97,7 +111,7 @@ export default function MindChat({ token, symbol, chats, maxChars, now, stopped,
               {state === "asking" ? "Asking…" : "Ask"}
             </button>
             {signedIn ? (
-              <span className="text-xs text-gray-400">Asking as {address!.slice(0, 6)}…{address!.slice(-4)}.</span>
+              <span className="text-xs text-gray-400">Asking as {address!.slice(0, 6)}…{address!.slice(-4)}{tier && tier !== "base" ? `, ${tier} of $AXON: longer answers, and first in line when its day is nearly spent.` : tier === "base" ? ". Hold $AXON for longer answers and a place at the front." : "."}</span>
             ) : (
               <button type="button" onClick={() => void signIn()} disabled={walletBusy} className="text-xs text-gray-500 underline decoration-gray-300 underline-offset-2 hover:text-gray-900 disabled:opacity-50 dark:text-gray-400 dark:decoration-gray-700 dark:hover:text-white">
                 {walletBusy ? "Check your wallet…" : "Sign in with your wallet to ask as yourself"}
@@ -114,14 +128,14 @@ export default function MindChat({ token, symbol, chats, maxChars, now, stopped,
         <ol className="mt-5 space-y-5">
           {chats.map((c) => (
             <li key={c.id} className={c.id === fresh ? "rounded-xl bg-white px-3 py-2 ring-1 ring-gray-300 transition dark:bg-gray-950 dark:ring-gray-700" : ""}>
-              <p className="text-sm leading-relaxed text-gray-500 dark:text-gray-400"><span className="font-mono text-[11px] text-gray-400">{c.asker ?? "a visitor"} asked</span> {c.question}</p>
+              <p className="text-sm leading-relaxed text-gray-500 dark:text-gray-400"><span className="font-mono text-[11px] text-gray-400">{c.asker ?? "a visitor"} asked</span>{c.tier && c.tier !== "base" && <span className="ml-1.5 rounded-md bg-gray-900 px-1.5 py-0.5 font-mono text-[10px] text-white dark:bg-white dark:text-gray-900">{c.tier}</span>} {c.question}</p>
               <p className="mt-1.5 border-l-2 border-gray-300 pl-3 text-sm leading-relaxed dark:border-gray-700">{c.answer}</p>
               <p className="mt-1.5 font-mono text-[11px] text-gray-400" suppressHydrationWarning>{ago(c.at, now)} ago · {c.modelLabel}</p>
             </li>
           ))}
         </ol>
       )}
-      <p className="mt-4 text-xs text-gray-400">Five questions a minute each. The mind answers from what it has in front of it and says when it does not know. It never predicts a price and never gives advice.</p>
+      <p className="mt-4 text-xs text-gray-400">Five questions a minute each, ten for holders of $AXON, who also get longer answers and are answered first when the mind&apos;s day is nearly spent. The mind answers from what it has in front of it and says when it does not know. It never predicts a price and never gives advice.</p>
     </div>
   );
 }

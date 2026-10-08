@@ -2222,7 +2222,7 @@ const SPEC = {
       parameters: [{ name: "token", in: "path", required: true, schema: { type: "string" }, description: "The token's address" }],
       get: { summary: "The last 50 questions asked of a token's mind and its answers, newest first. Wallets are shown shortened", tags: ["Minds"], security: [] },
       post: {
-        summary: "Ask a token's mind a question and get its answer in its own voice. A question never changes what the mind does; its own treasury pays for the answer. Anyone may ask; send a key to ask as your wallet",
+        summary: "Ask a token's mind a question and get its answer in its own voice. A question never changes what the mind does; its own treasury pays for the answer. Anyone may ask; send a key to ask as your wallet. Holders of $AXON get longer answers, ten questions a minute and are answered first when the mind's day is nearly spent",
         tags: ["Minds"],
         security: [{}, { bearerAuth: [] }, { apiKey: [] }],
         requestBody: {

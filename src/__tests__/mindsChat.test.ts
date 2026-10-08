@@ -7,6 +7,12 @@ const fake = vi.hoisted(() => ({ treasuries: new Map<string, unknown>() }));
 vi.mock("@/lib/embeddings", async (orig) => ({ ...(await orig<typeof import("@/lib/embeddings")>()), generateEmbedding: async () => null, scheduleAgentEmbedding: () => {} }));
 vi.mock("@/lib/agentDescription", async (orig) => ({ ...(await orig<typeof import("@/lib/agentDescription")>()), scheduleAgentDescription: () => {} }));
 vi.mock("@/lib/ethPrice", () => ({ ethUsd: async () => 2500 }));
+// the $AXON holder ladder, as the test sets it per wallet (the real one reads a balance from the chain)
+const tierOf = vi.hoisted(() => ({ wallets: new Map<string, { name: string; rank: number }>() }));
+vi.mock("@/lib/holderTier", async (orig) => {
+  const real = await orig<typeof import("@/lib/holderTier")>();
+  return { ...real, getTier: async (w: string) => { const t = tierOf.wallets.get(w.toLowerCase()) ?? { name: "base", rank: 0 }; return { tier: { ...t, minimum: 0 }, balance: t.rank ? 1e6 : 0, stale: false }; } };
+});
 // the chain the routes read when they are called as the site calls them: a treasury per vault, written by the test
 vi.mock("@/lib/mindsChain", async (orig) => {
   const real = await orig<typeof import("@/lib/mindsChain")>();
@@ -35,7 +41,7 @@ import { mindStatus } from "@/lib/mindsStatus";
 import { createApiKey } from "@/lib/identity";
 import {
   askMind, listChats, chatEnabled, cleanQuestion, answerText, estimateChatUsd, chatCostToday,
-  QUESTION_CHARS, ANSWER_CHARS, CHAT_MAX_OUTPUT_TOKENS, CHAT_PER_MINUTE, ANON_PER_DAY_PER_MIND, type AskResult,
+  QUESTION_CHARS, ANSWER_CHARS, HOLDER_ANSWER_CHARS, CHAT_MAX_OUTPUT_TOKENS, HOLDER_MAX_OUTPUT_TOKENS, CHAT_PER_MINUTE, HOLDER_PER_MINUTE, ANON_PER_DAY_PER_MIND, VISITOR_SHARE, type AskResult,
 } from "@/lib/mindsChat";
 import { GET as chatGET, POST as chatPOST } from "@/app/api/minds/tokens/[token]/chat/route";
 import { unreadChain } from "./helpers/unreadChain";
@@ -97,7 +103,7 @@ const refused = (r: AskResult) => (r.ok ? "answered" : `${r.status} ${r.refused}
 const gotThought = (r: Thought | { skipped: string }): Thought => { if ("skipped" in r) throw new Error(`skipped: ${r.skipped}`); return r; };
 const TABLES = "DELETE FROM mind_tokens; DELETE FROM mind_launches; DELETE FROM mind_cursor; DELETE FROM mind_stats; DELETE FROM mind_holders; DELETE FROM mind_events; DELETE FROM mind_thoughts; DELETE FROM mind_actions; DELETE FROM mind_plans; DELETE FROM mind_plan_log; DELETE FROM mind_history; DELETE FROM mind_orders; DELETE FROM mind_briefs; DELETE FROM mind_brief_log; DELETE FROM mind_chats; DELETE FROM rate_limit_windows;";
 
-beforeEach(() => { setHalted(false); fake.treasuries.clear(); getDb().exec(TABLES); });
+beforeEach(() => { setHalted(false); fake.treasuries.clear(); tierOf.wallets.clear(); getDb().exec(TABLES); });
 
 describe("the switch", () => {
   it("is off unless MINDS_CHAT=on, and a mind cannot be asked anything while it is off", async () => {
@@ -238,7 +244,7 @@ describe("when a mind cannot answer", () => {
     // a limit of 0.0001 ETH a day: answers may use half of it; each answer here costs 0.00002 ETH
     w.state.treasuries.set(t.vault, treasury({}, { maxCostPerDayEth: 0.0001 }));
     const k = thinker("Holding.", 0.05);
-    const ask = (at: number) => askMind({ mindId: t.token, wallet: null, question: "What next?" }, { chain: w.chain, thinker: k.fn, env: CHAT, now: at, usdPerEth: USD });
+    const ask = (at: number) => askMind({ mindId: t.token, wallet: null, question: "What next?" }, { chain: w.chain, thinker: k.fn, env: CHAT, now: at, usdPerEth: USD, tier: "holder" });
     got(await ask(T0));
     got(await ask(T0 + MIN));
     expect(refused(await ask(T0 + 2 * MIN))).toBe("409 cap_spent: It has used what its answers may cost today. Ask again after midnight UTC.");
@@ -505,5 +511,76 @@ describe("the routes", () => {
     expect(Object.keys(body.chats[0]).sort()).toEqual(["answer", "asker", "at", "costEth", "id", "model", "modelLabel", "question", "standin", "tier", "token"]);
     expect(JSON.stringify(body).toLowerCase()).not.toContain(me.toLowerCase());
     expect((await get("nope")).status).toBe(400);
+  });
+
+  describe("holders first", () => {
+    it("a holder of $AXON gets a longer answer: more room for the model, and more of it kept", async () => {
+      const w = world(), t = await w.launch("LONG");
+      const long = Array.from({ length: 12 }, (_, i) => `Sentence number ${i + 1} explains one more part of what I am watching and why it matters to the plan.`).join(" ");
+      expect(long.length).toBeGreaterThan(HOLDER_ANSWER_CHARS);
+      const k = thinker(long);
+      const visitor = got(await askMind({ mindId: t.token, wallet: null, question: "Tell me everything." }, { chain: w.chain, thinker: k.fn, env: CHAT, now: T0, usdPerEth: USD }));
+      const me = addr();
+      tierOf.wallets.set(me.toLowerCase(), { name: "holder", rank: 1 });
+      const holder = got(await askMind({ mindId: t.token, wallet: me, question: "Tell me everything." }, { chain: w.chain, thinker: k.fn, env: CHAT, now: T0 + MIN, usdPerEth: USD }));
+      expect(k.calls[0].maxOutputTokens).toBe(CHAT_MAX_OUTPUT_TOKENS);
+      expect(k.calls[1].maxOutputTokens).toBe(HOLDER_MAX_OUTPUT_TOKENS);
+      expect(k.calls[0].system).toContain("1 to 4 short sentences, under 450 characters");
+      expect(k.calls[1].system).toContain("2 to 7 sentences, under 850 characters");
+      expect(k.calls[1].prompt).toContain("under 850 characters");
+      expect(visitor.answer.length).toBeLessThanOrEqual(ANSWER_CHARS);
+      expect(holder.answer.length).toBeGreaterThan(ANSWER_CHARS);
+      expect(holder.answer.length).toBeLessThanOrEqual(HOLDER_ANSWER_CHARS);
+      expect(holder.tier).toBe("holder");
+      expect(visitor.tier).toBe("base");
+      // the answer is cut at a full sentence, never mid-word
+      expect(holder.answer.endsWith(".")).toBe(true);
+    });
+
+    it("keeps the last part of the day's answers for holders: visitors are refused first, holders still get through", async () => {
+      const w = world(), t = await w.launch("FIRST");
+      w.state.treasuries.set(t.vault, treasury({}, { maxCostPerDayEth: 0.0001 }));
+      const k = thinker("Holding.", 0.02);
+      const me = addr();
+      tierOf.wallets.set(me.toLowerCase(), { name: "builder", rank: 2 });
+      let at = T0;
+      const ask = (wallet: string | null) => askMind({ mindId: t.token, wallet, question: "What next?" }, { chain: w.chain, thinker: k.fn, env: CHAT, now: (at += MIN), usdPerEth: USD });
+      let visitorAnswers = 0;
+      for (let i = 0; i < 20; i++) { const r = await ask(null); if (r.ok) visitorAnswers++; else { expect(refused(r)).toBe("409 cap_spent: It has answered all it answers visitors today. Holders of $AXON still get through; otherwise ask again after midnight UTC."); break; } }
+      expect(visitorAnswers).toBeGreaterThan(0);
+      // a holder is still answered past the visitors' part of the share
+      let holderAnswers = 0;
+      for (let i = 0; i < 20; i++) { const r = await ask(me); if (r.ok) holderAnswers++; else { expect(refused(r)).toBe("409 cap_spent: It has used what its answers may cost today. Ask again after midnight UTC."); break; } }
+      expect(holderAnswers).toBeGreaterThan(0);
+      expect(VISITOR_SHARE).toBeLessThan(1);
+      // and a visitor stays refused
+      expect(refused(await ask(null))).toMatch(/^409 cap_spent/);
+      expect(k.calls).toHaveLength(visitorAnswers + holderAnswers);
+    });
+
+    it("the route lets a holder ask ten times a minute and a visitor five", async () => {
+      const w = world(), t = await w.launch("RATE");
+      const me = addr();
+      tierOf.wallets.set(me.toLowerCase(), { name: "holder", rank: 1 });
+      const { apiKey } = createApiKey(me, {});
+      const env = { ...process.env };
+      Object.assign(process.env, STANDIN);
+      try {
+        const post = (key?: string) => chatPOST(new NextRequest(`http://x/api/minds/tokens/${t.token}/chat`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "10.9.9.9", ...(key ? { authorization: `Bearer ${key}` } : {}) }, body: JSON.stringify({ question: "And now?" }) }), { params: Promise.resolve({ token: t.token }) });
+        const holderCodes: number[] = [];
+        for (let i = 0; i < HOLDER_PER_MINUTE + 1; i++) holderCodes.push((await post(apiKey)).status);
+        expect(holderCodes.filter((c) => c === 200)).toHaveLength(HOLDER_PER_MINUTE);
+        expect(holderCodes[HOLDER_PER_MINUTE]).toBe(429);
+        const visitorCodes: number[] = [];
+        for (let i = 0; i < CHAT_PER_MINUTE + 1; i++) visitorCodes.push((await post()).status);
+        expect(visitorCodes.filter((c) => c === 200)).toHaveLength(CHAT_PER_MINUTE);
+        expect(visitorCodes[CHAT_PER_MINUTE]).toBe(429);
+        // the holder's tier is written beside each of their questions
+        expect((getDb().prepare("SELECT COUNT(*) n FROM mind_chats WHERE asker = ? AND tier = 'holder'").get(me.toLowerCase()) as { n: number }).n).toBe(HOLDER_PER_MINUTE);
+      } finally {
+        for (const k2 of Object.keys(process.env)) if (!(k2 in env)) delete process.env[k2];
+        Object.assign(process.env, env);
+      }
+    });
   });
 });

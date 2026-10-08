@@ -5,7 +5,8 @@ import { getBearerToken } from "@/lib/identity";
 import { checkRateLimit, getClientIp, refundRateLimit, tooManyRequests } from "@/lib/rateLimit";
 import { withRequestContext } from "@/lib/withRequestContext";
 import { agentMindsEnabled } from "@/lib/mindsPolicy";
-import { askMind, chatEnabled, cleanQuestion, listChats, mindKnown, ANON_PER_DAY_PER_MIND, CHAT_PER_MINUTE, QUESTION_CHARS } from "@/lib/mindsChat";
+import { askMind, chatEnabled, cleanQuestion, listChats, mindKnown, isHolder, ANON_PER_DAY_PER_MIND, CHAT_PER_MINUTE, HOLDER_PER_MINUTE, QUESTION_CHARS } from "@/lib/mindsChat";
+import { getTier } from "@/lib/holderTier";
 import { normalizeAddress } from "@/lib/address";
 
 export const runtime = "nodejs";
@@ -47,8 +48,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
     if (!q.ok) return apiError("VALIDATION_ERROR", q.reason, 400);
     if (!mindKnown(token)) return apiError("NOT_FOUND", "No token with a mind at that address", 404);
 
-    // five questions a minute from any one wallet, or from any one address when nobody is signed in
-    const minute = checkRateLimit(`minds-chat:${wallet ? `w:${wallet}` : `ip:${getClientIp(req)}`}`, CHAT_PER_MINUTE, 60_000);
+    // five questions a minute from any one wallet, or from any one address when nobody is signed in; a holder of $AXON ten
+    const tier = wallet ? (await getTier(wallet)).tier.name : "base";
+    const minute = checkRateLimit(`minds-chat:${wallet ? `w:${wallet}` : `ip:${getClientIp(req)}`}`, isHolder(tier) ? HOLDER_PER_MINUTE : CHAT_PER_MINUTE, 60_000);
     if (!minute.allowed) return tooManyRequests(minute);
     // and a day's share of a mind's answers for visitors who are not signed in, so nobody can spend its treasury anonymously
     const dayKey = `minds-chat:anon:${token}`;
@@ -59,7 +61,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
       }
     }
 
-    const r = await askMind({ mindId: token, wallet, question: q.text });
+    const r = await askMind({ mindId: token, wallet, question: q.text }, { tier });
     if (!r.ok) {
       // a refusal that cost the mind nothing does not use up a visitor's share of its day
       if (!wallet && !r.charged) refundRateLimit(dayKey);

@@ -12,8 +12,8 @@ const { default: MindChat } = await import("@/app/launch/MindChat");
 
 const NOW = Date.parse("2026-10-08T15:00:00Z");
 const chats = [
-  { id: 2, asker: "0x1234…abcd", question: "What are you watching?", answer: "The holder count, mostly.", modelLabel: "Claude", standin: false, at: "2026-10-08T14:58:00Z" },
-  { id: 1, asker: null, question: "Why did you hold?", answer: "My plan keeps a reserve and the treasury is near it.", modelLabel: "Stand-in", standin: true, at: "2026-10-08T13:00:00Z" },
+  { id: 2, asker: "0x1234…abcd", question: "What are you watching?", answer: "The holder count, mostly.", modelLabel: "Claude", standin: false, tier: "holder", at: "2026-10-08T14:58:00Z" },
+  { id: 1, asker: null, question: "Why did you hold?", answer: "My plan keeps a reserve and the treasury is near it.", modelLabel: "Stand-in", standin: true, tier: "base", at: "2026-10-08T13:00:00Z" },
 ];
 
 describe("MindChat", () => {
@@ -26,6 +26,10 @@ describe("MindChat", () => {
     expect(html).toContain("The holder count, mostly.");
     expect(html).toContain("2m ago · Claude");
     expect(html).toContain("0 / 300");
+    // a holder's question carries their tier; a visitor's does not
+    expect(html).toContain(">holder<");
+    expect((html.match(/>holder</g) ?? []).length).toBe(1);
+    expect(html).toContain("ten for holders of $AXON");
     expect(html).not.toContain("—");
   });
 
