@@ -81,7 +81,7 @@ export function pulseState(token: string, now: number, c: { usdPerEth: number | 
   const db = getDb(), t = token.toLowerCase();
   const m = db.prepare("SELECT t.model, t.tax_bps, s.mcap_eth, COALESCE(s.holders, 0) holders, COALESCE(s.treasury_eth, 0) treasury_eth FROM mind_tokens t JOIN mind_stats s ON s.token = t.token WHERE t.token = ?").get(t) as TokenRow | undefined;
   // its own last look: a standing order firing is not one, and neither is its daily report
-  const last = db.prepare("SELECT at, mcap_eth, holders FROM mind_thoughts WHERE token = ? AND source NOT IN ('order', 'report') ORDER BY id DESC LIMIT 1").get(t) as { at: string; mcap_eth: number | null; holders: number | null } | undefined;
+  const last = db.prepare("SELECT at, mcap_eth, holders FROM mind_thoughts WHERE token = ? AND source NOT IN ('order', 'report', 'chat') ORDER BY id DESC LIMIT 1").get(t) as { at: string; mcap_eth: number | null; holders: number | null } | undefined;
   // a mind that has never thought has nothing to check in on: its first thought is woken by its launch
   if (!m || !last) return NONE;
 

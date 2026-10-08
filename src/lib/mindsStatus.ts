@@ -57,7 +57,7 @@ export async function mindStatus(token: string, o: StatusOptions = {}): Promise<
   if (treasury && !treasury.active) return say("stopped", `This mind is stopped. It does not think and nothing is sent for it; ${KEPT}`);
   if (!m.read) return say("unread", "Its numbers are still being read from the chain. It can think once they are in.");
 
-  const last = db.prepare("SELECT at, status, last_event_id FROM mind_thoughts WHERE token = ? AND source NOT IN ('order', 'report') ORDER BY id DESC LIMIT 1").get(m.token) as { at: string; status: string; last_event_id: number } | undefined;
+  const last = db.prepare("SELECT at, status, last_event_id FROM mind_thoughts WHERE token = ? AND source NOT IN ('order', 'report', 'chat') ORDER BY id DESC LIMIT 1").get(m.token) as { at: string; status: string; last_event_id: number } | undefined;
   const thought = Boolean(db.prepare("SELECT 1 FROM mind_thoughts WHERE token = ? AND status = 'thought' AND source NOT IN ('order', 'report') LIMIT 1").get(m.token));
   const news = (db.prepare("SELECT COUNT(*) n FROM mind_events WHERE token = ? AND id > ? AND kind NOT IN ('thought', 'bought', 'axon', 'rewarded')").get(m.token, last?.last_event_id ?? 0) as { n: number }).n;
   const wakes = m.attached ? "when its treasury is topped up or its agent earns" : "on the next fee payout, burn or holder milestone, or when its agent earns";

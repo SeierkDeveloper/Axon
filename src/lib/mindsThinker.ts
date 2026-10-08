@@ -9,7 +9,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { priceUsd, type MindModel } from "./mindsModels";
 
 export interface Thinking { text: string; inputTokens: number; outputTokens: number; costUsd: number }
-export type Thinker = (model: MindModel, system: string, prompt: string) => Promise<Thinking>;
+/** `maxOutputTokens` holds a call to a shorter answer than a thought's (an answer to a question on a token's page). */
+export interface ThinkerOptions { maxOutputTokens?: number }
+export type Thinker = (model: MindModel, system: string, prompt: string, opts?: ThinkerOptions) => Promise<Thinking>;
 
 export type ThinkingMode = "off" | "standin" | "live";
 
@@ -24,10 +26,11 @@ export function thinkingMode(env: Record<string, string | undefined> = process.e
 const MAX_OUTPUT_TOKENS = 2400;
 const TIMEOUT_MS = 60_000;
 
-export const realThinker: Thinker = async (model, system, prompt) => {
+export const realThinker: Thinker = async (model, system, prompt, opts) => {
+  const maxTokens = Math.min(MAX_OUTPUT_TOKENS, Math.max(1, Math.floor(opts?.maxOutputTokens ?? MAX_OUTPUT_TOKENS)));
   if (model.via === "anthropic") {
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: TIMEOUT_MS, maxRetries: 1 });
-    const r = await client.messages.create({ model: model.id, max_tokens: MAX_OUTPUT_TOKENS, system, messages: [{ role: "user", content: prompt }] });
+    const r = await client.messages.create({ model: model.id, max_tokens: maxTokens, system, messages: [{ role: "user", content: prompt }] });
     const text = r.content.map((b) => (b.type === "text" ? b.text : "")).join("");
     const inputTokens = r.usage.input_tokens, outputTokens = r.usage.output_tokens;
     return { text, inputTokens, outputTokens, costUsd: priceUsd(model, inputTokens, outputTokens) };
@@ -35,7 +38,7 @@ export const realThinker: Thinker = async (model, system, prompt) => {
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${process.env.OPENROUTER_API_KEY ?? ""}` },
-    body: JSON.stringify({ model: model.id, max_tokens: MAX_OUTPUT_TOKENS, reasoning: { effort: "low" }, usage: { include: true }, messages: [{ role: "system", content: system }, { role: "user", content: prompt }] }),
+    body: JSON.stringify({ model: model.id, max_tokens: maxTokens, reasoning: { effort: "low" }, usage: { include: true }, messages: [{ role: "system", content: system }, { role: "user", content: prompt }] }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   const body = (await res.json().catch(() => ({}))) as { choices?: { message?: { content?: string }; finish_reason?: string }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
@@ -53,6 +56,14 @@ export const realThinker: Thinker = async (model, system, prompt) => {
  */
 export const standInThinker: Thinker = async (model, system, prompt) => {
   const num = (label: string) => Number(new RegExp(`${label}: ([0-9.eE+-]+)`).exec(prompt)?.[1] ?? "0");
+  // a question on the token's page: a short plain answer from the same numbers, and never a move
+  if (/^question_from_a_visitor/m.test(prompt)) {
+    const symbol = /^token: [^\n]*\(\$([^)]*)\)/m.exec(prompt)?.[1] ?? "?";
+    const mission = /^ {2}mission: (.+)$/m.exec(prompt)?.[1];
+    const text = `I am the mind of $${symbol}. My treasury holds ${num("treasury_eth")} ETH, of which ${num("free_to_spend_eth")} ETH is free, and the token has ${num("holders")} holders.${mission ? ` My plan: ${mission.replace(/[.!?]?$/, ".")}` : ""} A question does not change what I do: I decide that when I think, inside limits locked at launch.`;
+    const inputTokens = Math.ceil((system.length + prompt.length) / 4), outputTokens = Math.ceil(text.length / 4);
+    return { text, inputTokens, outputTokens, costUsd: priceUsd(model, inputTokens, outputTokens) };
+  }
   const free = num("free_to_spend_eth"), perAction = num("max_per_action_eth"), holders = num("holders");
   const woke = /woke_by: (.*)/.exec(prompt)?.[1] ?? "something moved";
   const can = /may: (.*)/.exec(prompt)?.[1] ?? "";

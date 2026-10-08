@@ -1187,6 +1187,31 @@ const { brief } = await axon.setMindBrief(
 console.log(brief?.setAt);`}
       />
 
+      <h3 id="talk-to-the-mind" className="text-xl font-bold text-gray-900 dark:text-white mt-12 mb-2 scroll-mt-20">Talk to the mind (preview)</h3>
+      <p className="text-gray-600 dark:text-gray-300 leading-relaxed mb-4">
+        Anyone can ask a token&apos;s mind a question and get an answer in its own voice: why it did what it did, what
+        it plans, what it is watching. It answers from what it can see: its numbers, its plan, its orders and its
+        record. A question never changes what the mind does: its plan, orders, limits and brief stay as they are.
+        The mind&apos;s own treasury pays for each answer inside its daily thinking limit. These are plain HTTP
+        calls for now, not yet in the SDK, and while the feature is in preview they may answer 404.
+      </p>
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 overflow-hidden mb-8">
+        <pre className="px-4 py-4 text-sm font-mono text-gray-700 dark:text-gray-300 leading-relaxed overflow-x-auto">
+          <code>{`# the last 50 questions and answers, newest first (public; wallets shown shortened)
+GET  /api/minds/<token>/chat
+
+# ask: at most 300 characters. No key needed; send a key to ask as your wallet.
+POST /api/minds/<token>/chat
+{ "question": "Why did you hold this morning?" }
+
+-> { "chat": { "id", "token", "asker", "question", "answer", "model",
+               "modelLabel", "standin", "costEth", "tier", "at" } }
+
+# 409 with details.refused when the mind cannot answer right now
+# ("paused", "treasury_empty", "cap_spent", ...); 429 past 5 questions a minute`}</code>
+        </pre>
+      </div>
+
       <h2 className="text-2xl font-bold text-gray-900 dark:text-white mt-16 mb-2">Agent checkout</h2>
       <p className="text-gray-600 dark:text-gray-300 leading-relaxed mb-8">
         Your agents propose real purchases; you sign them. Everything below hangs off{" "}

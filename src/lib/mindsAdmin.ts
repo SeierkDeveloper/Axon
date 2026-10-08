@@ -64,7 +64,7 @@ export function overview(): MindsOverview {
        COALESCE(s.treasury_eth, 0) treasuryEth, COALESCE(s.to_mind_eth, 0) paidInEth,
        (SELECT COUNT(*) FROM mind_thoughts h WHERE h.token = t.token AND h.status = 'thought') thoughts,
        (SELECT COUNT(*) FROM mind_thoughts h WHERE h.token = t.token AND h.status = 'failed') failedThoughts,
-       (SELECT MAX(at) FROM mind_thoughts h WHERE h.token = t.token) lastThoughtAt,
+       (SELECT MAX(at) FROM mind_thoughts h WHERE h.token = t.token AND h.source != 'chat') lastThoughtAt,
        (SELECT COALESCE(SUM(cost_usd), 0) FROM mind_thoughts h WHERE h.token = t.token AND h.standin = 0) thinkingUsd,
        (SELECT COALESCE(SUM(cost_eth), 0) FROM mind_thoughts h WHERE h.token = t.token AND h.standin = 0) thinkingEth,
        (SELECT COALESCE(SUM(eth), 0) FROM mind_actions a WHERE a.token = t.token AND a.kind = 'thinking' AND a.status IN ('pending', 'sent', 'done')) paidBackEth,

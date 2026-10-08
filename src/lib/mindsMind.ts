@@ -98,7 +98,7 @@ const REASON: Record<string, (e: { eth: number | null; tokens: number | null }) 
   brief: () => "a new brief from its creator",
 };
 
-interface MindRow { token: string; name: string | null; symbol: string | null; description: string | null; vault: string; creator: string; mind_url: string | null; model: string | null; agent_id: string | null; launched_at: string; tax_bps: number | null; attached?: number; stopped_at?: string | null; phase: number; mcap_eth: number | null; curve_bps: number; holders: number; fees_eth: number; burned_tokens: number; treasury_eth: number }
+export interface MindRow { token: string; name: string | null; symbol: string | null; description: string | null; vault: string; creator: string; mind_url: string | null; model: string | null; agent_id: string | null; launched_at: string; tax_bps: number | null; attached?: number; stopped_at?: string | null; phase: number; mcap_eth: number | null; curve_bps: number; holders: number; fees_eth: number; burned_tokens: number; treasury_eth: number }
 
 const SYSTEM = `You are the mind of a token launched on Axon, on Robinhood Chain. The token stands behind an AI agent that people hire for real work. You have a treasury, filled by a share of the token's trading fees that its creator fixed at launch.
 
@@ -125,10 +125,10 @@ function since(last: NonNullable<Seen["last"]>, m: MindRow, now: number): string
 }
 
 /** What a mind is told besides the token's present numbers: how they stood at its last thought, and today's use of its limits. */
-interface Seen { last: { mcapEth: number | null; holders: number | null; at: string } | null; lastAction: { kind: string; eth: number; at: string } | null; day: { actionsToday: number; spentTodayEth: number } | null; senses?: Senses | null; plan?: string[]; reserveEth?: number; orders?: string[]; heldEth?: number; record?: string[]; brief?: string[]; reportOn?: { label: string; facts: string[] } }
+export interface Seen { last: { mcapEth: number | null; holders: number | null; at: string } | null; lastAction: { kind: string; eth: number; at: string } | null; day: { actionsToday: number; spentTodayEth: number } | null; senses?: Senses | null; plan?: string[]; reserveEth?: number; orders?: string[]; heldEth?: number; record?: string[]; brief?: string[]; reportOn?: { label: string; facts: string[] } }
 const NOTHING_SEEN: Seen = { last: null, lastAction: null, day: null };
 
-function promptFor(m: MindRow, t: Treasury, owed: number, reasons: string[], earned: number, earlier: Thought[], now: number = Date.now(), seen: Seen = NOTHING_SEEN): string {
+export function promptFor(m: MindRow, t: Treasury, owed: number, reasons: string[], earned: number, earlier: Thought[], now: number = Date.now(), seen: Seen = NOTHING_SEEN): string {
   const may = [t.limits.allowed & CAN.buyback && "buy back and burn", t.limits.allowed & CAN.reward && !m.attached && "reward holders", t.limits.allowed & CAN.burnAxon && "burn $AXON"].filter(Boolean).join(", ") || "nothing: you can only think";
   // what is free is what is left above its thinking costs, the reserve its own plan keeps and what it holds for its promises
   const free = Math.max(0, t.availableEth - owed - THINKING_RESERVE_ETH - (seen.reserveEth ?? 0) - (seen.heldEth ?? 0));
@@ -192,6 +192,46 @@ export interface ThinkOptions {
   report?: { day: string; label: string; facts: string[] };
 }
 
+/** A token and its mind as a thought reads them, or undefined until its numbers have been read from the chain. */
+export function loadMind(token: string): MindRow | undefined {
+  return getDb().prepare(
+    `SELECT t.token, t.name, t.symbol, t.description, t.vault, t.creator, t.mind_url, t.model, t.agent_id, t.launched_at, t.tax_bps, t.attached, t.stopped_at, COALESCE(s.phase, 0) phase, s.mcap_eth, COALESCE(s.curve_bps, 0) curve_bps, COALESCE(s.holders, 0) holders,
+       COALESCE(s.fees_eth, 0) fees_eth, COALESCE(s.burned_tokens, 0) burned_tokens, COALESCE(s.treasury_eth, 0) treasury_eth
+     FROM mind_tokens t JOIN mind_stats s ON s.token = t.token WHERE t.token = ? AND s.updated_at IS NOT NULL`,
+  ).get(token.toLowerCase()) as MindRow | undefined;
+}
+
+/**
+ * Everything a mind is shown besides its token's present numbers: what its agent earned, its last thoughts, how things
+ * stood at its last look, today's use of its limits, its senses, plan, standing orders, track record and its creator's
+ * brief. A thought and an answer to a question on its page read the same picture. Reads only.
+ */
+export async function mindContext(m: MindRow, treasury: Treasury, o: { chain: MindsChain; env: Record<string, string | undefined>; now: number }) {
+  const { chain, env, now } = o, db = getDb();
+  const earned = m.agent_id ? earnedSince(m.agent_id, m.launched_at) : 0;
+  const earlier = thoughts(m.token, 3);
+  const snap = db.prepare("SELECT mcap_eth mcapEth, holders, at FROM mind_thoughts WHERE token = ? AND status = 'thought' AND source NOT IN ('order', 'report') ORDER BY id DESC LIMIT 1").get(m.token) as { mcapEth: number | null; holders: number | null; at: string } | undefined;
+  const acted = db.prepare("SELECT action, at FROM mind_thoughts WHERE token = ? AND status = 'thought' AND verdict = 'approved' AND action IS NOT NULL ORDER BY id DESC LIMIT 1").get(m.token) as { action: string; at: string } | undefined;
+  const seen: Seen = {
+    last: snap ?? null,
+    lastAction: acted ? { ...(JSON.parse(acted.action) as { kind: string; eth: number }), at: acted.at } : null,
+    // today's use of its limits is the chain's to say; a thought goes ahead without it when it cannot be read
+    day: await chain.vaultDay(m.vault).then((d) => ({ actionsToday: d.actionsToday, spentTodayEth: d.spentTodayEth })).catch(() => null),
+    senses: sensesOf(m.token, m.tax_bps, now),
+  };
+  const standing = planOf(m.token);
+  const numbers = { holders: m.holders, mcapEth: m.mcap_eth, burnedTokens: m.burned_tokens, curveBps: m.curve_bps, phase: m.phase };
+  seen.plan = planLines(standing, numbers, { buybackEth: treasury.boughtBackEth, rewardEth: treasury.rewardedEth, burnAxonEth: treasury.axonBurnedEth }, now);
+  seen.reserveEth = standing?.reserveEth ?? 0;
+  const measures: Measures = { mcapEth: m.mcap_eth, holders: m.holders, treasuryEth: m.treasury_eth, phase: m.phase };
+  seen.orders = ordersEnabled(env) ? ordersLines(m.token, measures, now) : ["your_standing_orders: switched off for now. Set none in this answer."];
+  const heldEth = heldFor(m.token);
+  seen.heldEth = heldEth;
+  seen.record = recordLines(m.token, now);
+  seen.brief = briefLines(m.token, now);
+  return { earned, earlier, seen, standing, numbers, measures, heldEth };
+}
+
 /**
  * Think once for one token, if it has a reason to and can pay. Returns the thought, or why there was none.
  */
@@ -201,16 +241,13 @@ export async function thinkOnce(token: string, o: ThinkOptions = {}): Promise<Th
   if (!agentMindsEnabled(env) || mode === "off") return { skipped: "thinking is off" };
   if (mindsHalted()) return { skipped: "every mind is stopped" };
   const db = getDb();
-  const m = db.prepare(
-    `SELECT t.token, t.name, t.symbol, t.description, t.vault, t.creator, t.mind_url, t.model, t.agent_id, t.launched_at, t.tax_bps, t.attached, t.stopped_at, COALESCE(s.phase, 0) phase, s.mcap_eth, COALESCE(s.curve_bps, 0) curve_bps, COALESCE(s.holders, 0) holders,
-       COALESCE(s.fees_eth, 0) fees_eth, COALESCE(s.burned_tokens, 0) burned_tokens, COALESCE(s.treasury_eth, 0) treasury_eth
-     FROM mind_tokens t JOIN mind_stats s ON s.token = t.token WHERE t.token = ? AND s.updated_at IS NOT NULL`,
-  ).get(token.toLowerCase()) as MindRow | undefined;
+  const m = loadMind(token);
   if (!m) return { skipped: "its numbers have not been read yet" };
   if (m.stopped_at) return { skipped: "the mind is stopped" };
 
   // a fired order is written into the journal but is not a thought: it neither holds the next thought back nor counts as the last look
-  const last = db.prepare("SELECT at, status, last_event_id FROM mind_thoughts WHERE token = ? AND source NOT IN ('order', 'report') ORDER BY id DESC LIMIT 1").get(m.token) as { at: string; status: string; last_event_id: number } | undefined;
+  // an answer to a question on its page is no thought either: it only carries what the answer cost
+  const last = db.prepare("SELECT at, status, last_event_id FROM mind_thoughts WHERE token = ? AND source NOT IN ('order', 'report', 'chat') ORDER BY id DESC LIMIT 1").get(m.token) as { at: string; status: string; last_event_id: number } | undefined;
   const report = o.report ?? null;
   if (!report && last && now - Date.parse(last.at) < (last.status === "failed" ? FAILED_GAP_MS : MIN_GAP_MS)) return { skipped: "it thought a moment ago" };
   const news = db.prepare("SELECT id, kind, eth, tokens FROM mind_events WHERE token = ? AND id > ? AND kind NOT IN ('thought', 'bought', 'axon', 'rewarded') ORDER BY id ASC LIMIT 20").all(m.token, last?.last_event_id ?? 0) as { id: number; kind: string; eth: number | null; tokens: number | null }[];
@@ -258,27 +295,7 @@ export async function thinkOnce(token: string, o: ThinkOptions = {}): Promise<Th
 
   const reasons = report ? [`its daily report for ${report.label}`] : pulse ? [pulse] : news.map((e) => (REASON[e.kind] ?? (() => e.kind))(e));
   const src = report ? "report" : pulse ? "pulse" : "event";
-  const earned = m.agent_id ? earnedSince(m.agent_id, m.launched_at) : 0;
-  const earlier = thoughts(m.token, 3);
-  const snap = db.prepare("SELECT mcap_eth mcapEth, holders, at FROM mind_thoughts WHERE token = ? AND status = 'thought' AND source NOT IN ('order', 'report') ORDER BY id DESC LIMIT 1").get(m.token) as { mcapEth: number | null; holders: number | null; at: string } | undefined;
-  const acted = db.prepare("SELECT action, at FROM mind_thoughts WHERE token = ? AND status = 'thought' AND verdict = 'approved' AND action IS NOT NULL ORDER BY id DESC LIMIT 1").get(m.token) as { action: string; at: string } | undefined;
-  const seen: Seen = {
-    last: snap ?? null,
-    lastAction: acted ? { ...(JSON.parse(acted.action) as { kind: string; eth: number }), at: acted.at } : null,
-    // today's use of its limits is the chain's to say; a thought goes ahead without it when it cannot be read
-    day: await chain.vaultDay(m.vault).then((d) => ({ actionsToday: d.actionsToday, spentTodayEth: d.spentTodayEth })).catch(() => null),
-    senses: sensesOf(m.token, m.tax_bps, now),
-  };
-  const standing = planOf(m.token);
-  const numbers = { holders: m.holders, mcapEth: m.mcap_eth, burnedTokens: m.burned_tokens, curveBps: m.curve_bps, phase: m.phase };
-  seen.plan = planLines(standing, numbers, { buybackEth: treasury.boughtBackEth, rewardEth: treasury.rewardedEth, burnAxonEth: treasury.axonBurnedEth }, now);
-  seen.reserveEth = standing?.reserveEth ?? 0;
-  const measures: Measures = { mcapEth: m.mcap_eth, holders: m.holders, treasuryEth: m.treasury_eth, phase: m.phase };
-  seen.orders = ordersEnabled(env) ? ordersLines(m.token, measures, now) : ["your_standing_orders: switched off for now. Set none in this answer."];
-  const heldEth = heldFor(m.token);
-  seen.heldEth = heldEth;
-  seen.record = recordLines(m.token, now);
-  seen.brief = briefLines(m.token, now);
+  const { earned, earlier, seen, standing, numbers, measures, heldEth } = await mindContext(m, treasury, { chain, env, now });
   if (report) seen.reportOn = { label: report.label, facts: report.facts };
   const thinker = own
     ? ownThinker(m.mind_url!, m.creator, { token: m.token, symbol: m.symbol, name: m.name, test: false }, o.post, env)
@@ -358,8 +375,8 @@ export async function thinkDue(o: ThinkOptions = {}, limit = MINDS_PER_PASS): Pr
   const due = getDb().prepare(
     `SELECT t.token FROM mind_tokens t
       WHERE t.stopped_at IS NULL AND EXISTS (SELECT 1 FROM mind_events e WHERE e.token = t.token AND e.kind NOT IN ('thought', 'bought', 'axon', 'rewarded') AND e.id > COALESCE((SELECT MAX(last_event_id) FROM mind_thoughts h WHERE h.token = t.token), 0))
-        AND COALESCE((SELECT MAX(at) FROM mind_thoughts h WHERE h.token = t.token AND h.source NOT IN ('order', 'report')), '') < ?
-      ORDER BY COALESCE((SELECT MAX(at) FROM mind_thoughts h WHERE h.token = t.token AND h.source NOT IN ('order', 'report')), '') ASC LIMIT ?`,
+        AND COALESCE((SELECT MAX(at) FROM mind_thoughts h WHERE h.token = t.token AND h.source NOT IN ('order', 'report', 'chat')), '') < ?
+      ORDER BY COALESCE((SELECT MAX(at) FROM mind_thoughts h WHERE h.token = t.token AND h.source NOT IN ('order', 'report', 'chat')), '') ASC LIMIT ?`,
   ).all(new Date(now - MIN_GAP_MS).toISOString(), limit) as { token: string }[];
   let thought = 0, skipped = 0;
   for (const { token } of due) {
@@ -371,9 +388,9 @@ export async function thinkDue(o: ThinkOptions = {}, limit = MINDS_PER_PASS): Pr
     const quiet = getDb().prepare(
       `SELECT t.token FROM mind_tokens t JOIN mind_stats s ON s.token = t.token
         WHERE t.stopped_at IS NULL AND s.updated_at IS NOT NULL
-          AND (SELECT MAX(at) FROM mind_thoughts h WHERE h.token = t.token AND h.source NOT IN ('order', 'report')) < ?
+          AND (SELECT MAX(at) FROM mind_thoughts h WHERE h.token = t.token AND h.source NOT IN ('order', 'report', 'chat')) < ?
           AND NOT EXISTS (SELECT 1 FROM mind_events e WHERE e.token = t.token AND e.kind NOT IN ('thought', 'bought', 'axon', 'rewarded') AND e.id > COALESCE((SELECT MAX(last_event_id) FROM mind_thoughts h WHERE h.token = t.token), 0))
-        ORDER BY (SELECT MAX(at) FROM mind_thoughts h WHERE h.token = t.token AND h.source NOT IN ('order', 'report')) ASC LIMIT 60`,
+        ORDER BY (SELECT MAX(at) FROM mind_thoughts h WHERE h.token = t.token AND h.source NOT IN ('order', 'report', 'chat')) ASC LIMIT 60`,
     ).all(new Date(now - MIN_GAP_MS).toISOString()) as { token: string }[];
     if (quiet.length) {
       const usdPerEth = o.usdPerEth === undefined ? await ethUsd().catch(() => null) : o.usdPerEth;
