@@ -32,6 +32,8 @@ const eslintConfig = defineConfig([
     // submodules checked out, they accounted for over a thousand errors. CI never saw them because
     // it does not check out submodules, so the noise was invisible there and blinding here.
     "contracts/lib/**",
+    // Third-party bundles served as static files (Swagger UI), minified and not ours to lint.
+    "public/vendor/**",
   ]),
 ]);
 
