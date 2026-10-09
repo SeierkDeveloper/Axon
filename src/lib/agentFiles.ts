@@ -149,11 +149,12 @@ export interface FileRow {
   source_task_id?: string | null;
 }
 export interface FileView {
-  id: string; name: string; mime: string; kind: FileKind; size: number; sha256: string; direction: "in" | "out";
+  /** `type` and `mime` are the same thing: `type` is what every other listing of a file calls it */
+  id: string; name: string; type: string; mime: string; kind: FileKind; size: number; sha256: string; direction: "in" | "out";
   taskId: string | null; createdAt: string; expiresAt: string;
 }
 export const toView = (r: FileRow): FileView => ({
-  id: r.id, name: r.name, mime: r.mime, kind: r.kind, size: r.size, sha256: r.sha256, direction: r.direction,
+  id: r.id, name: r.name, type: r.mime, mime: r.mime, kind: r.kind, size: r.size, sha256: r.sha256, direction: r.direction,
   taskId: r.task_id, createdAt: r.created_at, expiresAt: r.expires_at,
 });
 

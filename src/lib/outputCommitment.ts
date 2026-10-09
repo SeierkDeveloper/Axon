@@ -52,6 +52,14 @@ export async function commitOutput(taskId: string, output: string): Promise<stri
   const files = outputFilesHash(taskId);
   const memo = commitmentMemo(taskId, hash, files);
 
+  // The hashes are known the moment the work is done, so they are written down first. Posting them on chain can
+  // take a minute, and a receipt read meanwhile should already show what the job committed to.
+  try {
+    getDb().prepare("UPDATE tasks SET output_hash = ?, output_files_hash = ? WHERE task_id = ?").run(hash, files, taskId);
+  } catch {
+    /* written again below, with the outcome */
+  }
+
   let signature: string | null = null;
   try {
     signature = await postMemoTransaction(memo);
