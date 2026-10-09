@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-08T20:02:29.911Z",
-  "finishedAt": "2026-10-08T20:02:57.038Z",
-  "commit": "520bac0",
+  "startedAt": "2026-10-09T17:41:53.010Z",
+  "finishedAt": "2026-10-09T17:45:49.535Z",
+  "commit": "2791528",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 16167
+      "ms": 13434
     },
     {
       "id": "links",
@@ -17,13 +17,13 @@
       "ok": true,
       "checked": 204,
       "findings": [],
-      "ms": 79
+      "ms": 67
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 964,
+      "checked": 1049,
       "findings": [
         {
           "severity": "warn",
@@ -42,15 +42,15 @@
           ]
         }
       ],
-      "ms": 1160
+      "ms": 1225
     },
     {
       "id": "api-reference",
       "title": "The API reference matches the routes",
       "ok": true,
-      "checked": 338,
+      "checked": 356,
       "findings": [],
-      "ms": 61
+      "ms": 62
     },
     {
       "id": "sdk-routes",
@@ -58,7 +58,7 @@
       "ok": true,
       "checked": 130,
       "findings": [],
-      "ms": 33
+      "ms": 24
     },
     {
       "id": "examples",
@@ -66,36 +66,53 @@
       "ok": true,
       "checked": 39,
       "findings": [],
-      "ms": 12
+      "ms": 9
     },
     {
       "id": "packages",
       "title": "Packages are used and free of known holes",
       "ok": true,
-      "checked": 24,
+      "checked": 25,
       "findings": [
         {
           "severity": "warn",
-          "what": "0 critical and 3 high vulnerabilities in shipped packages",
+          "what": "0 critical and 4 high vulnerabilities in shipped packages",
           "why": "known holes in what runs in production",
           "where": [
             "package-lock.json"
           ]
         }
       ],
-      "ms": 4214
+      "ms": 2050
     },
     {
       "id": "migrations",
       "title": "Migrations are complete and in order",
       "ok": true,
-      "checked": 105,
+      "checked": 110,
       "findings": [],
-      "ms": 1
+      "ms": 0
     }
   ],
   "errors": 0,
   "warnings": 3,
-  "changed": false,
-  "changes": []
+  "changed": true,
+  "changes": [
+    {
+      "what": "dropped the export from filesDir()",
+      "where": "src/lib/agentFiles.ts",
+      "files": [
+        "src/lib/agentFiles.ts"
+      ],
+      "status": "applied"
+    },
+    {
+      "what": "dropped the export from hasOutput()",
+      "where": "src/lib/agentFiles.ts",
+      "files": [
+        "src/lib/agentFiles.ts"
+      ],
+      "status": "applied"
+    }
+  ]
 }
