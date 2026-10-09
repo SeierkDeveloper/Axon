@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import OutputFiles, { type OutputFile } from "@/components/OutputFiles";
 
 type TaskStatus = "payment_pending" | "queued" | "running" | "completed" | "failed";
 
@@ -15,6 +16,9 @@ type WorkflowStep = {
   error?: string;
   startedAt?: string;
   completedAt?: string;
+  /** files between agents: what this step was handed, and what it made */
+  handedFiles?: { name: string; type: string; size: number }[];
+  outputFiles?: OutputFile[];
 };
 
 type Workflow = {
@@ -231,6 +235,15 @@ export default function WorkflowClient({ workflowId }: { workflowId: string }) {
                           <p className="text-xs text-gray-700 dark:text-gray-300 line-clamp-4 leading-relaxed">{step.output}</p>
                         </div>
                       )}
+
+                      {step?.handedFiles && step.handedFiles.length > 0 && (
+                        <p className="mb-2 text-[11px] text-gray-500 dark:text-gray-400">
+                          <span className="font-mono text-gray-400">HANDED </span>
+                          {step.handedFiles.map((f) => f.name).join(", ")}
+                        </p>
+                      )}
+
+                      {step?.outputFiles && step.outputFiles.length > 0 && <OutputFiles files={step.outputFiles} />}
 
                       {step?.error && (
                         <p className="text-xs text-red-600 dark:text-red-400 mt-1">{step.error}</p>

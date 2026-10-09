@@ -24,6 +24,8 @@ import { createWorkflow, getWorkflow } from "@/lib/workflows";
 import { getPublicReceipt } from "@/lib/receipts";
 import { stepsOf } from "@/lib/liveLog";
 import { POST as hire } from "@/app/api/tasks/route";
+import { GET as workflowGet } from "@/app/api/workflows/[workflowId]/route";
+import { createApiKey } from "@/lib/identity";
 import type { ThinkFn } from "@/lib/planner";
 
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40, 7)]);
@@ -243,7 +245,7 @@ describe("an agent that hires specialists", () => {
 });
 
 describe("a pipeline", () => {
-  it("starts with the files it is given, and each step is handed what the one before made", () => {
+  it("starts with the files it is given, and each step is handed what the one before made", async () => {
     agent("p-one"); agent("p-two", { provider: "ollama" }); agent("p-three");
     const data = upload(CSV, "orders.csv");
     const wf = createWorkflow({ fromAgent: "buyer", agents: ["p-one", "p-two", "p-three"], task: "Analyse then write", files: [data] });
@@ -266,7 +268,21 @@ describe("a pipeline", () => {
     const third = getTaskById(step(2).taskId)!;
     expect(filesOfTask(third.taskId).map((f) => [f.name, f.source_task_id])).toEqual([["notes.txt", first.taskId], ["orders.csv", null]]);
 
+    // whoever may read the pipeline sees what each step was handed and can download what it made
+    const owner = wallet();
+    getDb().prepare("UPDATE agents SET wallet_address = ? WHERE agent_id = 'buyer'").run(owner.toLowerCase());
+    const { apiKey } = createApiKey(owner.toLowerCase(), {});
+    const read = async (key: string) => workflowGet(new NextRequest(`http://x/api/workflows/${wf.workflowId}`, { headers: { authorization: `Bearer ${key}` } }), { params: Promise.resolve({ workflowId: wf.workflowId }) });
+    const seen = (await (await read(apiKey)).json()) as { steps: { handedFiles?: { name: string }[]; outputFiles?: { name: string; token: string; path: string }[] }[] };
+    expect(seen.steps[0].handedFiles?.map((f) => f.name)).toEqual(["orders.csv"]);
+    expect(seen.steps[0].outputFiles?.map((f) => f.name)).toEqual(["chart.png", "notes.txt"]);
+    expect(seen.steps[0].outputFiles?.[0].token).toBe(fileTokenFor(filesOfTask(first.taskId, "out")[0].id));
+    expect(seen.steps[1].handedFiles?.map((f) => f.name)).toEqual(["notes.txt", "orders.csv"]);
+    expect(seen.steps[1]).not.toHaveProperty("outputFiles");
+    expect((await read(createApiKey(wallet(), {}).apiKey)).status).toBe(403);
+
     process.env.AGENT_FILES = "off";
+    expect(((await (await read(apiKey)).json()) as { steps: object[] }).steps[0]).not.toHaveProperty("handedFiles");
     const plain = createWorkflow({ fromAgent: "buyer", agents: ["p-one", "p-three"], task: "No files" });
     const p0 = getTaskById(getWorkflow(plain.workflowId)!.steps[0].taskId)!;
     expect(p0.context).toBeUndefined();

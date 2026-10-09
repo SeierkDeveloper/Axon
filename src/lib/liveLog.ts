@@ -57,7 +57,8 @@ function commandLine(command: string): string {
   const firstRaw = command.split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#")) ?? "";
   // where it runs is not what it does: "cd /tmp && python3 x.py" is the Python
   const first = firstRaw.replace(/^(cd\s+\S+\s*(&&|;)\s*)+/, "");
-  const written = first.match(/^cat\s*>+\s*(\S+)\s*<</);
+  // a file written from the command itself, whichever side of the text its name is on
+  const written = first.match(/^cat\s*>+\s*(\S+)\s*<</) ?? first.match(/^cat\s*<<-?\s*\S+\s*>+\s*(\S+)/) ?? first.match(/^(?:tee|touch)\s+(?:-\S+\s+)*(\S+)/);
   if (written) return `Writing ${baseName(written[1])}`;
   const script = first.match(/^python3?\s+(?!-)(\S+\.py)\b/);
   if (script) return `Running ${baseName(script[1])}`;

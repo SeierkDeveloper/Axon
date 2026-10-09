@@ -54,6 +54,8 @@ describe("a step as a line", () => {
     expect(lineFor(tool("web_fetch", { url: "not a url" }))).toBe("Opening a page");
     expect(lineFor(tool("bash_code_execution", { command: "python3 /tmp/analyze.py --fast" }))).toBe("Running analyze.py");
     expect(lineFor(tool("bash_code_execution", { command: "cat > /tmp/chart.py << 'EOF'\nimport pandas\nEOF" }))).toBe("Writing chart.py");
+    expect(lineFor(tool("bash_code_execution", { command: "cat << 'EOF' > /tmp/analyze.py\nimport pandas\nEOF\npython3 /tmp/analyze.py" }))).toBe("Writing analyze.py");
+    expect(lineFor(tool("bash_code_execution", { command: "cd /tmp && cat <<EOF >chart.py\nx\nEOF" }))).toBe("Writing chart.py");
     expect(lineFor(tool("bash_code_execution", { command: "# look first\nls -la /tmp" }))).toBe("Looking at the files");
     expect(lineFor(tool("bash_code_execution", { command: "head -5 /mnt/user/orders.csv" }))).toBe("Looking at orders.csv");
     expect(lineFor(tool("bash_code_execution", { command: "python3 -c \"print(1)\"" }))).toBe("Running Python");

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getWorkflow } from "@/lib/workflows";
 import { canAccessIdentity, requireApiKey } from "@/lib/apiAuth";
 import { apiError } from "@/lib/apiError";
+import { filesEnabled, filesOfTask, outputFileFor, CONTEXT_KEY } from "@/lib/agentFiles";
+import { getTaskById } from "@/lib/tasks";
 
 // GET /api/workflows/[workflowId]
 export async function GET(
@@ -22,5 +24,16 @@ export async function GET(
     return apiError("FORBIDDEN", "API key does not have access to this workflow", 403);
   }
 
-  return NextResponse.json(workflow);
+  // Files between agents: what each step was handed and what it made. Whoever may read a pipeline already reads
+  // every step's answer; the files are part of the same work, each with the token that downloads it.
+  if (!filesEnabled()) return NextResponse.json(workflow);
+  return NextResponse.json({
+    ...workflow,
+    steps: workflow.steps.map((step) => {
+      const listed = getTaskById(step.taskId)?.context?.[CONTEXT_KEY];
+      const handed = Array.isArray(listed) ? (listed as { name: string; type: string; size: number }[]).map((f) => ({ name: f.name, type: f.type, size: f.size })) : [];
+      const made = filesOfTask(step.taskId, "out").map((f) => outputFileFor(f));
+      return { ...step, ...(handed.length ? { handedFiles: handed } : {}), ...(made.length ? { outputFiles: made } : {}) };
+    }),
+  });
 }
