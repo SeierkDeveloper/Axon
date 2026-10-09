@@ -61,8 +61,13 @@ export function refundRateLimit(key: string): void {
 
 export function getClientIp(req: Request): string {
   if (process.env.TRUST_PROXY_HEADERS === "true") {
-    const cf = req.headers.get("cf-connecting-ip")?.trim();
-    if (cf) return cf;
+    // Cloudflare's header is only the caller's address when Cloudflare really is in front and sets it. Behind any
+    // other proxy it arrives exactly as the caller typed it, so trusting it lets anybody pick a fresh address per
+    // request and walk past every per-address limit. It is read only when the deployment says Cloudflare is there.
+    if (process.env.TRUST_CLOUDFLARE_HEADERS === "true") {
+      const cf = req.headers.get("cf-connecting-ip")?.trim();
+      if (cf) return cf;
+    }
 
     const real = req.headers.get("x-real-ip")?.trim();
     if (real) return real;

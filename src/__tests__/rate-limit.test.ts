@@ -113,15 +113,19 @@ describe("getClientIp", () => {
     expect(getClientIp(req)).toBe("direct");
   });
 
-  it("reads cf-connecting-ip when TRUST_PROXY_HEADERS=true", () => {
+  it("reads cf-connecting-ip only where the deployment says Cloudflare is in front", () => {
     process.env.TRUST_PROXY_HEADERS = "true";
     try {
       const req = new NextRequest("http://localhost/", {
         headers: { "cf-connecting-ip": "5.6.7.8" },
       });
+      // behind any other proxy the header is whatever the caller typed, so it is not read
+      expect(getClientIp(req)).toBe("direct");
+      process.env.TRUST_CLOUDFLARE_HEADERS = "true";
       expect(getClientIp(req)).toBe("5.6.7.8");
     } finally {
       delete process.env.TRUST_PROXY_HEADERS;
+      delete process.env.TRUST_CLOUDFLARE_HEADERS;
     }
   });
 
