@@ -118,7 +118,7 @@ export function cleanName(raw: unknown, ext: string): string {
   return base || `file.${ext}`;
 }
 
-export function filesDir(env: Record<string, string | undefined> = process.env): string {
+function filesDir(env: Record<string, string | undefined> = process.env): string {
   return env.AXON_FILES_DIR?.trim() || path.join(path.dirname(getDbPath()), "files");
 }
 const blobPath = (sha: string, dir = filesDir()) => path.join(dir, sha.slice(0, 2), sha.slice(2, 4), sha);
@@ -530,7 +530,7 @@ export function filesHash(shas: string[]): string | null {
 }
 
 /** True when this job already handed back these exact bytes, so a job that runs twice does not list a file twice. */
-export function hasOutput(taskId: string, sha256: string): boolean {
+function hasOutput(taskId: string, sha256: string): boolean {
   return Boolean(getDb().prepare("SELECT 1 FROM task_files WHERE task_id = ? AND direction = 'out' AND sha256 = ? LIMIT 1").get(taskId, sha256));
 }
 
