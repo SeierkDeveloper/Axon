@@ -1,4 +1,5 @@
 import { filesEnabled, filesOfTask, outputFileFor } from "@/lib/agentFiles";
+import { liveLogEnabled, stepsOf } from "@/lib/liveLog";
 import { NextRequest, NextResponse } from "next/server";
 import { getTaskById } from "@/lib/tasks";
 import { canAccessIdentity, requireApiKey } from "@/lib/apiAuth";
@@ -16,11 +17,14 @@ function paidByKey(taskId: string, keyId: string): boolean {
  * The task as its reader gets it. While files are on, it also lists what the agent handed back, each with the token
  * that downloads it: whoever may read a job's output may read the files that are part of it.
  */
-function withFiles<T extends { taskId: string }>(task: T): T | (T & { outputFiles: unknown[] }) {
-  if (!filesEnabled()) return task;
+function withFiles<T extends { taskId: string }>(task: T): T | (T & { outputFiles?: unknown[]; steps?: unknown[] }) {
+  // Watch it work: the steps so far, for whoever may read the job. Read on every poll while it runs.
+  const steps = liveLogEnabled() ? stepsOf(task.taskId) : [];
+  const seen = steps.length ? { ...task, steps } : task;
+  if (!filesEnabled()) return seen;
   const out = filesOfTask(task.taskId, "out");
-  if (!out.length) return task;
-  return { ...task, outputFiles: out.map((f) => outputFileFor(f)) };
+  if (!out.length) return seen;
+  return { ...seen, outputFiles: out.map((f) => outputFileFor(f)) };
 }
 
 export async function GET(

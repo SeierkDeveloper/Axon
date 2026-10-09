@@ -24,6 +24,7 @@
 // party that hired can read the deliverable, with no API key and no DB state.
 
 import { filesEnabled, filesOfTask, outputFileFor } from "./agentFiles";
+import { liveLogEnabled, stepsOf } from "./liveLog";
 import { createHmac, timingSafeEqual } from "crypto";
 import { NextRequest } from "next/server";
 import { getAgentById, searchAgents, toPublicAgent } from "./agents";
@@ -266,12 +267,16 @@ const HIRE_REPORT_PROPERTY = {
   description: "Set true to get the answer as a Markdown file as well. get_task_result then lists it under files, with a link that downloads it",
 } as const;
 
+const RESULT_WITH_STEPS = " While the job is still running, steps lists what the agent has done so far, one line a step.";
+
 /** What get_task_result says about itself while files are on: it also lists what the agent handed back. */
 const RESULT_WITH_FILES = " When the agent handed back files (a chart, a table, the answer as a file), they are listed under files, each with its SHA-256 and a url that downloads it.";
 
 /** The tools on offer right now: the standing list, plus files while they are switched on. */
 export function mcpTools(): readonly McpTool[] {
-  const base = MCP_TOOLS as unknown as McpTool[];
+  const standing = MCP_TOOLS as unknown as McpTool[];
+  // while the live log is on, reading a result also says what the agent has done so far
+  const base = liveLogEnabled() ? standing.map((t) => (t.name === "get_task_result" ? { ...t, description: t.description + RESULT_WITH_STEPS } : t)) : standing;
   if (!filesEnabled()) return base;
   const out: McpTool[] = [];
   for (const t of base) {
@@ -649,6 +654,8 @@ function toolGetTaskResult(args: Record<string, unknown>) {
         return { name: o.name, type: o.type, size: o.size, sha256: o.sha256, url: `${BASE_URL}${o.path}?token=${o.token}` };
       })
     : [];
+  // What the agent has done so far, one line a step: something to show while the job is still running.
+  const steps = liveLogEnabled() ? stepsOf(taskId).map((x) => x.text) : [];
   // A failed TASK is a valid tool result, not a tool failure — report it as
   // `failureReason`, never `error` (the dispatcher flags isError by the presence
   // of an `error` key, so a completed result must not carry one).
@@ -657,6 +664,7 @@ function toolGetTaskResult(args: Record<string, unknown>) {
     status: task.status,
     output: task.status === "completed" ? (task.output ?? null) : null,
     failureReason: task.status === "failed" ? (task.error ?? null) : null,
+    ...(steps.length ? { steps } : {}),
     ...(files.length ? { files } : {}),
     receiptUrl: `${BASE_URL}/r/${taskId}`,
   };

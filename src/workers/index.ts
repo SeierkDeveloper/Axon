@@ -14,6 +14,7 @@ import { formatContext } from "../lib/formatContext";
 import { isWalletAddress } from "../lib/address";
 import { attachmentsForTask, codeEnabled, filesEnabled, keepOutput, readBytes, REPORT_KEY, REPORT_NOTE, storeReport } from "../lib/agentFiles";
 import { hasCode, withCode } from "../lib/agentTools";
+import { liveLog } from "../lib/liveLog";
 import type { SandboxFile } from "../lib/providers";
 import { runWithProvider, runWithProviderTools, getAgentMaxTokens } from "../lib/providers";
 import { limitsForAgent } from "../lib/agentTierLimits";
@@ -285,6 +286,11 @@ async function processTasks() {
           const hirerWallet = isWalletAddress(task.fromAgent) ? task.fromAgent : null;
           const fullMessage = task.task + formatContext(task.context) + handed.text + prices + (wantsReport ? REPORT_NOTE : "");
 
+          // Watch it work: a line for each step, written as it happens, for whoever hired the agent to follow.
+          const live = liveLog(task.taskId);
+          live.say(`Picked up by ${agent.name}`);
+          for (const f of handed.files) live.say(`Reading ${f.name}`);
+
           // Promise.race abandons the loser, it doesn't stop it. For a single
           // model call that's one wasted request; a tool loop is up to seven, so
           // the timeout also trips an abort the loop checks between rounds.
@@ -316,12 +322,14 @@ async function processTasks() {
                 onFile: (f: SandboxFile) => {
                   const kept = keepOutput({ taskId: task.taskId, bytes: f.bytes, name: f.name, wallet: hirerWallet });
                   if (kept && !kept.ok) logger.info("worker.output_file_refused", "A file the agent wrote was not kept", { taskId: task.taskId, name: f.name, refused: kept.refused });
+                  if (kept?.ok) live.say(`Made ${kept.file.name}`);
                 },
               }
             : undefined;
           // Every call the agent makes goes into the flight recorder as it happens,
           // so the receipt shows what it did, not just what it said.
           const onToolCall = (ev: ToolCallEvent) => {
+            if (!ev.ok) live.say(ev.kind === "code" ? "That run did not work. Trying another way." : "That step did not work. Trying another way.");
             safeAppendTraceEvent({
               traceId: task.traceId ?? task.taskId,
               taskId: task.taskId,
@@ -347,6 +355,8 @@ async function processTasks() {
           // for, and the free lane is already the one benefit that costs money.
           const depth = await limitsForAgent(agent.agentId, task.payment !== null);
 
+          // an agent with no tools has one step left, and it is the answer
+          if (!mcpHandler && !hasTools(tools)) live.say("Writing the answer");
           const step = await captureModelStep(() =>
             Promise.race([
               mcpHandler
@@ -354,6 +364,7 @@ async function processTasks() {
                 : hasTools(tools)
                   ? runWithProviderTools(agent, fullMessage, getAgentMaxTokens(agent.agentId), tools, {
                       onToolCall,
+                      ...(live.on ? { onLive: live.onLive } : {}),
                       signal: abort.signal,
                       maxSteps: depth.toolSteps,
                       maxToolResultChars: depth.toolResultChars,
@@ -388,6 +399,7 @@ async function processTasks() {
           // The answer as a file, kept before the job completes so its commitment covers the file too.
           if (wantsReport) {
             const kept = storeReport({ taskId: task.taskId, output, agentName: agent.name, wallet: hirerWallet });
+            if (kept?.ok) live.say(`Saved the answer as ${kept.file.name}`);
             if (kept && !kept.ok) logger.info("worker.report_file_refused", "The answer was not kept as a file", { taskId: task.taskId, refused: kept.refused });
           }
 

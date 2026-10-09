@@ -113,6 +113,35 @@ describe("an agent that runs code", () => {
     expect(sdk.del.mock.calls.map((c) => c[0]).sort()).toEqual(["draft_chart", "final_chart", "notes"]);
   });
 
+  it("reports each step as the call streams: what it said before a tool, and the tool, but never the answer", async () => {
+    const blocks = [
+      { type: "text", text: "First I will look at the columns." },
+      ...ran("srv_1", "head -3 sales.csv", "Quarter,Revenue\n"),
+      { type: "text", text: "Q1 was the best quarter." },
+    ];
+    // a stream that reports its blocks as they finish, the way the SDK's does
+    sdk.stream.mockReturnValueOnce({
+      on(event: string, fn: (b: unknown) => void) { if (event === "contentBlock") for (const b of blocks) fn(b); return this; },
+      finalMessage: async () => ({ content: blocks, stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 }, container: { id: "cntr_1" } }),
+    });
+    const live: unknown[] = [];
+    const out = await getProvider(agent).completeWithTools!("s", "Which quarter?", 1000, withCode(null), { sandbox: { files: [CSV] }, onLive: (e) => { live.push(e); } });
+    expect(out).toContain("Q1 was the best quarter.");
+    expect(live).toEqual([
+      { type: "note", text: "First I will look at the columns." },
+      { type: "tool", id: "srv_1", tool: "bash_code_execution", input: { command: "head -3 sales.csv" } },
+    ]);
+    // a sink that throws does not break the job, and a stream without block events is run as before
+    sdk.stream.mockReturnValueOnce({
+      on(event: string, fn: (b: unknown) => void) { if (event === "contentBlock") for (const b of blocks) fn(b); return this; },
+      finalMessage: async () => ({ content: blocks, stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } }),
+    });
+    await expect(getProvider(agent).completeWithTools!("s", "Which quarter?", 1000, withCode(null), { sandbox: { files: [] }, onLive: () => { throw new Error("sink down"); } })).resolves.toContain("Q1 was the best quarter.");
+    sdk.stream.mockReturnValueOnce(reply([{ type: "text", text: "Plain." }]));
+    await expect(getProvider(agent).completeWithTools!("s", "Hi", 1000, withCode(null), { sandbox: { files: [] }, onLive: (e) => { live.push(e); } })).resolves.toBe("Plain.");
+    expect(live).toHaveLength(2);
+  });
+
   it("keeps the same sandbox across the calls of one job", async () => {
     sdk.stream
       .mockReturnValueOnce(reply(ran("srv_1", "ls", "sales.csv\n"), { stop_reason: "pause_turn" }))

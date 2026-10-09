@@ -43,6 +43,24 @@ function payErrorMessage(msg: string, ethAmount: number): string {
   return "Couldn't complete the payment. Try again.";
 }
 
+/** The steps of a hire, oldest first. While it runs the last one is the one happening now. */
+function StepList({ steps, live }: { steps: { n: number; text: string }[]; live?: boolean }) {
+  if (!steps.length) return null;
+  return (
+    <ol className="mt-2.5 space-y-1.5 border-l border-gray-200 pl-3 dark:border-gray-700" aria-live={live ? "polite" : undefined}>
+      {steps.map((s, i) => {
+        const now = live && i === steps.length - 1;
+        return (
+          <li key={s.n} className={`relative text-xs leading-snug break-words ${now ? "text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"}`}>
+            <span className={`absolute -left-[15.5px] top-[5px] h-1.5 w-1.5 rounded-full ${now ? "bg-teal-500 animate-pulse" : "bg-gray-300 dark:bg-gray-600"}`} />
+            {s.text}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 export default function HirePanel({
   agentId,
   agentName,
@@ -69,6 +87,8 @@ export default function HirePanel({
   // the answer as a file as well, and whatever the agent handed back with it
   const [report, setReport] = useState(false);
   const [outFiles, setOutFiles] = useState<OutputFile[]>([]);
+  // what the agent has done so far, one line a step, while it runs and after
+  const [steps, setSteps] = useState<{ n: number; text: string }[]>([]);
   const cancelled = useRef(false);
   // A payment that already landed on-chain — kept so a failed submit retries with
   // the SAME signature instead of charging the wallet a second time.
@@ -106,8 +126,9 @@ export default function HirePanel({
         setPhase("error");
         return;
       }
-      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[] };
+      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: { n: number; text: string }[] };
       if (cancelled.current) return;
+      if (Array.isArray(t.steps)) setSteps((had) => (t.steps!.length >= had.length ? t.steps! : had));
       if (t.status === "completed") {
         setOutput(t.output ?? "");
         setOutFiles(Array.isArray(t.outputFiles) ? t.outputFiles : []);
@@ -145,6 +166,7 @@ export default function HirePanel({
       if (res.ok && data.taskId && data.claimToken) {
         setTaskId(data.taskId);
         setFiles([]); // they belong to this hire now
+        setSteps([]);
         setPhase("running");
         poll(data.taskId, data.claimToken, 0);
         return;
@@ -220,6 +242,7 @@ export default function HirePanel({
     setTask("");
     setOutFiles([]);
     setReport(false);
+    setSteps([]);
   }
 
   // ── Paid agent we can't settle in-browser (SOL price, or wallet config unset):
@@ -287,9 +310,12 @@ export default function HirePanel({
       )}
 
       {phase === "running" && (
-        <div className="flex items-center gap-2 py-2 text-sm text-gray-500 dark:text-gray-400">
-          <span className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 dark:border-gray-600 border-t-teal-500 animate-spin" />
-          {agentName} is working on it…
+        <div className="py-2">
+          <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+            <span className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 dark:border-gray-600 border-t-teal-500 animate-spin" />
+            {agentName} is working on it…
+          </div>
+          <StepList steps={steps} live />
         </div>
       )}
 
@@ -317,6 +343,14 @@ export default function HirePanel({
             {output ? <MarkdownOutput text={output} /> : <span className="text-sm text-gray-400">(empty response)</span>}
           </div>
           <OutputFiles files={outFiles} />
+          {steps.length > 0 && (
+            <details className="mt-3 group">
+              <summary className="cursor-pointer select-none text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
+                How it got there, {steps.length} {steps.length === 1 ? "step" : "steps"}
+              </summary>
+              <StepList steps={steps} />
+            </details>
+          )}
           <div className="mt-3 flex items-center gap-4">
             {taskId && (
               <a href={`/r/${encodeURIComponent(taskId)}`} target="_blank" rel="noopener noreferrer" className="text-xs text-teal-600 dark:text-teal-400 hover:underline">

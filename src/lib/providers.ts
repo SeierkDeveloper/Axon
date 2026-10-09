@@ -186,9 +186,48 @@ export interface ToolCallEvent {
 
 export type ToolCallSink = (event: ToolCallEvent) => void;
 
+/**
+ * Something an agent does, reported the moment it is known rather than when the call is over: what it said before
+ * reaching for a tool, and each tool as it starts. For a live log of a running job; the trace is still written from
+ * the finished calls.
+ */
+export type LiveEvent =
+  | { type: "note"; text: string }
+  | { type: "tool"; id: string; tool: string; input: unknown };
+export type LiveSink = (event: LiveEvent) => void;
+
+/**
+ * Report a model call's steps while it streams: a tool the model runs itself (a search, code in its sandbox) the
+ * moment the call to it is complete, and what the model said just before. The words of the final answer are never
+ * reported: text only counts as a note once a tool follows it. Nothing here may break the call it watches.
+ */
+function watchSteps(stream: unknown, sink: LiveSink): void {
+  const s = stream as { on?: (event: string, fn: (block: { type: string; text?: string; id?: string; name?: string; input?: unknown }) => void) => unknown };
+  if (typeof s.on !== "function") return;
+  let said: string | null = null;
+  try {
+    s.on("contentBlock", (block) => {
+      try {
+        if (block.type === "text") { said = block.text ?? null; return; }
+        if (block.type !== "server_tool_use" && block.type !== "tool_use") return;
+        if (said && said.trim()) sink({ type: "note", text: said });
+        said = null;
+        // a tool Axon runs itself is reported where it is run; here only the ones that run inside the model call
+        if (block.type === "server_tool_use" && block.id && block.name) sink({ type: "tool", id: block.id, tool: block.name, input: block.input });
+      } catch {
+        /* a step that could not be reported is not worth a failed job */
+      }
+    });
+  } catch {
+    /* not a stream that reports its blocks */
+  }
+}
+
 export interface ToolRunOptions {
   /** Called as each tool finishes, so the caller can record it in the trace. */
   onToolCall?: ToolCallSink;
+  /** Called as each step starts, for a live log of the job while it runs. */
+  onLive?: LiveSink;
   /**
    * Stops the loop between rounds. A tool loop is many model calls, so a caller
    * whose client has gone away (a disconnected SSE stream) needs a way to stop
@@ -553,7 +592,7 @@ class AnthropicProvider implements ProviderClient {
     message: string,
     maxTokens: number,
     tools: ResolvedTools,
-    { onToolCall, signal, maxSteps: maxStepsOpt, maxToolResultChars, attachments }: ToolRunOptions,
+    { onToolCall, onLive, signal, maxSteps: maxStepsOpt, maxToolResultChars, attachments }: ToolRunOptions,
     box: { uploads: string[]; produced: Set<string> } | null,
   ): Promise<{ text: string; refused: boolean }> {
     const timeoutMs = Math.max(120_000, maxTokens * 30);
@@ -593,21 +632,22 @@ class AnthropicProvider implements ProviderClient {
       if (signal?.aborted) throw new Error("Tool loop aborted");
       const exhausted = step === maxSteps;
       const msg = await withRetry(
-        () =>
-          this.client.messages
-            .stream(
-              {
-                model,
-                max_tokens: maxTokens,
-                system,
-                messages,
-                tools: toolDefs,
-                ...(exhausted ? { tool_choice: { type: "none" as const } } : {}),
-                ...(containerId ? { container: containerId } : {}),
-              },
-              { timeout: timeoutMs, ...(box?.uploads.length ? { headers: { "anthropic-beta": FILES_BETA } } : {}) },
-            )
-            .finalMessage(),
+        () => {
+          const stream = this.client.messages.stream(
+            {
+              model,
+              max_tokens: maxTokens,
+              system,
+              messages,
+              tools: toolDefs,
+              ...(exhausted ? { tool_choice: { type: "none" as const } } : {}),
+              ...(containerId ? { container: containerId } : {}),
+            },
+            { timeout: timeoutMs, ...(box?.uploads.length ? { headers: { "anthropic-beta": FILES_BETA } } : {}) },
+          );
+          if (onLive) watchSteps(stream, onLive);
+          return stream.finalMessage();
+        },
         3,
         1000,
         `anthropic-tools:${model}`,
@@ -648,6 +688,15 @@ class AnthropicProvider implements ProviderClient {
       messages.push({ role: "assistant", content: msg.content as Anthropic.ContentBlockParam[] });
       // Parallel tool calls arrive in one message and all results must go back in
       // one user message — splitting them teaches the model to stop parallelising.
+      if (onLive) {
+        for (const use of toolUses) {
+          try {
+            onLive({ type: "tool", id: use.id, tool: use.name, input: use.input });
+          } catch {
+            /* a step that could not be reported is not worth a failed job */
+          }
+        }
+      }
       const results = await Promise.all(
         toolUses.map((use) => runLocalTool(use, byName, onToolCall, maxResultChars)),
       );
