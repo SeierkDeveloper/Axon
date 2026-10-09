@@ -1,3 +1,5 @@
+import { agentReads, filesEnabled } from "@/lib/agentFiles";
+import { getMcpServerByAgentId } from "@/lib/mcp";
 import { NextRequest, NextResponse } from "next/server";
 import { getAgentById, updateAgent, toPublicAgent } from "@/lib/agents";
 import { isOwnerVerified } from "@/lib/ownerVerification";
@@ -24,7 +26,9 @@ export async function GET(
 
   // Surface the verified-owner badge so callers can see the wallet behind this
   // agent has cryptographically authenticated.
-  return publicJson(req, { ...toPublicAgent(agent), ownerVerified: isOwnerVerified(agentId) });
+  // while files are on, the profile also says which kinds of file this agent can be handed
+  const reads = filesEnabled() ? agentReads(agent, { runsThroughMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }) : null;
+  return publicJson(req, { ...toPublicAgent(agent), ownerVerified: isOwnerVerified(agentId), ...(reads ? { reads: { text: reads.text, pdf: reads.pdf, image: reads.image } } : {}) });
 }
 
 // PATCH /api/agents/[agentId] — update mutable agent fields

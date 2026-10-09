@@ -649,7 +649,26 @@ class OpenAICompatibleProvider implements ProviderClient {
 
   // 4096: Opus-tier agents write full deliverables — 2048 truncated pipeline
   // outputs mid-sentence.
-  async complete(system: string, message: string, maxTokens = 4096, temperature?: number): Promise<string> {
+  async complete(system: string, message: string, maxTokens = 4096, temperature?: number, attachments?: ModelAttachment[]): Promise<string> {
+    // Pictures go in as parts of the user turn. A PDF is never given to these models: the hire is refused up front.
+    const pictures = (attachments ?? []).filter((a) => a.kind === "image");
+    if (!pictures.length) return this.completeOnce(system, message, maxTokens, temperature);
+    try {
+      return await this.completeOnce(system, message, maxTokens, temperature, pictures);
+    } catch (err) {
+      // A model pinned by the agent's owner that does not look at pictures rejects the request outright. The job is
+      // still answered, from the words alone, and the answer is told so rather than left to guess.
+      const status = (err as { status?: number }).status;
+      if (status !== 400 && status !== 415 && status !== 422) throw err;
+      logger.warn("provider.pictures_rejected", "The model would not take pictures, answering without them", { model: this.model, reason: err instanceof Error ? err.message.slice(0, 200) : String(err) });
+      return this.completeOnce(system, `${message}\n\n[The attached pictures could not be shown to you: this model does not look at pictures. Say so, and answer what you can from the text.]`, maxTokens, temperature);
+    }
+  }
+
+  private async completeOnce(system: string, message: string, maxTokens: number, temperature?: number, pictures?: ModelAttachment[]): Promise<string> {
+    const user = pictures?.length
+      ? [{ type: "text", text: message }, ...pictures.map((p) => ({ type: "image_url", image_url: { url: `data:${p.mime};base64,${p.data}` } }))]
+      : message;
     return withRetry(async () => {
       const res = await publicHttpFetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",
@@ -660,7 +679,7 @@ class OpenAICompatibleProvider implements ProviderClient {
           ...(temperature !== undefined ? { temperature } : {}),
           messages: [
             { role: "system", content: system },
-            { role: "user", content: message },
+            { role: "user", content: user },
           ],
         }),
         signal: AbortSignal.timeout(60_000),

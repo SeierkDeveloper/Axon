@@ -275,7 +275,7 @@ async function processTasks() {
           const prices = PRICE_AGENTS.has(agent.agentId) ? livePrices : "";
           // Files handed over with the hire: the text of text files follows the task in the message, and PDFs and
           // pictures go to the model as themselves. Nothing is read while the feature is off.
-          const handed = filesEnabled() ? attachmentsForTask(task.taskId) : { text: "", attachments: [], files: [] };
+          const handed = filesEnabled() ? await attachmentsForTask(task.taskId) : { text: "", attachments: [], files: [] };
           const fullMessage = task.task + formatContext(task.context) + handed.text + prices;
 
           // Promise.race abandons the loser, it doesn't stop it. For a single

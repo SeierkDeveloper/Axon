@@ -108,7 +108,7 @@ export default function FileAttach({ agentId, paid, files, onChange, disabled, a
           {busy > 0 ? "Uploading…" : files.length ? "Add another file" : "Attach a file"}
         </button>
         <span className="text-[11px] text-gray-400 dark:text-gray-500">
-          {reads.pdf && reads.image ? "PDF, picture or text file" : "Text files (text, Markdown, CSV, JSON)"}, up to {cap.files} and {size(cap.bytes)} together. Or drop it here.
+          {reads.pdf && reads.image ? "PDF, picture or text file" : reads.image ? "Picture or text file" : "Text files (text, Markdown, CSV, JSON)"}, up to {cap.files} and {size(cap.bytes)} together. Or drop it here.
         </span>
       </div>
       {note && <p role="status" className="mt-2 text-xs text-amber-600 dark:text-amber-400">{note}</p>}

@@ -26,6 +26,8 @@ import HireLinkShare from "./HireLinkShare";
 import UseAnywhere from "@/components/UseAnywhere";
 import { ExtArrow } from "@/components/ExtArrow";
 import { agentAvailability } from "@/lib/availability";
+import { agentReads, filesEnabled } from "@/lib/agentFiles";
+import { getMcpServerByAgentId } from "@/lib/mcp";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +98,9 @@ export default async function AgentProfilePage({
     agent.publicKey.length > 20
       ? `${agent.publicKey.slice(0, 10)}...${agent.publicKey.slice(-10)}`
       : agent.publicKey;
+
+  // which kinds of file this agent can be handed, when files are on
+  const reads = filesEnabled() ? agentReads(agent, { runsThroughMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }) : null;
 
   return (
     <div className="bg-white dark:bg-[#0a0a0a] min-h-screen text-[#0a0a0a] dark:text-white">
@@ -183,6 +188,14 @@ export default async function AgentProfilePage({
               </span>
             ))}
           </div>
+
+          {/* What it can be handed. Shown only while files are switched on. */}
+          {reads && (
+            <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
+              <span className="font-mono text-xs uppercase tracking-widest text-gray-400 mr-2">Reads</span>
+              {[reads.text && "text files", reads.pdf && "PDFs", reads.image && "pictures and screenshots"].filter(Boolean).join(" · ")}
+            </p>
+          )}
         </div>
 
         {/* Proof Score, the portable, verifiable credential */}

@@ -19,6 +19,7 @@ import {
 } from "@/lib/agentFiles";
 import { POST as hire } from "@/app/api/tasks/route";
 import { GET as limits } from "@/app/api/files/route";
+import { GET as agentProfile } from "@/app/api/agents/[agentId]/route";
 import { GET as meta } from "@/app/api/files/[fileId]/route";
 import { handleMcpMessage } from "@/lib/mcpServer";
 import { firstTurn } from "@/lib/providers";
@@ -58,7 +59,9 @@ describe("which files an agent reads", () => {
   it("text reaches every agent; a PDF or a picture needs an agent Axon runs on Claude, or one on its own server", () => {
     expect(agentReads({ provider: "anthropic" })).toEqual(ALL);
     expect(agentReads({})).toEqual(ALL);
-    for (const provider of ["openai", "grok", "ollama"]) expect(agentReads({ provider })).toMatchObject({ text: true, pdf: false, image: false });
+    // GPT and Grok look at pictures but are not given PDFs; a model Axon knows nothing about gets text only
+    for (const provider of ["openai", "grok"]) expect(agentReads({ provider })).toMatchObject({ text: true, pdf: false, image: true });
+    expect(agentReads({ provider: "ollama" })).toMatchObject({ text: true, pdf: false, image: false });
     expect(agentReads({ provider: "anthropic", orchestrator: true })).toMatchObject({ text: true, pdf: false, image: false });
     expect(agentReads({ provider: "anthropic" }, { runsThroughMcp: true })).toMatchObject({ text: true, pdf: false, image: false });
     expect(agentReads({ provider: "grok", endpoint: "https://agent.example/run" })).toEqual(ALL);
@@ -111,12 +114,14 @@ describe("whether files may go on a hire", () => {
     expect(refusal(r)).toBe("pages");
     expect(!r.ok && r.reason).toBe(`long.pdf has ${TASK_FILES.free.pdfPages + 1} pages. A free hire takes PDFs of up to ${TASK_FILES.free.pdfPages} pages.`);
     expect(refusal(checkTaskFiles({ files: [long], wallet: null, reads: ALL, paid: true }))).toBe("ok");
+    // a heavy picture is not refused: it is scaled down when it is handed over
     const huge = up(Buffer.concat([PNG, Buffer.alloc(IMAGE_MAX_BYTES, 1)]), "huge.png");
-    expect(refusal(checkTaskFiles({ files: [huge], wallet: null, reads: ALL, paid: true }))).toBe("too_large");
+    expect(refusal(checkTaskFiles({ files: [huge], wallet: null, reads: ALL, paid: true }))).toBe("ok");
     const textOnly = { text: true, pdf: false, image: false, why: "This agent cannot read PDFs or pictures. Text files work with every agent." };
     const p = checkTaskFiles({ files: [up(pdf(1), "one.pdf")], wallet: null, reads: textOnly, paid: false });
     expect(!p.ok && p.reason).toBe("one.pdf is a PDF. This agent cannot read PDFs or pictures. Text files work with every agent.");
     expect(refusal(checkTaskFiles({ files: [up(PNG, "x.png")], wallet: null, reads: textOnly, paid: false }))).toBe("kind");
+    expect(refusal(checkTaskFiles({ files: [up(PNG, "y.png")], wallet: null, reads: agentReads({ provider: "grok" }), paid: false }))).toBe("ok");
     expect(refusal(checkTaskFiles({ files: [up(CSV, "x.csv")], wallet: null, reads: textOnly, paid: false }))).toBe("ok");
     process.env.AGENT_FILES = "off";
     expect(refusal(checkTaskFiles({ files: [up(CSV, "y.csv")], wallet: null, reads: ALL, paid: false }))).toBe("off");
@@ -133,28 +138,28 @@ describe("whether files may go on a hire", () => {
 });
 
 describe("what the agent is handed", () => {
-  it("puts text into the message and gives PDFs and pictures as themselves", () => {
+  it("puts text into the message and gives PDFs and pictures as themselves", async () => {
     const a = got(storeFile({ bytes: CSV, name: "sales.csv" }, { now: 1000 }));
     const b = got(storeFile({ bytes: pdf(2), name: "contract.pdf" }, { now: 2000 }));
     const c = got(storeFile({ bytes: PNG, name: "chart.png" }, { now: 3000 }));
     attachFiles("t1", [a.file.id, b.file.id, c.file.id]);
-    const h = attachmentsForTask("t1");
+    const h = await attachmentsForTask("t1");
     expect(h.text).toContain(`Attached file: sales.csv (text/csv, ${CSV.length} bytes)\n<<<\nQuarter,Revenue\nQ1,120\nQ2,180\n\n>>>`);
     expect(h.text).toContain("Attached file: contract.pdf (application/pdf");
-    expect(h.text).toContain("is given to you with this message.");
+    expect(h.text).toContain("Attached picture: chart.png (image/png) is given to you with this message.");
     expect(h.attachments).toEqual([
       { kind: "pdf", mime: "application/pdf", name: "contract.pdf", data: pdf(2).toString("base64") },
       { kind: "image", mime: "image/png", name: "chart.png", data: PNG.toString("base64") },
     ]);
-    expect(attachmentsForTask("no-such-task")).toEqual({ text: "", attachments: [], files: [] });
+    expect(await attachmentsForTask("no-such-task")).toEqual({ text: "", attachments: [], files: [] });
   });
 
-  it("cuts very long text and says so, and names a file whose bytes are gone", () => {
+  it("cuts very long text and says so, and names a file whose bytes are gone", async () => {
     const long = got(storeFile({ bytes: Buffer.from("x".repeat(INLINE_TEXT_CHARS + 500)), name: "long.txt" }, { now: 1000 }));
     const gone = got(storeFile({ bytes: Buffer.from("soon gone"), name: "gone.txt" }, { now: 2000 }));
     attachFiles("t2", [long.file.id, gone.file.id]);
     fs.rmSync(path.join(dir, gone.file.sha256.slice(0, 2)), { recursive: true, force: true });
-    const h = attachmentsForTask("t2");
+    const h = await attachmentsForTask("t2");
     expect(h.text).toContain("[The file is longer: 500 more characters were left out.]");
     expect(h.text).toContain("[Attached file gone.txt could not be read: it is no longer stored.]");
     expect(h.text.length).toBeLessThan(INLINE_TEXT_CHARS + 600);
@@ -205,9 +210,10 @@ describe("hiring with files", () => {
     agent("gpt-agent", { provider: "openai" });
     agent("reader");
     const picture = got(storeFile({ bytes: PNG, name: "chart.png" }));
-    const bad = await post({ from: "anonymous", to: "gpt-agent", task: "Read this chart", files: [{ id: picture.file.id, token: picture.token }] });
+    const doc = got(storeFile({ bytes: pdf(1), name: "brief.pdf" }));
+    const bad = await post({ from: "anonymous", to: "gpt-agent", task: "Read this brief", files: [{ id: doc.file.id, token: doc.token }] });
     expect(bad.status).toBe(400);
-    expect(await bad.json()).toMatchObject({ code: "VALIDATION_ERROR", details: { refused: "kind" } });
+    expect(await bad.json()).toMatchObject({ code: "VALIDATION_ERROR", details: { refused: "kind" }, error: "brief.pdf is a PDF. This agent reads pictures and text files, but not PDFs." });
     const missing = await post({ from: "anonymous", to: "reader", task: "Read this", files: [{ id: picture.file.id, token: "0".repeat(32) }] });
     expect(missing.status).toBe(404);
     const reserved = await post({ from: "anonymous", to: "reader", task: "Read this", context: { [CONTEXT_KEY]: [{ name: "fake.pdf" }] } });
@@ -245,7 +251,11 @@ describe("hiring with files", () => {
     const one = (await (await limits(new NextRequest("http://x/api/files?agent=gpt-agent"))).json()) as { reads: { pdf: boolean; text: boolean } };
     expect(one.reads).toMatchObject({ text: true, pdf: false });
     expect((await limits(new NextRequest("http://x/api/files?agent=nobody"))).status).toBe(404);
+    // the agent's own profile says it too, and says nothing about files while they are off
+    const profile = async () => (await (await agentProfile(new NextRequest("http://x/api/agents/gpt-agent"), { params: Promise.resolve({ agentId: "gpt-agent" }) })).json()) as { reads?: unknown };
+    expect((await profile()).reads).toEqual({ text: true, pdf: false, image: true });
     process.env.AGENT_FILES = "off";
+    expect((await profile()).reads).toBeUndefined();
     expect((await limits(new NextRequest("http://x/api/files"))).status).toBe(404);
   });
 

@@ -28,6 +28,7 @@ import path from "node:path";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { getDb, getDbPath } from "./db";
 import { logger } from "./logger";
+import { forModel } from "./agentImages";
 
 export function filesEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return (env.AGENT_FILES ?? "off").trim().toLowerCase() === "on";
@@ -316,7 +317,10 @@ export async function readCapped(body: ReadableStream<Uint8Array> | null, max: n
 // the job's commitment and its receipt cover the files as much as the words. The agent is handed the bytes when it
 // runs: text is put into the message, a PDF or a picture is given to the model as itself.
 
-/** A picture is at most this, whatever the limit for other files: it is what the models take. */
+/**
+ * What a model takes for one picture. A larger picture is scaled down before it is handed over (see agentImages), so
+ * this only refuses a picture that is still too heavy after that, which a scaled picture never is.
+ */
 export const IMAGE_MAX_BYTES = 5 * MB;
 /** How much text from files goes into one message. The rest is cut, and the message says so. */
 export const INLINE_TEXT_CHARS = 120_000;
@@ -340,14 +344,18 @@ export function pdfPages(bytes: Buffer): number | null {
 export interface Reads { text: boolean; pdf: boolean; image: boolean; why: string | null }
 /**
  * What kinds of file an agent can be handed. Text reaches every agent, since it goes into the message. A PDF or a
- * picture needs a model that takes them: today that is an agent Axon runs on Claude. An agent that runs on its own
- * server fetches its files itself, so it is offered everything and decides what to do with it.
+ * picture needs a model that takes them: an agent Axon runs on Claude reads both, one on GPT or Grok reads pictures.
+ * An agent that runs on its own server fetches its files itself, so it is offered everything and decides what to do
+ * with it.
  */
 export function agentReads(agent: { provider?: string | null; endpoint?: string | null; orchestrator?: boolean }, o: { runsThroughMcp?: boolean } = {}): Reads {
   if (agent.endpoint && !agent.orchestrator && !o.runsThroughMcp) return { text: true, pdf: true, image: true, why: null };
   if (o.runsThroughMcp) return { text: true, pdf: false, image: false, why: "This agent takes text files only." };
   if (agent.orchestrator) return { text: true, pdf: false, image: false, why: "This agent hands work on to other agents and takes text files only for now." };
-  if ((agent.provider ?? "anthropic") === "anthropic") return { text: true, pdf: true, image: true, why: null };
+  const provider = agent.provider ?? "anthropic";
+  if (provider === "anthropic") return { text: true, pdf: true, image: true, why: null };
+  // these models look at pictures; a PDF they are not given
+  if (provider === "openai" || provider === "grok") return { text: true, pdf: false, image: true, why: "This agent reads pictures and text files, but not PDFs." };
   return { text: true, pdf: false, image: false, why: "This agent cannot read PDFs or pictures. Text files work with every agent." };
 }
 
@@ -377,7 +385,6 @@ export function checkTaskFiles(input: { files: { id: string; token?: string }[];
     if (row.task_id) return no("taken", `${row.name} is already attached to another hire. Upload it again to use it here.`);
     if (row.kind === "pdf" && !input.reads.pdf) return no("kind", `${row.name} is a PDF. ${input.reads.why ?? "This agent cannot read PDFs."}`);
     if (row.kind === "image" && !input.reads.image) return no("kind", `${row.name} is a picture. ${input.reads.why ?? "This agent cannot read pictures."}`);
-    if (row.kind === "image" && row.size > IMAGE_MAX_BYTES) return no("too_large", `${row.name} is ${mb(row.size)}. A picture is at most ${mb(IMAGE_MAX_BYTES)}.`);
     if (row.kind === "pdf") {
       const bytes = readBytes(row);
       if (!bytes) return no("not_found", `${row.name} is no longer stored. Upload it again.`);
@@ -407,9 +414,10 @@ export interface ModelAttachment { kind: "pdf" | "image"; mime: string; name: st
 
 /**
  * What an agent is handed for a hire's files: the text of the text files, ready to follow the task in the message, and
- * the PDFs and pictures as themselves. A file whose bytes are gone is named as missing rather than silently dropped.
+ * the PDFs and pictures as themselves. A picture is brought down to the size a model looks at. A file whose bytes are
+ * gone is named as missing rather than silently dropped.
  */
-export function attachmentsForTask(taskId: string): { text: string; attachments: ModelAttachment[]; files: FileRow[] } {
+export async function attachmentsForTask(taskId: string): Promise<{ text: string; attachments: ModelAttachment[]; files: FileRow[] }> {
   const files = filesOfTask(taskId);
   if (!files.length) return { text: "", attachments: [], files };
   const parts: string[] = [], attachments: ModelAttachment[] = [];
@@ -423,8 +431,14 @@ export function attachmentsForTask(taskId: string): { text: string; attachments:
       room -= shown.length;
       const cut = shown.length < all.length ? `\n[The file is longer: ${all.length - shown.length} more characters were left out.]` : "";
       parts.push(`Attached file: ${f.name} (${f.mime}, ${f.size} bytes)\n<<<\n${shown}\n>>>${cut}`);
+    } else if (f.kind === "image") {
+      const ready = await forModel(bytes, f.mime);
+      if (ready.data.length > IMAGE_MAX_BYTES) { parts.push(`[Attached picture ${f.name} is too large to look at (${mb(ready.data.length)}) and was left out.]`); continue; }
+      attachments.push({ kind: "image", mime: ready.mime, name: f.name, data: ready.data.toString("base64") });
+      const dims = ready.width && ready.height ? `, ${ready.width} by ${ready.height} pixels${ready.scaled ? " as you see it, scaled down from the original" : ""}` : "";
+      parts.push(`Attached picture: ${f.name} (${f.mime}${dims}) is given to you with this message.`);
     } else {
-      attachments.push({ kind: f.kind, mime: f.mime, name: f.name, data: bytes.toString("base64") });
+      attachments.push({ kind: "pdf", mime: f.mime, name: f.name, data: bytes.toString("base64") });
       parts.push(`Attached file: ${f.name} (${f.mime}, ${f.size} bytes) is given to you with this message.`);
     }
   }
