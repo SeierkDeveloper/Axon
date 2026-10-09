@@ -12,6 +12,7 @@
 // pointing at a deleted or unsynced MCP server is dropped with a log line, never
 // an exception, because a stale grant must not fail a paid task.
 
+import { codeEnabled } from "./agentFiles";
 import type Anthropic from "@anthropic-ai/sdk";
 import { getMcpServer, getMcpToolsByServer, callMcpTool } from "./mcp";
 import { logger } from "./logger";
@@ -24,7 +25,20 @@ import { commerceTools } from "./commerceTools";
 import { MAX_TOOL_GRANTS, MAX_LOCAL_TOOLS } from "./agentToolLimits";
 export { MAX_TOOL_GRANTS, MAX_TOOL_STEPS, MAX_LOCAL_TOOLS, MAX_TOOL_RESULT_CHARS } from "./agentToolLimits";
 
-export const BUILTIN_TOOL_GRANTS = ["web_search", "web_fetch", "commerce"] as const;
+export const BUILTIN_TOOL_GRANTS = ["web_search", "web_fetch", "commerce", "code_execution"] as const;
+
+/**
+ * The sandbox an agent runs code in: a machine on the model provider's side with Python and a shell, no network, gone
+ * when the job is done. Given to an agent whose owner granted "code_execution", and to any agent Axon runs on Claude
+ * for a hire that carries files, so numbers are calculated rather than guessed.
+ */
+export const CODE_TOOL: Anthropic.Messages.ToolUnion = { type: "code_execution_20250825", name: "code_execution" };
+export const hasCode = (t: ResolvedTools | null | undefined): boolean => Boolean(t?.serverTools.some((x) => (x as { type?: string }).type?.startsWith("code_execution")));
+/** The same tools with the sandbox added, if it is not there already. */
+export function withCode(t: ResolvedTools | null | undefined): ResolvedTools {
+  const base: ResolvedTools = t ?? { serverTools: [], localTools: [], grants: [] };
+  return hasCode(base) ? base : { ...base, serverTools: [...base.serverTools, CODE_TOOL], grants: [...base.grants, "code_execution"] };
+}
 export type BuiltinToolGrant = (typeof BUILTIN_TOOL_GRANTS)[number];
 
 const MCP_GRANT = /^mcp:([A-Za-z0-9_-]{1,80})$/;
@@ -201,6 +215,14 @@ export function resolveAgentTools(grants: string[], ctx: ResolveContext = {}): R
       resolved.push(grant);
       continue;
     }
+    if (grant === "code_execution") {
+      // only while running code is switched on; otherwise the grant simply resolves to nothing
+      if (codeEnabled()) {
+        serverTools.push(CODE_TOOL);
+        resolved.push(grant);
+      }
+      continue;
+    }
 
     if (grant === "commerce") {
       if (!ctx.agentId) {
@@ -283,6 +305,7 @@ export function toolsActiveFor(agent: {
 export function describeToolGrant(grant: string): string {
   if (grant === "web_search") return "Web search";
   if (grant === "web_fetch") return "Web fetch";
+  if (grant === "code_execution") return "Runs code";
   if (grant === "commerce") return "Commerce (shop and buy)";
   const m = MCP_GRANT.exec(grant);
   if (m) return getMcpServer(m[1])?.name ?? `MCP server ${m[1]}`;

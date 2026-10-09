@@ -19,6 +19,7 @@ import {
 } from "@/lib/agentFiles";
 import { POST as hire } from "@/app/api/tasks/route";
 import { GET as limits } from "@/app/api/files/route";
+import { GET as taskGet } from "@/app/api/tasks/[taskId]/route";
 import { GET as agentProfile } from "@/app/api/agents/[agentId]/route";
 import { GET as meta } from "@/app/api/files/[fileId]/route";
 import { handleMcpMessage } from "@/lib/mcpServer";
@@ -240,6 +241,22 @@ describe("hiring with files", () => {
     expect(r.status).toBe(201);
     expect((await read(ownerKey)).status).toBe(200);
     expect((await read(strangerKey)).status).toBe(404);
+  });
+
+  it("lists what the agent handed back on the job, with a token that downloads each file", async () => {
+    agent("reader");
+    const created = (await (await post({ from: "anonymous", to: "reader", task: "Draw the chart" })).json()) as Created;
+    const read = async () => (await (await taskGet(new NextRequest(`http://x/api/tasks/${created.taskId}`, { headers: { "x-claim-token": created.claimToken! } }), { params: Promise.resolve({ taskId: created.taskId }) })).json()) as { outputFiles?: { id: string; name: string; type: string; token: string; sha256: string }[] };
+    expect((await read()).outputFiles).toBeUndefined();
+    const chart = got(storeFile({ bytes: PNG, name: "revenue.png", direction: "out", taskId: created.taskId }));
+    const listed = (await read()).outputFiles!;
+    expect(listed).toEqual([{ id: chart.file.id, name: "revenue.png", type: "image/png", size: PNG.length, sha256: sha256Of(PNG), token: chart.token }]);
+    const dl = await meta(new NextRequest(`http://x/api/files/${listed[0].id}`, { headers: { "x-file-token": listed[0].token, "x-forwarded-for": "10.2.0.7" } }), { params: Promise.resolve({ fileId: listed[0].id }) });
+    expect(dl.status).toBe(200);
+    // a file handed back is not an input: it cannot be attached to another hire
+    expect(refusal(checkTaskFiles({ files: [{ id: chart.file.id, token: chart.token }], wallet: null, reads: ALL, paid: false }))).toBe("not_found");
+    process.env.AGENT_FILES = "off";
+    expect((await read()).outputFiles).toBeUndefined();
   });
 
   it("says what can be handed over, and what one agent reads", async () => {

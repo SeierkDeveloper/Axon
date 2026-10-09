@@ -11,7 +11,10 @@ import { listMcpServers, createMcpAgentHandler } from "../lib/mcp";
 import { deliverPendingWebhooks } from "../lib/webhooks";
 import { recordTaskLatency } from "../lib/metrics";
 import { formatContext } from "../lib/formatContext";
-import { attachmentsForTask, filesEnabled } from "../lib/agentFiles";
+import { isWalletAddress } from "../lib/address";
+import { attachmentsForTask, codeEnabled, filesEnabled, readBytes, storeFile } from "../lib/agentFiles";
+import { hasCode, withCode } from "../lib/agentTools";
+import type { SandboxFile } from "../lib/providers";
 import { runWithProvider, runWithProviderTools, getAgentMaxTokens } from "../lib/providers";
 import { limitsForAgent } from "../lib/agentTierLimits";
 import type { ToolCallEvent } from "../lib/providers";
@@ -295,9 +298,23 @@ async function processTasks() {
           // Granted tools: this agent may search, fetch, and call MCP tools before
           // it answers. Resolved per task so a newly synced MCP server is picked up
           // without a restart; unresolvable grants are dropped, never fatal.
-          const tools = agent.tools?.length
+          let tools = agent.tools?.length
             ? resolveAgentTools(agent.tools, { agentId: agent.agentId, taskId: task.taskId })
             : null;
+          // Running code. An agent Axon runs on Claude gets a sandbox for a hire that carries files, so what it says
+          // about them is calculated rather than guessed; an agent whose owner granted "code_execution" has one
+          // anyway. The hire's files are put into it, and whatever it writes there for the person is kept with the job.
+          const mayCode = codeEnabled() && !mcpHandler && !agent.orchestrator && (agent.provider ?? "anthropic") === "anthropic";
+          if (mayCode && handed.files.length && !hasCode(tools)) tools = withCode(tools);
+          const sandbox = mayCode && hasCode(tools)
+            ? {
+                files: handed.files.flatMap((f) => { const bytes = readBytes(f); return bytes ? [{ name: f.name, mime: f.mime, bytes }] : []; }),
+                onFile: (f: SandboxFile) => {
+                  const kept = storeFile({ bytes: f.bytes, name: f.name, wallet: isWalletAddress(task.fromAgent) ? task.fromAgent : null, direction: "out", taskId: task.taskId });
+                  if (!kept.ok) logger.info("worker.output_file_refused", "A file the agent wrote was not kept", { taskId: task.taskId, name: f.name, refused: kept.refused });
+                },
+              }
+            : undefined;
           // Every call the agent makes goes into the flight recorder as it happens,
           // so the receipt shows what it did, not just what it said.
           const onToolCall = (ev: ToolCallEvent) => {
@@ -337,6 +354,7 @@ async function processTasks() {
                       maxSteps: depth.toolSteps,
                       maxToolResultChars: depth.toolResultChars,
                       attachments: handed.attachments,
+                      sandbox,
                     })
                   : runWithProvider(agent, fullMessage, getAgentMaxTokens(agent.agentId), undefined, handed.attachments),
               taskTimeout,

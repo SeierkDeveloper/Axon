@@ -1,3 +1,4 @@
+import { filesEnabled, filesOfTask, fileTokenFor } from "@/lib/agentFiles";
 import { NextRequest, NextResponse } from "next/server";
 import { getTaskById } from "@/lib/tasks";
 import { canAccessIdentity, requireApiKey } from "@/lib/apiAuth";
@@ -9,6 +10,17 @@ function paidByKey(taskId: string, keyId: string): boolean {
   return Boolean(
     getDb().prepare("SELECT 1 FROM allowance_reservations WHERE task_id = ? AND api_key_id = ?").get(taskId, keyId),
   );
+}
+
+/**
+ * The task as its reader gets it. While files are on, it also lists what the agent handed back, each with the token
+ * that downloads it: whoever may read a job's output may read the files that are part of it.
+ */
+function withFiles<T extends { taskId: string }>(task: T): T | (T & { outputFiles: unknown[] }) {
+  if (!filesEnabled()) return task;
+  const out = filesOfTask(task.taskId, "out");
+  if (!out.length) return task;
+  return { ...task, outputFiles: out.map((f) => ({ id: f.id, name: f.name, type: f.mime, size: f.size, sha256: f.sha256, token: fileTokenFor(f.id) })) };
 }
 
 export async function GET(
@@ -28,7 +40,7 @@ export async function GET(
     if (!claimTokenValid(taskId, claimToken)) {
       return apiError("FORBIDDEN", "Invalid claim token for this task", 403);
     }
-    return NextResponse.json(task);
+    return NextResponse.json(withFiles(task));
   }
 
   // Otherwise fall back to API-key auth (owner of the from/to agent).
@@ -44,10 +56,10 @@ export async function GET(
     if (!paidByKey(taskId, auth.user.keyId)) {
       return apiError("FORBIDDEN", "This allowance key did not hire this task", 403);
     }
-    return NextResponse.json(task);
+    return NextResponse.json(withFiles(task));
   }
   if (!canAccessIdentity(auth.user, task.fromAgent) && !canAccessIdentity(auth.user, task.toAgent)) {
     return apiError("FORBIDDEN", "API key does not have access to this task", 403);
   }
-  return NextResponse.json(task);
+  return NextResponse.json(withFiles(task));
 }

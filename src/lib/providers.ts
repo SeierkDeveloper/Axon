@@ -10,7 +10,7 @@
 //   openai     — GPT models via OpenAI API (same REST shape as Ollama)
 //   grok       — Grok models via xAI API (same REST shape as OpenAI)
 
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic, { toFile } from "@anthropic-ai/sdk";
 import type { Agent } from "@/sdk/types";
 import type { ModelAttachment } from "./agentFiles";
 import { getInstructions, withKnowledge } from "./agentKnowledge";
@@ -175,7 +175,7 @@ export function getAgentSystem(agent: Agent): string {
 export interface ToolCallEvent {
   /** Readable name for the receipt: "web_search", or "<server>/<tool>" for MCP. */
   tool: string;
-  kind: "web_search" | "web_fetch" | "mcp";
+  kind: "web_search" | "web_fetch" | "mcp" | "code";
   ok: boolean;
   /** null for server-side tools, which run inside the model call and aren't timed separately. */
   latencyMs: number | null;
@@ -204,7 +204,26 @@ export interface ToolRunOptions {
   maxToolResultChars?: number;
   /** PDFs and pictures handed over with the hire. Given to the model as themselves, ahead of the message. */
   attachments?: ModelAttachment[];
+  /**
+   * For an agent that may run code: the hire's files, which are put into its sandbox, and where anything it writes
+   * there for the person is handed once the job is done. Only used when the tools include the sandbox.
+   */
+  sandbox?: { files: SandboxFile[]; onFile?: (file: SandboxFile) => void | Promise<void> };
 }
+
+/** A file going into, or coming out of, the sandbox an agent runs code in. */
+export interface SandboxFile { name: string; mime: string; bytes: Buffer }
+
+/** What an agent with a sandbox is told about it, after its own instructions. */
+export const CODE_NOTE = `
+
+You can run code. You have a sandbox with Python and a shell. Use it for every calculation, count, comparison or chart: run the code and report what it printed, and never work numbers out in your head. The files attached to this job are in the sandbox; list the working directory and any upload directory to find them. If you make a chart or a file for the person, save it in the output directory ($OUTPUT_DIR when it is set, otherwise the working directory) under a clear name, and say in your answer what each file is.`;
+
+/** How many files one job may hand back from its sandbox, and how large each may be. */
+const MAX_SANDBOX_OUTPUTS = 6;
+const MAX_SANDBOX_OUTPUT_BYTES = 10 * 1024 * 1024;
+const FILES_BETA = "files-api-2025-04-14";
+const isCodeTool = (t: unknown): boolean => typeof (t as { type?: string }).type === "string" && (t as { type: string }).type.startsWith("code_execution");
 
 export interface ProviderClient {
   /**
@@ -292,13 +311,34 @@ function requireText(text: string): string {
 // Server-side tools (web search / fetch) run inside the model call, so they show
 // up as matched server_tool_use → *_tool_result pairs in the response rather than
 // as something we execute. Pair them up and report each one.
-function reportServerToolCalls(content: Anthropic.ContentBlock[], sink?: ToolCallSink): void {
-  if (!sink) return;
+function reportServerToolCalls(content: Anthropic.ContentBlock[], sink?: ToolCallSink, produced?: Set<string>): void {
   const uses = new Map<string, { name: string; input: unknown }>();
   for (const block of content) {
     if (block.type === "server_tool_use") uses.set(block.id, { name: block.name, input: block.input });
   }
   for (const block of content) {
+    const type = block.type as string;
+    // A run in the sandbox: what was run, what it printed, and any file it wrote for the person.
+    if (type === "bash_code_execution_tool_result" || type === "code_execution_tool_result" || type === "text_editor_code_execution_tool_result") {
+      const b = block as unknown as { tool_use_id: string; content: { error_code?: string; stdout?: string; stderr?: string; return_code?: number; content?: { file_id?: string }[] } | null };
+      const use = uses.get(b.tool_use_id);
+      const payload = b.content ?? {};
+      for (const f of Array.isArray(payload.content) ? payload.content : []) if (f?.file_id) produced?.add(f.file_id);
+      if (sink) {
+        const printed = `${payload.stdout ?? ""}${payload.stderr ? `\n[stderr]\n${payload.stderr}` : ""}`;
+        sink({
+          tool: use?.name ?? "code_execution",
+          kind: "code",
+          ok: !payload.error_code && (payload.return_code ?? 0) === 0,
+          latencyMs: null,
+          input: JSON.stringify(use?.input ?? {}),
+          output: payload.error_code ? "" : printed.slice(0, 20_000),
+          ...(payload.error_code ? { error: payload.error_code } : {}),
+        });
+      }
+      continue;
+    }
+    if (!sink) continue;
     if (block.type !== "web_search_tool_result" && block.type !== "web_fetch_tool_result") continue;
     const use = uses.get(block.tool_use_id);
     const kind = block.type === "web_search_tool_result" ? "web_search" : "web_fetch";
@@ -454,13 +494,56 @@ class AnthropicProvider implements ProviderClient {
     return this.withModelFallback((model) => this.toolLoop(model, system, message, maxTokens, tools, opts));
   }
 
+  // With a sandbox: the hire's files are put into it before the first call, and whatever it wrote for the person is
+  // fetched and handed over after the last. Both happen whatever way the loop ends.
   private async toolLoop(
     model: string,
     system: string,
     message: string,
     maxTokens: number,
     tools: ResolvedTools,
+    opts: ToolRunOptions,
+  ): Promise<{ text: string; refused: boolean }> {
+    if (!tools.serverTools.some(isCodeTool)) return this.runToolLoop(model, system, message, maxTokens, tools, opts, null);
+    const box = { uploads: [] as string[], produced: new Set<string>() };
+    for (const f of opts.sandbox?.files ?? []) {
+      try {
+        const up = await this.client.beta.files.upload({ file: await toFile(f.bytes, f.name, { type: f.mime }) });
+        box.uploads.push(up.id);
+      } catch (err) {
+        // the file is still in the message as text or as itself; only the sandbox copy is missing
+        logger.warn("provider.sandbox_upload_failed", "A file could not be put into the sandbox", { name: f.name, err });
+      }
+    }
+    try {
+      return await this.runToolLoop(model, system + CODE_NOTE, message, maxTokens, tools, opts, box);
+    } finally {
+      let handed = 0;
+      for (const id of box.produced) {
+        if (handed >= MAX_SANDBOX_OUTPUTS) break;
+        try {
+          const meta = await this.client.beta.files.retrieveMetadata(id);
+          if (meta.size_bytes > MAX_SANDBOX_OUTPUT_BYTES) continue;
+          const bytes = Buffer.from(await (await this.client.beta.files.download(id)).arrayBuffer());
+          await opts.sandbox?.onFile?.({ name: meta.filename, mime: meta.mime_type, bytes });
+          handed++;
+        } catch (err) {
+          logger.warn("provider.sandbox_download_failed", "A file the agent wrote could not be fetched", { err });
+        }
+      }
+      // nothing of a job is left with the model provider
+      for (const id of [...box.uploads, ...box.produced]) void this.client.beta.files.delete(id).catch(() => {});
+    }
+  }
+
+  private async runToolLoop(
+    model: string,
+    system: string,
+    message: string,
+    maxTokens: number,
+    tools: ResolvedTools,
     { onToolCall, signal, maxSteps: maxStepsOpt, maxToolResultChars, attachments }: ToolRunOptions,
+    box: { uploads: string[]; produced: Set<string> } | null,
   ): Promise<{ text: string; refused: boolean }> {
     const timeoutMs = Math.max(120_000, maxTokens * 30);
     const byName = new Map<string, LocalTool>(tools.localTools.map((t) => [t.name, t]));
@@ -473,8 +556,15 @@ class AnthropicProvider implements ProviderClient {
       })),
     ];
 
-    const messages: Anthropic.MessageParam[] = [{ role: "user", content: firstTurn(message, attachments) }];
+    const first = firstTurn(message, attachments);
+    // the hire's files, placed in the sandbox, follow the message
+    const opening: Anthropic.MessageParam["content"] = box?.uploads.length
+      ? [...(typeof first === "string" ? [{ type: "text" as const, text: first }] : first), ...box.uploads.map((id) => ({ type: "container_upload" as const, file_id: id }))]
+      : first;
+    const messages: Anthropic.MessageParam[] = [{ role: "user", content: opening }];
     let lastText = "";
+    // the sandbox lives across the calls of one job: later calls name it, so its files and state are still there
+    let containerId: string | null = null;
 
     // One extra pass past the cap, with tools switched off, so a loop that runs
     // long still ends with a real deliverable instead of a dangling tool call.
@@ -502,8 +592,9 @@ class AnthropicProvider implements ProviderClient {
                 messages,
                 tools: toolDefs,
                 ...(exhausted ? { tool_choice: { type: "none" as const } } : {}),
+                ...(containerId ? { container: containerId } : {}),
               },
-              { timeout: timeoutMs },
+              { timeout: timeoutMs, ...(box?.uploads.length ? { headers: { "anthropic-beta": FILES_BETA } } : {}) },
             )
             .finalMessage(),
         3,
@@ -519,7 +610,8 @@ class AnthropicProvider implements ProviderClient {
 
       if ((msg.stop_reason as string) === "refusal") return { text: "", refused: true };
 
-      reportServerToolCalls(msg.content, onToolCall);
+      reportServerToolCalls(msg.content, onToolCall, box?.produced);
+      if (box && msg.container?.id) containerId = msg.container.id;
 
       const text = msg.content
         .filter((b): b is Anthropic.TextBlock => b.type === "text")

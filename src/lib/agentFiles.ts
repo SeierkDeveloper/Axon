@@ -34,6 +34,14 @@ export function filesEnabled(env: Record<string, string | undefined> = process.e
   return (env.AGENT_FILES ?? "off").trim().toLowerCase() === "on";
 }
 
+/**
+ * Whether agents may run code. A second switch inside the first: AGENT_CODE=on, and only while files are on. Off, an
+ * agent is handed files exactly as before and computes nothing.
+ */
+export function codeEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return filesEnabled(env) && (env.AGENT_CODE ?? "off").trim().toLowerCase() === "on";
+}
+
 const MB = 1024 * 1024;
 const DAY_MS = 86_400_000;
 
