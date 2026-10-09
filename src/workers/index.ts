@@ -15,6 +15,7 @@ import { isWalletAddress } from "../lib/address";
 import { attachmentsForTask, codeEnabled, filesEnabled, keepOutput, readBytes, REPORT_KEY, REPORT_NOTE, storeReport } from "../lib/agentFiles";
 import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
+import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
 import type { SandboxFile } from "../lib/providers";
 import { runWithProvider, runWithProviderTools, getAgentMaxTokens } from "../lib/providers";
 import { limitsForAgent } from "../lib/agentTierLimits";
@@ -326,6 +327,11 @@ async function processTasks() {
                 },
               }
             : undefined;
+          // Making pictures. A hire that is about a picture gives the agent one more tool: it describes the picture, a
+          // picture model draws it, and the file is kept with the job like any other the agent hands back.
+          if (mayDraw(agent, task.task, { viaMcp: Boolean(mcpHandler) })) {
+            tools = withPictures(tools, pictureTool({ taskId: task.taskId, wallet: hirerWallet, paid: task.payment != null, onMade: (f) => live.say(`Made ${f.name}`) }));
+          }
           // Every call the agent makes goes into the flight recorder as it happens,
           // so the receipt shows what it did, not just what it said.
           const onToolCall = (ev: ToolCallEvent) => {

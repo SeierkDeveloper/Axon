@@ -1,4 +1,5 @@
 import { agentReads, filesEnabled } from "@/lib/agentFiles";
+import { mayDraw } from "@/lib/agentPictures";
 import { getMcpServerByAgentId } from "@/lib/mcp";
 import { NextRequest, NextResponse } from "next/server";
 import { getAgentById, updateAgent, toPublicAgent } from "@/lib/agents";
@@ -28,7 +29,7 @@ export async function GET(
   // agent has cryptographically authenticated.
   // while files are on, the profile also says which kinds of file this agent can be handed
   const reads = filesEnabled() ? agentReads(agent, { runsThroughMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }) : null;
-  return publicJson(req, { ...toPublicAgent(agent), ownerVerified: isOwnerVerified(agentId), ...(reads ? { reads: { text: reads.text, pdf: reads.pdf, image: reads.image } } : {}) });
+  return publicJson(req, { ...toPublicAgent(agent), ownerVerified: isOwnerVerified(agentId), ...(reads ? { reads: { text: reads.text, pdf: reads.pdf, image: reads.image } } : {}), ...(mayDraw(agent, "a picture", { viaMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }) ? { makes: { pictures: true } } : {}) });
 }
 
 // PATCH /api/agents/[agentId] — update mutable agent fields

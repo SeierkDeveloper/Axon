@@ -27,6 +27,7 @@ import UseAnywhere from "@/components/UseAnywhere";
 import { ExtArrow } from "@/components/ExtArrow";
 import { agentAvailability } from "@/lib/availability";
 import { agentReads, filesEnabled } from "@/lib/agentFiles";
+import { mayDraw } from "@/lib/agentPictures";
 import { getMcpServerByAgentId } from "@/lib/mcp";
 
 export const dynamic = "force-dynamic";
@@ -101,6 +102,8 @@ export default async function AgentProfilePage({
 
   // which kinds of file this agent can be handed, when files are on
   const reads = filesEnabled() ? agentReads(agent, { runsThroughMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }) : null;
+  // whether a hire that asks for a picture would be given the picture tool
+  const draws = mayDraw(agent, "a picture", { viaMcp: Boolean(getMcpServerByAgentId(agent.agentId)) });
 
   return (
     <div className="bg-white dark:bg-[#0a0a0a] min-h-screen text-[#0a0a0a] dark:text-white">
@@ -194,6 +197,12 @@ export default async function AgentProfilePage({
             <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
               <span className="font-mono text-xs uppercase tracking-widest text-gray-400 mr-2">Reads</span>
               {[reads.text && "text files", reads.pdf && "PDFs", reads.image && "pictures and screenshots"].filter(Boolean).join(" · ")}
+            </p>
+          )}
+          {draws && (
+            <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400">
+              <span className="font-mono text-xs uppercase tracking-widest text-gray-400 mr-2">Makes</span>
+              pictures, when you ask for one
             </p>
           )}
         </div>

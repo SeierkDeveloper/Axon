@@ -87,6 +87,7 @@ export function lineFor(ev: LiveEvent): string | null {
     const what = input.command === "create" ? "Writing" : input.command === "view" ? "Looking at" : "Editing";
     return name ? `${what} ${name}` : `${what} a file`;
   }
+  if (ev.tool === "make_picture") return typeof input.prompt === "string" && input.prompt.trim() ? oneLine(`Drawing: ${input.prompt.trim()}`, 110) : "Drawing a picture";
   // a tool of the agent's own (an MCP server's, or one Axon gives it): its name is what there is to say
   const name = ev.tool.split("/").pop() ?? ev.tool;
   return oneLine(`Using ${name.replace(/_/g, " ")}`, 80);
