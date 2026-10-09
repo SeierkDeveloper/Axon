@@ -102,14 +102,14 @@ export default function VoiceInput({ onText, disabled }: { onText: (text: string
 
   const recording = state === "recording";
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
       <button
         type="button"
         onClick={recording ? stop : () => void start()}
         disabled={disabled || state === "asking" || state === "writing"}
         aria-pressed={recording}
         aria-label={recording ? "Stop recording" : "Say the task out loud"}
-        className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${recording ? "border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300" : "border-gray-200 text-gray-700 hover:border-gray-400 dark:border-gray-700 dark:text-gray-200 dark:hover:border-gray-500"}`}
+        className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${recording ? "border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300" : "border-gray-200 text-gray-700 hover:border-gray-400 dark:border-gray-700 dark:text-gray-200 dark:hover:border-gray-500"}`}
       >
         {recording ? (
           <span className="h-2.5 w-2.5 rounded-sm bg-red-600" aria-hidden />

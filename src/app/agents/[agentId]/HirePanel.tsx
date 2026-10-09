@@ -358,13 +358,13 @@ export default function HirePanel({
               <StepList steps={steps} />
             </details>
           )}
-          <div className="mt-3 flex items-center gap-4">
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
             {taskId && (
-              <a href={`/r/${encodeURIComponent(taskId)}`} target="_blank" rel="noopener noreferrer" className="text-xs text-teal-600 dark:text-teal-400 hover:underline">
+              <a href={`/r/${encodeURIComponent(taskId)}`} target="_blank" rel="noopener noreferrer" className="whitespace-nowrap text-xs text-teal-600 dark:text-teal-400 hover:underline">
                 View the receipt →
               </a>
             )}
-            <button onClick={reset} className="text-xs text-gray-500 dark:text-gray-400 hover:underline">
+            <button onClick={reset} className="whitespace-nowrap text-xs text-gray-500 dark:text-gray-400 hover:underline">
               Hire again
             </button>
             {taskId && claim && output && <VoiceOutput taskId={taskId} claimToken={claim} />}

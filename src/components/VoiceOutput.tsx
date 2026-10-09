@@ -75,12 +75,12 @@ export default function VoiceOutput({ taskId, claimToken }: { taskId: string; cl
   };
 
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
       <button
         type="button"
         onClick={state === "playing" ? stop : () => void listen()}
         disabled={state === "loading"}
-        className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-900 hover:underline disabled:opacity-60 dark:text-gray-400 dark:hover:text-white"
+        className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-gray-500 hover:text-gray-900 hover:underline disabled:opacity-60 dark:text-gray-400 dark:hover:text-white"
       >
         <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           {state === "playing" ? <rect x="6" y="6" width="12" height="12" rx="1.5" /> : <><path d="M4 9v6h4l5 4V5L8 9H4z" /><path d="M16.5 8.5a5 5 0 0 1 0 7" /></>}
