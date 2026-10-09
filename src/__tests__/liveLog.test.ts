@@ -57,6 +57,11 @@ describe("a step as a line", () => {
     expect(lineFor(tool("bash_code_execution", { command: "# look first\nls -la /tmp" }))).toBe("Looking at the files");
     expect(lineFor(tool("bash_code_execution", { command: "head -5 /mnt/user/orders.csv" }))).toBe("Looking at orders.csv");
     expect(lineFor(tool("bash_code_execution", { command: "python3 -c \"print(1)\"" }))).toBe("Running Python");
+    expect(lineFor(tool("bash_code_execution", { command: "cd /tmp && python3 << 'EOF'\nimport pandas as pd\ndf = pd.read_csv('orders.csv')\nEOF" }))).toBe("Running Python: working through the data");
+    expect(lineFor(tool("bash_code_execution", { command: "cd /tmp && python3 << 'EOF'\nimport pandas as pd\nimport matplotlib.pyplot as plt\nplt.savefig('c.png')\nEOF" }))).toBe("Running Python: drawing the chart");
+    expect(lineFor(tool("bash_code_execution", { command: "cd /tmp; python3 analyze.py" }))).toBe("Running analyze.py");
+    expect(lineFor(tool("bash_code_execution", { command: 'cp /tmp/net_revenue_by_region.png "$OUTPUT_DIR/"' }))).toBe("Saving net_revenue_by_region.png");
+    expect(lineFor(tool("bash_code_execution", { command: "mv -f out/report.csv ${OUTPUT_DIR}/report.csv" }))).toBe("Saving report.csv");
     expect(lineFor(tool("bash_code_execution", { command: "pip install -q matplotlib" }))).toBe("Installing matplotlib");
     expect(lineFor(tool("bash_code_execution", { command: "sort -u names.txt | wc -l" }))).toBe("Running: sort -u names.txt | wc -l");
     expect(lineFor(tool("bash_code_execution", {}))).toBe("Running code");

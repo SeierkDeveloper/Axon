@@ -45,17 +45,29 @@ export function noteLine(text: string): string | null {
   return line.length >= 4 ? line : null;
 }
 
+/** What a piece of Python is for, when its own words say so: a chart, or the data. */
+function pythonLine(code: string): string {
+  if (/savefig|matplotlib|\bplt\.|seaborn|plotly/.test(code)) return "Running Python: drawing the chart";
+  if (/read_csv|read_excel|read_json|csv\.(reader|DictReader)|\bpandas\b/.test(code)) return "Running Python: working through the data";
+  return "Running Python";
+}
+
 /** A shell command as a line: what it does where that is plain, else its first line. */
 function commandLine(command: string): string {
-  const first = command.split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#")) ?? "";
+  const firstRaw = command.split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#")) ?? "";
+  // where it runs is not what it does: "cd /tmp && python3 x.py" is the Python
+  const first = firstRaw.replace(/^(cd\s+\S+\s*(&&|;)\s*)+/, "");
   const written = first.match(/^cat\s*>+\s*(\S+)\s*<</);
   if (written) return `Writing ${baseName(written[1])}`;
   const script = first.match(/^python3?\s+(?!-)(\S+\.py)\b/);
   if (script) return `Running ${baseName(script[1])}`;
-  if (/^python3?\s+(-c\b|-\s*<<|<<)/.test(first)) return "Running Python";
+  if (/^python3?\s*(-c\b|-\s*<<|<<)/.test(first)) return pythonLine(command);
   if (/^pip3?\s+install\b/.test(first)) return oneLine(`Installing ${first.replace(/^pip3?\s+install\s+/, "").replace(/(^|\s)-\S+/g, " ")}`, 90);
   if (/^(ls|find|pwd|tree)\b/.test(first)) return "Looking at the files";
   if (/^(head|cat|tail|wc|file)\s/.test(first)) return `Looking at ${baseName(first.split(/\s+/).filter((w) => !w.startsWith("-")).pop())}`;
+  // a file copied or moved to where finished work goes is a file being handed over
+  const saved = first.match(/^(cp|mv)\s+(?:-\S+\s+)*(\S+)\s+\S*\$\{?OUTPUT_DIR\b/);
+  if (saved) return `Saving ${baseName(saved[2].replace(/["']/g, ""))}`;
   return oneLine(`Running: ${first}`, 110);
 }
 
