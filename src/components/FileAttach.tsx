@@ -103,7 +103,7 @@ export default function FileAttach({ agentId, paid, files, onChange, disabled, a
         </ul>
       )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <input ref={input} type="file" multiple accept={ACCEPT} className="hidden" onChange={(e) => { if (e.target.files?.length) void add(e.target.files); e.target.value = ""; }} />
+        <input ref={input} type="file" multiple accept={ACCEPT} className="hidden" onChange={(e) => { const el = e.target; if (el.files?.length) void add(el.files).finally(() => { el.value = ""; }); }} />
         <button type="button" onClick={() => input.current?.click()} disabled={disabled || full || busy > 0} className="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 transition-colors hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:border-gray-500">
           {busy > 0 ? "Uploading…" : files.length ? "Add another file" : "Attach a file"}
         </button>
