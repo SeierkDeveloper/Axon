@@ -11,6 +11,7 @@
 // there is enough to be worth the rewrite.
 
 import { filesEnabled, purgeExpiredFiles } from "./agentFiles";
+import { purgeSpoken } from "./agentVoice";
 import { getDb } from "./db";
 import { logger } from "./logger";
 
@@ -136,6 +137,12 @@ export function runRetentionCleanup(): RetentionResult {
     } catch (err) {
       logger.warn("files.purge_failed", "Clearing expired files failed", { err });
     }
+  }
+  // answers read aloud are kept for a week so hearing one again is free; older ones go
+  try {
+    purgeSpoken();
+  } catch (err) {
+    logger.warn("voice.purge_failed", "Clearing old readings failed", { err });
   }
   return { ...counts, reclaimed_mb: reclaimIfWorthIt(), task_files };
 }

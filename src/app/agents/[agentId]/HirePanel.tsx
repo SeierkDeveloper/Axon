@@ -6,6 +6,8 @@ import { payForBuild } from "@/lib/buildPaymentClient";
 import MarkdownOutput from "@/components/MarkdownOutput";
 import FileAttach, { type Attached } from "@/components/FileAttach";
 import OutputFiles, { type OutputFile } from "@/components/OutputFiles";
+import VoiceInput from "@/components/VoiceInput";
+import VoiceOutput from "@/components/VoiceOutput";
 
 // Close the loop: hire an agent right here. Free-lane agents run immediately;
 // paid agents settle a single on-chain ETH payment (x402) first — pay with
@@ -90,6 +92,8 @@ export default function HirePanel({
   // what the agent has done so far, one line a step, while it runs and after
   const [steps, setSteps] = useState<{ n: number; text: string }[]>([]);
   const cancelled = useRef(false);
+  // the hire's own token: what reads its answer, and what has that answer read aloud
+  const [claim, setClaim] = useState<string | null>(null);
   // A payment that already landed on-chain — kept so a failed submit retries with
   // the SAME signature instead of charging the wallet a second time.
   const paid = useRef<{ paymentSignature: string; payerWallet: string } | null>(null);
@@ -165,6 +169,7 @@ export default function HirePanel({
       if (cancelled.current) return;
       if (res.ok && data.taskId && data.claimToken) {
         setTaskId(data.taskId);
+        setClaim(data.claimToken);
         setFiles([]); // they belong to this hire now
         setSteps([]);
         setPhase("running");
@@ -243,6 +248,7 @@ export default function HirePanel({
     setOutFiles([]);
     setReport(false);
     setSteps([]);
+    setClaim(null);
   }
 
   // ── Paid agent we can't settle in-browser (SOL price, or wallet config unset):
@@ -286,7 +292,7 @@ export default function HirePanel({
             className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-teal-400 disabled:opacity-60 resize-y"
           />
           <FileAttach agentId={agentId} paid={payAndHire} files={files} onChange={setFiles} disabled={phase === "hiring"} report={report} onReport={setReport} />
-          <div className="mt-3 flex items-center gap-3">
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
             <button
               onClick={payAndHire ? hirePaid : hireFree}
               disabled={!task.trim() || phase === "hiring"}
@@ -298,6 +304,7 @@ export default function HirePanel({
                   ? (paid.current ? "Retry hire" : `Pay ${price} & Hire`)
                   : "Hire"}
             </button>
+            <VoiceInput disabled={phase === "hiring"} onText={(said) => setTask((t) => (t.trim() ? `${t.trimEnd()} ${said}` : said))} />
             <span className="text-[11px] text-gray-400 dark:text-gray-500">
               {payAndHire
                 ? "Pay with MetaMask · leaves a verifiable receipt · payment is the authorization"
@@ -360,6 +367,7 @@ export default function HirePanel({
             <button onClick={reset} className="text-xs text-gray-500 dark:text-gray-400 hover:underline">
               Hire again
             </button>
+            {taskId && claim && output && <VoiceOutput taskId={taskId} claimToken={claim} />}
           </div>
         </div>
       )}

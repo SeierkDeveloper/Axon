@@ -1272,6 +1272,50 @@ const SPEC = {
       },
     },
 
+    "/voice": {
+      get: {
+        summary: "Whether voice is on here, and its limits",
+        description: "Voice lets a person say a job out loud and hear the answer. 404 where it is switched off.",
+        operationId: "getVoice",
+        tags: ["Voice"],
+        security: [],
+        responses: { 200: { description: "listen: { maxBytes, maxSeconds }, speak: { maxChars }" }, 404: { description: "Voice is not switched on here" } },
+      },
+    },
+    "/voice/transcribe": {
+      post: {
+        summary: "A short recording in, its words out",
+        description: "The body is the recording itself (WebM, MP4/M4A, Ogg, WAV or MP3, read from its bytes), up to 60 seconds and 2 MB. Nothing is kept. Held to a number of recordings a minute and a day per address.",
+        operationId: "transcribeVoice",
+        tags: ["Voice"],
+        security: [],
+        requestBody: { required: true, content: { "audio/webm": { schema: { type: "string", format: "binary" } }, "audio/mp4": { schema: { type: "string", format: "binary" } } } },
+        responses: {
+          200: { description: "The words", content: { "application/json": { schema: { type: "object", properties: { text: { type: "string" } } } } } },
+          413: { description: "The recording is too long" },
+          415: { description: "Not a recording this can read" },
+          422: { description: "Nothing was heard" },
+          429: { description: "Rate limited" },
+        },
+      },
+    },
+    "/voice/speak": {
+      post: {
+        summary: "A finished task's answer, read aloud",
+        description: "Returns MP3. Reads only the answer of the task named, never text sent in, and only for a caller who may read that task: the X-Claim-Token of an anonymous hire, or an API key that is party to it. Markup, code and tables are not read out. A long answer is read up to about 1,200 characters, and the response then carries X-Voice-Cut: 1. A reading is made once and kept for a week, so asking again costs nothing.",
+        operationId: "speakTask",
+        tags: ["Voice"],
+        parameters: [{ name: "X-Claim-Token", in: "header", required: false, schema: { type: "string" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["taskId"], properties: { taskId: { type: "string" } } } } } },
+        responses: {
+          200: { description: "The answer as speech", content: { "audio/mpeg": { schema: { type: "string", format: "binary" } } } },
+          403: { description: "The caller may not read this task" },
+          409: { description: "The task has no answer yet" },
+          429: { description: "Rate limited" },
+        },
+      },
+    },
+
     "/files": {
       get: {
         summary: "What can be handed to an agent here and how much: the size limit, the types taken, and what one hire may carry. With ?agent=<id>, also which kinds of file that agent reads",

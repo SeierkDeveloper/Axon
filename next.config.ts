@@ -44,7 +44,9 @@ const nextConfig: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+          // The microphone is refused to every page unless voice is switched on for this deployment, and then it is
+          // allowed to this site's own pages only. Read when the site is built, like every header here.
+          { key: "Permissions-Policy", value: `camera=(), microphone=(${(process.env.AGENT_VOICE ?? "").trim().toLowerCase() === "on" ? "self" : ""}), geolocation=()` },
           // Only send HSTS over real HTTPS — avoids locking out local dev
           ...(process.env.NODE_ENV === "production"
             ? [{ key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" }]

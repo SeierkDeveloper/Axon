@@ -19,7 +19,7 @@ const png = (fill: number) => Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(60, 3)]);
 let dir = "";
 const saved = { ...process.env };
-const claude = { provider: "anthropic", capabilities: ["research"] };
+const claude = { provider: "anthropic" as const, capabilities: ["research"] };
 const job = () => createTask({ fromAgent: "buyer", toAgent: "artist", task: "Draw a poster", initialStatus: "running", startedBy: "worker" }).taskId;
 
 beforeAll(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), "axon-pictures-")); });
@@ -61,15 +61,15 @@ describe("which hires get the picture tool", () => {
     expect(mayDraw(claude, "Design a logo for my coffee shop")).toBe(true);
     expect(mayDraw(claude, "Make me an image of a fox in a forest")).toBe(true);
     expect(mayDraw(claude, "Draw a poster for the launch")).toBe(true);
-    expect(mayDraw({ provider: "anthropic", capabilities: ["image generation", "design feedback"] }, "Something for the homepage")).toBe(true);
-    expect(mayDraw({ provider: undefined, capabilities: [] }, "an illustration of a robot")).toBe(true);
+    expect(mayDraw({ provider: "anthropic" as const, capabilities: ["image generation", "design feedback"] }, "Something for the homepage")).toBe(true);
+    expect(mayDraw({ provider: "anthropic" as const, capabilities: [] }, "an illustration of a robot")).toBe(true);
   });
 
   it("and no other hire: plain jobs, other models, agents that hand work on, agents on their own server, or while it is off", () => {
     expect(mayDraw(claude, "Summarise this contract and list the risks")).toBe(false);
     expect(mayDraw(claude, "What does the big picture look like for ETH?")).toBe(true); // the word is there: one picture at most, and only if the agent chooses to
     expect(mayDraw(claude, "Imagine the best pricing for my app")).toBe(false);
-    expect(mayDraw({ provider: "openai", capabilities: ["image generation"] }, "Draw a logo")).toBe(false);
+    expect(mayDraw({ provider: "openai" as const, capabilities: ["image generation"] }, "Draw a logo")).toBe(false);
     expect(mayDraw({ ...claude, orchestrator: true }, "Draw a logo")).toBe(false);
     expect(mayDraw(claude, "Draw a logo", { viaMcp: true })).toBe(false);
     expect(mayDraw(claude, "Draw a logo", { env: { AGENT_FILES: "on" } })).toBe(false);
