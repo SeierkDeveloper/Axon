@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getRpcCircuitState } from "@/lib/evm";
+import { spentToday } from "@/lib/rpcBudget";
 import { getGatewayCircuitState, listGatewayProviders } from "@/lib/gateway";
 
 export const runtime = "nodejs";
@@ -104,6 +105,20 @@ function rpcCircuitMetric(): Metric {
   };
 }
 
+async function paidNodeMetric(): Promise<Metric> {
+  const spend = await spentToday();
+  return {
+    name: "axon_rpc_paid_node_units",
+    help: "Compute units counted against the paid chain node today (UTC), and the daily allowance it stops at",
+    type: "gauge",
+    samples: [
+      { labels: { metric: "spent_today" }, value: spend.units },
+      { labels: { metric: "calls_today" }, value: spend.calls },
+      { labels: { metric: "daily_allowance" }, value: spend.allowance },
+    ],
+  };
+}
+
 function gatewayCircuitMetrics(): Metric {
   const providers = listGatewayProviders();
   return {
@@ -160,6 +175,7 @@ export async function GET() {
     agentMetrics(),
     ...webhookMetrics(),
     rpcCircuitMetric(),
+    await paidNodeMetric(),
     gatewayCircuitMetrics(),
     mppMetrics(),
     uptimeMetric(),

@@ -83,6 +83,12 @@ export function assertReadyConfig(): void {
       hint: "Overrides the default Robinhood Chain node. Unset is fine: the public node is used.",
     },
     {
+      name: "AXON_RPC_FALLBACK_URLS",
+      required: false,
+      present: hasEnv("AXON_RPC_FALLBACK_URLS"),
+      hint: "A paid node (Alchemy) asked only when the public node refuses. It stops at AXON_RPC_DAILY_UNITS a day (default 400,000).",
+    },
+    {
       name: "SEED_SECRET",
       required: true,
       present: hasEnv("SEED_SECRET"),

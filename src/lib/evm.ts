@@ -14,6 +14,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { CHAIN_ID, CHAIN_NAME, RPC_URL } from "./chain";
 import { normalizeAddress, sameAddress } from "./address";
 import { logger } from "./logger";
+import { countPaidCall, isPaidNode, mayUsePaidNode } from "./rpcBudget";
 
 export const PAYMENT_RECEIVER_WALLET_ADDRESS =
   process.env.NEXT_PUBLIC_PAYMENT_RECEIVER_WALLET_ADDRESS ??
@@ -31,6 +32,9 @@ export function rpcUrl(): string {
  * Every node to try, in order: AXON_RPC_URL (a dedicated provider such as Alchemy), then any in
  * AXON_RPC_FALLBACK_URLS (comma separated), then the public node, so one node rate-limiting or
  * stalling never takes Axon's chain reads down with it.
+ *
+ * A paid node is best put in AXON_RPC_FALLBACK_URLS with AXON_RPC_URL left unset: the public node is then asked
+ * first and the paid one only when it refuses. Either way the paid node stops at its daily allowance (rpcBudget.ts).
  */
 export function rpcUrls(): string[] {
   const list = [rpcUrl(), ...(process.env.AXON_RPC_FALLBACK_URLS ?? "").split(","), RPC_URL]
@@ -39,10 +43,13 @@ export function rpcUrls(): string[] {
   return [...new Set(list)];
 }
 
-/** A node saying it is busy or limited rather than giving an answer: the next node may well answer. */
+/**
+ * A node saying it is busy or limited rather than giving an answer: the next node may well answer. The public node
+ * says so with a 403 as often as with a 429 (it turns a busy address away outright), so that counts too.
+ */
 function isBusyNode(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  return /\b(429|502|503|504)\b|rate.?limit|too many requests|capacity|unavailable|temporarily|try again|timeout|fetch failed|econnreset|etimedout|econnrefused|socket hang up|aborted/i.test(err.message);
+  return /\b(403|429|502|503|504)\b|rate.?limit|too many requests|capacity|unavailable|temporarily|try again|timeout|fetch failed|econnreset|etimedout|econnrefused|socket hang up|aborted/i.test(err.message);
 }
 
 // ── Circuit breaker ───────────────────────────────────────────────────────────
@@ -143,7 +150,12 @@ export function rpcCall<T>(method: string, params: unknown[]): Promise<T> {
 async function rawRpc<T>(method: string, params: unknown[]): Promise<T> {
   let lastErr: unknown;
   for (const url of rpcUrls()) {
+    // A paid node has a daily allowance. Once it is spent the node is passed over, and the public node (always the
+    // last in the list) carries on alone.
+    const paid = isPaidNode(url);
+    if (paid && !(await mayUsePaidNode(method))) continue;
     try {
+      if (paid) await countPaidCall(method);
       return await rpcAt<T>(url, method, params);
     } catch (err) {
       lastErr = err;
