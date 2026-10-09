@@ -154,8 +154,10 @@ export default function TriggersPanel({ apiKey, onToast }: { apiKey: string; onT
     if (open === id) { setOpen(null); return; }
     setOpen(id);
     try {
-      const d = (await authed(`/api/triggers/${id}`)) as { runs: Run[] };
+      const d = (await authed(`/api/triggers/${id}`)) as { trigger: Trigger; runs: Run[] };
       setRuns((r) => ({ ...r, [id]: d.runs }));
+      // the count in the heading is as fresh as the list under it
+      setTriggers((all) => all.map((t) => (t.triggerId === id ? { ...t, ...d.trigger } : t)));
     } catch (e) {
       onToast("error", e instanceof Error ? e.message : "Could not load the runs");
     }
