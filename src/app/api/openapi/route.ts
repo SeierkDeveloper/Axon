@@ -1272,6 +1272,70 @@ const SPEC = {
       },
     },
 
+    "/triggers": {
+      get: {
+        summary: "Your triggers: jobs that start themselves",
+        description: "A trigger is a saved job waiting for an event: an agent, what to ask it, and what sets it off. 404 where triggers are switched off.",
+        operationId: "listTriggers",
+        tags: ["Triggers"],
+        responses: { 200: { description: "triggers, and limits { triggers, runsPerDay, freeRunsPerDay }" }, 404: { description: "Triggers are not switched on here" } },
+      },
+      post: {
+        summary: "Save a job and what starts it",
+        description: "kind \"inbound\": the trigger gets its own address; a call or a file sent there starts the job. The response carries the secret for that address once. kind \"chain\": a contract on Robinhood Chain is watched from now on, and each of its logs (or each token transfer) starts the job. An agent that charges is paid from your allowance, up to maxPriceEth a run; one that does not charge runs a few times a day across your triggers.",
+        operationId: "createTrigger",
+        tags: ["Triggers"],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["agentId", "kind", "instructions"],
+                properties: {
+                  agentId: { type: "string" },
+                  kind: { type: "string", enum: ["inbound", "chain"] },
+                  instructions: { type: "string", maxLength: 8000, description: "What to ask the agent. What arrives is added under it as the event, marked as data" },
+                  name: { type: "string" },
+                  maxPriceEth: { type: "string", example: "0.001", description: "Required for an agent that charges: the most one run may cost" },
+                  payIn: { type: "string", enum: ["ETH", "AXON"] },
+                  maxRunsPerDay: { type: "integer", minimum: 1, maximum: 200, default: 20 },
+                  reportFile: { type: "boolean", description: "Also keep each answer as a Markdown file with the job" },
+                  chain: { type: "object", properties: { address: { type: "string", description: "The contract to watch" }, event: { type: "string", enum: ["transfer", "any"] }, topic0: { type: "string", description: "Instead of event: the first topic of the logs to watch" } } },
+                },
+              },
+            },
+          },
+        },
+        responses: { 201: { description: "trigger, and for an inbound one: secret (once) and url" }, 400: { description: "What is missing, in words" }, 409: { description: "Too many triggers, or the chain could not be read" } },
+      },
+    },
+    "/triggers/{triggerId}": {
+      parameters: [{ name: "triggerId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "A trigger and its latest runs, each with how its job ended and what it said", operationId: "getTrigger", tags: ["Triggers"], responses: { 200: { description: "trigger, runs" }, 404: { $ref: "#/components/responses/NotFound" } } },
+      patch: {
+        summary: "Pause, resume, or make a new secret",
+        operationId: "updateTrigger",
+        tags: ["Triggers"],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["action"], properties: { action: { type: "string", enum: ["pause", "resume", "rotate"] } } } } } },
+        responses: { 200: { description: "The trigger; with rotate, the new secret, once" } },
+      },
+      delete: { summary: "Delete a trigger and its list of runs", operationId: "deleteTrigger", tags: ["Triggers"], responses: { 200: { description: "Deleted" } } },
+    },
+    "/triggers/{triggerId}/fire": {
+      parameters: [{ name: "triggerId", in: "path", required: true, schema: { type: "string" } }],
+      post: {
+        summary: "Something happened: start the job",
+        description: "Called by your own system with the trigger's secret in the X-Trigger-Key header (or ?key=). JSON or plain text is handed to the agent as what happened. Anything else (a PDF, a picture, a spreadsheet; name it with X-File-Name) is a file for the agent to work on, as is every file part of a form, with an optional text part as a note. Send Idempotency-Key and the same event never starts two runs. Once the secret is right the answer is always 2xx: 202 with the task when a run started, 200 with the reason when it did not.",
+        operationId: "fireTrigger",
+        tags: ["Triggers"],
+        security: [],
+        parameters: [{ name: "X-Trigger-Key", in: "header", required: true, schema: { type: "string" } }, { name: "Idempotency-Key", in: "header", required: false, schema: { type: "string" } }],
+        requestBody: { required: false, content: { "application/json": { schema: { type: "object" } }, "text/plain": { schema: { type: "string" } }, "multipart/form-data": { schema: { type: "object" } } } },
+        responses: { 202: { description: "fired: true, runId, taskId, receiptUrl" }, 200: { description: "fired: false, reason, message" }, 404: { description: "No trigger here for that key" }, 429: { description: "Rate limited" } },
+      },
+    },
+
     "/voice": {
       get: {
         summary: "Whether voice is on here, and its limits",

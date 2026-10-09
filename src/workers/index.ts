@@ -16,6 +16,8 @@ import { attachmentsForTask, codeEnabled, filesEnabled, keepOutput, readBytes, R
 import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
+import { triggersEnabled } from "../lib/triggers";
+import { runChainTriggers } from "../lib/triggerChain";
 import type { SandboxFile } from "../lib/providers";
 import { runWithProvider, runWithProviderTools, getAgentMaxTokens } from "../lib/providers";
 import { limitsForAgent } from "../lib/agentTierLimits";
@@ -123,6 +125,8 @@ let thresholdTimer: NodeJS.Timeout | null = null;
 let allowanceTimer: NodeJS.Timeout | null = null;
 let allowanceRunning = false;
 let retainerTimer: NodeJS.Timeout | null = null;
+let triggerTimer: NodeJS.Timeout | null = null;
+let triggerRunning = false;
 let myloTimer: NodeJS.Timeout | null = null;
 let mindsTimer: NodeJS.Timeout | null = null;
 let mindsRunning = false;
@@ -532,6 +536,10 @@ function clearTimers(): void {
     clearInterval(mindsTimer);
     mindsTimer = null;
   }
+  if (triggerTimer) {
+    clearInterval(triggerTimer);
+    triggerTimer = null;
+  }
   if (retainerTimer) {
     clearInterval(retainerTimer);
     retainerTimer = null;
@@ -725,6 +733,17 @@ export async function startWorkerLoops(): Promise<void> {
       })
       .catch((err) => logger.error("retainer.tick_failed", "Retainer tick failed", { err }))
       .finally(() => { retainerRunning = false; });
+  }, RETAINER_INTERVAL_MS);
+
+  // Jobs that start themselves: once a minute, read what the watched contracts did and hire for it. Does nothing
+  // while triggers are off or none watches the chain. Skips a tick rather than overlap one.
+  triggerTimer = setInterval(() => {
+    if (triggerRunning || shutdownRequested || !triggersEnabled()) return;
+    triggerRunning = true;
+    runChainTriggers()
+      .then((r) => { if (r.started > 0) logger.info("trigger.tick", "Chain triggers fired", { ...r }); })
+      .catch((err) => logger.error("trigger.tick_failed", "Chain trigger tick failed", { err }))
+      .finally(() => { triggerRunning = false; });
   }, RETAINER_INTERVAL_MS);
 
   // Mylo: what happened, for its public feed and people's inboxes. Reads the database only; never throws out of the loop.

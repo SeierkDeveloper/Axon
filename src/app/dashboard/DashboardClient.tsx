@@ -6,6 +6,7 @@ import { DashboardSkeleton } from "@/components/DashboardSkeleton";
 import { useWallet } from "@/components/WalletProvider";
 import AllowancePanel from "./AllowancePanel";
 import RetainersPanel from "./RetainersPanel";
+import TriggersPanel from "./TriggersPanel";
 import AgentRetainers from "./AgentRetainers";
 
 type Agent = {
@@ -1404,6 +1405,8 @@ npm run demo:agent`}</code>
           <AllowancePanel apiKey={apiKey} onToast={addToast} />
 
           <RetainersPanel apiKey={apiKey} onToast={addToast} />
+
+          <TriggersPanel apiKey={apiKey} onToast={addToast} />
 
           <section className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
             <div className="flex items-center justify-between gap-4 mb-4">
