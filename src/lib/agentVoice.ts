@@ -133,7 +133,7 @@ export async function speak(text: string, o: { env?: Env } = {}): Promise<Buffer
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
       body: JSON.stringify({ model: speakModel(env), voice: speakVoice(env), input: text, response_format: "mp3" }),
-      signal: AbortSignal.timeout(90_000),
+      signal: AbortSignal.timeout(120_000),
     });
   } catch (err) {
     logger.warn("voice.speak_failed", "The speech model could not be reached", { err });
@@ -144,7 +144,14 @@ export async function speak(text: string, o: { env?: Env } = {}): Promise<Buffer
     logger.warn("voice.speak_refused", "The speech model refused a reading", { status: res.status, message: json?.error?.message?.slice(0, 300) });
     throw new Error(res.status === 429 ? "Voice is busy right now. Try again in a moment." : "The answer could not be read aloud.");
   }
-  const bytes = Buffer.from(await res.arrayBuffer());
+  let bytes: Buffer;
+  try {
+    // the sound arrives as it is made; a reading that stalls part way is a failed reading, said plainly
+    bytes = Buffer.from(await res.arrayBuffer());
+  } catch (err) {
+    logger.warn("voice.speak_failed", "A reading stopped part way", { err });
+    throw new Error("The answer could not be read aloud. Try again.");
+  }
   if (sniffAudio(bytes)?.ext !== "mp3") throw new Error("The answer could not be read aloud.");
   try {
     const target = cachePath(text, env);

@@ -220,6 +220,11 @@ describe("an answer read aloud", () => {
     getDb().prepare("INSERT OR REPLACE INTO rate_limit_windows (key, count, reset_at) VALUES (?, ?, ?)").run(`voice-speak-day:${from}`, SPEAK.perDay, Date.now() + 86_400_000);
     const next = await finished("A brand new answer.");
     expect(((await (await speakReq(next.taskId, { "x-claim-token": next.claimToken }, from)).json()) as { error: string }).error).toMatch(/all the reading aloud for today/);
+    // a reading that stalls part way says so in plain words, never the raw failure
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, arrayBuffer: async () => { throw new Error("The operation was aborted due to timeout"); } }) as unknown as Response));
+    const stalled = await speakReq(next.taskId, { "x-claim-token": next.claimToken });
+    expect(stalled.status).toBe(502);
+    expect(((await stalled.json()) as { error: string }).error).toBe("The answer could not be read aloud. Try again.");
     vi.stubGlobal("fetch", spoken(Buffer.from("<html>not sound</html>   ")));
     const bad = await speakReq(next.taskId, { "x-claim-token": next.claimToken });
     expect(bad.status).toBe(502);
