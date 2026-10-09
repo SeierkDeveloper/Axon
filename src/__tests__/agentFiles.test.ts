@@ -9,7 +9,7 @@ import { getDb } from "@/lib/db";
 import { createApiKey } from "@/lib/identity";
 import {
   sniff, cleanName, storeFile, getFile, mayRead, readBytes, deleteFile, purgeExpiredFiles, storeBytes, fileTokenFor,
-  fileTokenValid, filesEnabled, maxFileBytes, guestBytesAllowed, sha256Of, DAILY, KEEP_MS, UNATTACHED_MS, type StoreResult,
+  fileTokenValid, filesEnabled, maxFileBytes, guestBytesAllowed, sha256Of, reserveFor, MIN_FREE_BYTES, DAILY, KEEP_MS, UNATTACHED_MS, type StoreResult,
 } from "@/lib/agentFiles";
 import { POST as upload } from "@/app/api/files/route";
 import { GET as meta, DELETE as remove } from "@/app/api/files/[fileId]/route";
@@ -137,6 +137,12 @@ describe("keeping a file", () => {
     // content already stored costs nothing more
     got(storeFile({ bytes: big(1), name: "again.pdf" }));
     expect(blobs()).toHaveLength(2);
+  });
+
+  it("keeps a reserve free on the volume: 500 MB, or a fifth of a small one", () => {
+    expect(reserveFor(5000 * 1024 * 1024)).toBe(MIN_FREE_BYTES);
+    expect(reserveFor(500 * 1024 * 1024)).toBe(100 * 1024 * 1024);
+    expect(reserveFor(0)).toBe(0);
   });
 
   it("holds a wallet to its day", () => {

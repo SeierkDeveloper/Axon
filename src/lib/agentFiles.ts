@@ -45,8 +45,9 @@ const num = (raw: string | undefined, fallback: number, min: number, max: number
 export const maxFileBytes = (env: Record<string, string | undefined> = process.env): number => num(env.AXON_FILE_MAX_MB, 10, 1, 25) * MB;
 /** What the whole store may hold, in bytes. AXON_FILES_MAX_GB, 2 by default. */
 export const maxStoreBytes = (env: Record<string, string | undefined> = process.env): number => num(env.AXON_FILES_MAX_GB, 2, 0.01, 50) * 1024 * MB;
-/** An upload is refused when the volume would be left with less free space than this. */
+/** An upload is refused when the volume would be left with less free space than this: 500 MB, or a fifth of a small volume. */
 export const MIN_FREE_BYTES = 500 * MB;
+export const reserveFor = (volumeBytes: number): number => Math.min(MIN_FREE_BYTES, Math.floor(volumeBytes * 0.2));
 /** How many files one hire may carry. */
 export const MAX_FILES_PER_TASK = 5;
 
@@ -176,10 +177,10 @@ export function addedSince(wallet: string, sinceIso: string): { files: number; b
   return getDb().prepare("SELECT COUNT(*) files, COALESCE(SUM(size), 0) bytes FROM task_files WHERE owner_wallet = ? AND created_at >= ? AND direction = 'in'").get(wallet.toLowerCase(), sinceIso) as { files: number; bytes: number };
 }
 
-function freeBytes(dir: string): number | null {
+function volume(dir: string): { free: number; total: number } | null {
   try {
     const s = fs.statfsSync(dir);
-    return s.bavail * s.bsize;
+    return { free: s.bavail * s.bsize, total: s.blocks * s.bsize };
   } catch {
     return null; // cannot tell: the write itself fails cleanly if the disk is full
   }
@@ -213,8 +214,8 @@ export function storeFile(input: { bytes: Buffer; name?: unknown; wallet?: strin
   const held = fs.existsSync(target);
   if (!held) {
     if (storeBytes() + bytes.length > maxStoreBytes(env)) return no(507, "store_full", "File storage is full right now. Try again later.");
-    const free = freeBytes(fs.existsSync(dir) ? dir : path.dirname(dir));
-    if (free !== null && free - bytes.length < MIN_FREE_BYTES) return no(507, "disk_full", "File storage is full right now. Try again later.");
+    const vol = volume(fs.existsSync(dir) ? dir : path.dirname(dir));
+    if (vol && vol.free - bytes.length < reserveFor(vol.total)) return no(507, "disk_full", "File storage is full right now. Try again later.");
     try {
       fs.mkdirSync(path.dirname(target), { recursive: true });
       const tmp = `${target}.${randomBytes(6).toString("hex")}.part`;
