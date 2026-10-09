@@ -10,6 +10,7 @@
 // So the sweep now finishes by asking how much of the file is dead weight, and reclaims it when
 // there is enough to be worth the rewrite.
 
+import { filesEnabled, purgeExpiredFiles } from "./agentFiles";
 import { getDb } from "./db";
 import { logger } from "./logger";
 
@@ -28,6 +29,8 @@ export interface RetentionResult {
   launch_scan_ranges: number;
   /** megabytes handed back to the filesystem, 0 when nothing was worth reclaiming */
   reclaimed_mb: number;
+  /** files for agents cleared because their time was up, or nobody attached them to a hire (0 while the feature is off) */
+  task_files: number;
 }
 
 export function runRetentionCleanup(): RetentionResult {
@@ -37,7 +40,7 @@ export function runRetentionCleanup(): RetentionResult {
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
   const nowMs = Date.now();
 
-  const counts = db.transaction((): Omit<RetentionResult, "reclaimed_mb"> => {
+  const counts = db.transaction((): Omit<RetentionResult, "reclaimed_mb" | "task_files"> => {
     const webhook_deliveries = db
       .prepare(
         `DELETE FROM webhook_deliveries
@@ -125,7 +128,16 @@ export function runRetentionCleanup(): RetentionResult {
   // VACUUM rewrites the whole file and takes an exclusive lock, so it is not something to do on
   // every sweep. It runs only when a real share of the file is dead weight, and only while the
   // file is small enough that the rewrite is quick. Both conditions failing is the normal case.
-  return { ...counts, reclaimed_mb: reclaimIfWorthIt() };
+  // files for agents live on the volume, not in the database: their rows are marked and their bytes removed
+  let task_files = 0;
+  if (filesEnabled()) {
+    try {
+      task_files = purgeExpiredFiles().files;
+    } catch (err) {
+      logger.warn("files.purge_failed", "Clearing expired files failed", { err });
+    }
+  }
+  return { ...counts, reclaimed_mb: reclaimIfWorthIt(), task_files };
 }
 
 /** Share of the file that must be free before a rewrite earns its lock. */

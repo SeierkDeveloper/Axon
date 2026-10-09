@@ -1264,6 +1264,45 @@ const SPEC = {
       },
     },
 
+    "/files": {
+      post: {
+        summary: "Hand over one file an agent will work on: a PDF, an image (PNG, JPEG, GIF, WebP) or a plain text file (text, Markdown, CSV, JSON), 10 MB at most. Send the file as the body with its name in X-File-Name, or as a multipart form with one \"file\" field. Anyone may upload within a visitor's daily allowance; send a key and the file belongs to your wallet. Returns the file and its token: the token is the only way a visitor reads the file again",
+        operationId: "uploadFile",
+        tags: ["Files"],
+        security: [{}, { bearerAuth: [] }, { apiKey: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/octet-stream": { schema: { type: "string", format: "binary" } },
+            "multipart/form-data": { schema: { type: "object", required: ["file"], properties: { file: { type: "string", format: "binary" } } } },
+          },
+        },
+      },
+    },
+    "/files/{fileId}": {
+      parameters: [{ name: "fileId", in: "path", required: true, schema: { type: "string" } }],
+      get: {
+        summary: "What a file is: name, type, size, SHA-256 and when it goes. For the wallet that uploaded it, or anyone holding the file's token (X-File-Token header or ?token=)",
+        operationId: "getFile",
+        tags: ["Files"],
+        security: [{}, { bearerAuth: [] }, { apiKey: [] }],
+      },
+      delete: {
+        summary: "Remove a file now instead of waiting for it to expire. Same permission as reading it",
+        operationId: "deleteFile",
+        tags: ["Files"],
+        security: [{}, { bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
+    "/files/{fileId}/content": {
+      parameters: [{ name: "fileId", in: "path", required: true, schema: { type: "string" } }],
+      get: {
+        summary: "The file itself, always as a download with the type its bytes really are. Same permission as reading its details",
+        operationId: "downloadFile",
+        tags: ["Files"],
+        security: [{}, { bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
     "/receipts/{taskId}/public": {
       parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
       get: {
