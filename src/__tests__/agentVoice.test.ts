@@ -59,7 +59,8 @@ describe("the switch and the settings", () => {
     expect(voiceEnabled({})).toBe(false);
     expect(voiceEnabled({ AGENT_VOICE: " On " })).toBe(true);
     expect(listenModel({})).toBe("gpt-4o-mini-transcribe");
-    expect(speakModel({})).toBe("gpt-4o-mini-tts");
+    expect(speakModel({})).toBe("tts-1");
+    expect(speakModel({ AGENT_VOICE_SPEAK_MODEL: "gpt-4o-mini-tts" })).toBe("gpt-4o-mini-tts");
     expect(speakVoice({})).toBe("alloy");
     expect(speakVoice({ AGENT_VOICE_NAME: "sage" })).toBe("sage");
     expect(dailyListens({})).toBe(2000);
@@ -180,7 +181,7 @@ describe("an answer read aloud", () => {
     expect(Buffer.from(await r.arrayBuffer()).equals(MP3)).toBe(true);
     const [url, init] = f.mock.calls[0] as unknown as [string, { body: string }];
     expect(url).toBe("https://api.openai.com/v1/audio/speech");
-    expect(JSON.parse(init.body)).toEqual({ model: "gpt-4o-mini-tts", voice: "alloy", input: "Hello. The answer is 42.", response_format: "mp3" });
+    expect(JSON.parse(init.body)).toEqual({ model: "tts-1", voice: "alloy", input: "Hello. The answer is 42.", response_format: "mp3" });
     expect(spokenBefore("Hello. The answer is 42.")?.equals(MP3)).toBe(true);
     // again: the kept reading, no model call, and it does not count against the day
     process.env.AGENT_VOICE_DAILY_SPEAKS = "0";

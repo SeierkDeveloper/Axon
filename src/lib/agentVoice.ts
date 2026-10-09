@@ -24,7 +24,9 @@ export function voiceEnabled(env: Env = process.env): boolean {
 }
 
 export const listenModel = (env: Env = process.env): string => env.AGENT_VOICE_LISTEN_MODEL?.trim() || "gpt-4o-mini-transcribe";
-export const speakModel = (env: Env = process.env): string => env.AGENT_VOICE_SPEAK_MODEL?.trim() || "gpt-4o-mini-tts";
+// The quick one on purpose: somebody who presses Listen is waiting. Measured on the same answer, this starts a
+// half-minute reading in about four seconds where the newer model took fifteen.
+export const speakModel = (env: Env = process.env): string => env.AGENT_VOICE_SPEAK_MODEL?.trim() || "tts-1";
 export const speakVoice = (env: Env = process.env): string => env.AGENT_VOICE_NAME?.trim() || "alloy";
 const count = (raw: string | undefined, fallback: number): number => {
   const n = Number(raw);
