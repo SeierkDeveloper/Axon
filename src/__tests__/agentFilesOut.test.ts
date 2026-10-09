@@ -26,7 +26,7 @@ import {
   deleteFile, filesHash, receiptFiles, keepOutput, storeReport, reportName, sha256Of, filesOfTask,
   REPORT_KEY, type StoreResult,
 } from "@/lib/agentFiles";
-import { commitOutput, commitmentMemo, hashOutput, getOutputCommitment } from "@/lib/outputCommitment";
+import { commitOutput, commitmentMemo, hashOutput, getOutputCommitment, retryFileCommitments, RETRY_AFTER_MS, RETRY_FOR_MS } from "@/lib/outputCommitment";
 import { getPublicReceipt, getReceipt } from "@/lib/receipts";
 import { POST as hire } from "@/app/api/tasks/route";
 import { handleMcpMessage, claimTokenFor } from "@/lib/mcpServer";
@@ -143,6 +143,31 @@ describe("the commitment of a job", () => {
     expect(filesOfTask(job.taskId, "out")).toEqual([]);
     expect(receiptFiles(job.taskId)).toMatchObject([{ sha256: sha256Of(PNG), stored: false }]);
     expect(getPublicReceipt(job.taskId)!.outputFiles).toEqual([{ type: "image/png", size: PNG.length, sha256: sha256Of(PNG), stored: false }]);
+  });
+
+  it("tries again later for a job with files whose hashes the chain refused, and only for those", async () => {
+    const withFile = await newJob(), plain = await newJob(), fresh = await newJob();
+    got(keepOutput({ taskId: withFile.taskId, bytes: PNG, name: "chart.png", wallet: null }));
+    got(keepOutput({ taskId: fresh.taskId, bytes: CSV, name: "net.csv", wallet: null }));
+    memo.fail = true;
+    for (const j of [withFile, plain, fresh]) { finish(j.taskId, "Done."); await commitOutput(j.taskId, "Done."); }
+    const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+    getDb().prepare("UPDATE tasks SET completed_at = ? WHERE task_id IN (?, ?)").run(ago(RETRY_AFTER_MS + 60_000), withFile.taskId, plain.taskId);
+    // the chain is still refusing: nothing lands, and the tick stops at the first refusal
+    expect(await retryFileCommitments()).toEqual({ tried: 1, landed: 0 });
+    memo.fail = false;
+    memo.posted.length = 0;
+    expect(await retryFileCommitments()).toEqual({ tried: 1, landed: 1 });
+    // the very memo the job would have posted, from the hashes that were kept
+    expect(memo.posted).toEqual([`axon:commitment:v2:${withFile.taskId}:${hashOutput("Done.")}:${filesHash([sha256Of(PNG)])}`]);
+    expect(getPublicReceipt(withFile.taskId)!.commitmentTx).toBe(`0x${"ab".repeat(32)}`);
+    // a job with no files is left as it always was, and one that only just finished is not raced
+    expect(getOutputCommitment(plain.taskId)).toBeNull();
+    expect(getPublicReceipt(fresh.taskId)).not.toHaveProperty("commitmentTx");
+    expect(await retryFileCommitments()).toEqual({ tried: 0, landed: 0 });
+    // and after a day it is not tried any more
+    getDb().prepare("UPDATE tasks SET completed_at = ? WHERE task_id = ?").run(ago(RETRY_FOR_MS + 60_000), fresh.taskId);
+    expect(await retryFileCommitments()).toEqual({ tried: 0, landed: 0 });
   });
 
   it("does not list a file twice when a job runs twice", async () => {

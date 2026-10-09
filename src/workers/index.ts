@@ -18,6 +18,7 @@ import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
 import { triggersEnabled } from "../lib/triggers";
 import { runChainTriggers } from "../lib/triggerChain";
+import { retryFileCommitments } from "../lib/outputCommitment";
 import type { SandboxFile } from "../lib/providers";
 import { runWithProvider, runWithProviderTools, getAgentMaxTokens } from "../lib/providers";
 import { limitsForAgent } from "../lib/agentTierLimits";
@@ -127,6 +128,8 @@ let allowanceRunning = false;
 let retainerTimer: NodeJS.Timeout | null = null;
 let triggerTimer: NodeJS.Timeout | null = null;
 let triggerRunning = false;
+let commitTimer: NodeJS.Timeout | null = null;
+let commitRunning = false;
 let myloTimer: NodeJS.Timeout | null = null;
 let mindsTimer: NodeJS.Timeout | null = null;
 let mindsRunning = false;
@@ -540,6 +543,10 @@ function clearTimers(): void {
     clearInterval(triggerTimer);
     triggerTimer = null;
   }
+  if (commitTimer) {
+    clearInterval(commitTimer);
+    commitTimer = null;
+  }
   if (retainerTimer) {
     clearInterval(retainerTimer);
     retainerTimer = null;
@@ -733,6 +740,16 @@ export async function startWorkerLoops(): Promise<void> {
       })
       .catch((err) => logger.error("retainer.tick_failed", "Retainer tick failed", { err }))
       .finally(() => { retainerRunning = false; });
+  }, RETAINER_INTERVAL_MS);
+
+  // File commitments that did not reach the chain when their job finished are tried again, a few a minute.
+  commitTimer = setInterval(() => {
+    if (commitRunning || shutdownRequested || !filesEnabled()) return;
+    commitRunning = true;
+    retryFileCommitments()
+      .then((r) => { if (r.landed > 0) logger.info("output.commit_tick", "File commitments landed", { ...r }); })
+      .catch((err) => logger.error("output.commit_tick_failed", "Commitment retry failed", { err }))
+      .finally(() => { commitRunning = false; });
   }, RETAINER_INTERVAL_MS);
 
   // Jobs that start themselves: once a minute, read what the watched contracts did and hire for it. Does nothing

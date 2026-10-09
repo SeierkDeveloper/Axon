@@ -80,6 +80,50 @@ export async function commitOutput(taskId: string, output: string): Promise<stri
   return signature;
 }
 
+/** A job that finished this recently is still being committed by the job itself; it is left alone. */
+export const RETRY_AFTER_MS = 3 * 60 * 1000;
+/** A commitment that has not landed after this long is not tried again. */
+export const RETRY_FOR_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Try again for jobs that handed back files and whose hashes did not reach the chain: the node refused at the
+ * moment the job finished. The hashes were kept, so the same memo is posted, oldest first, a few a tick. The first
+ * refusal ends the tick (the node is still saying no) and the rest wait for the next one. Never throws.
+ *
+ * Only jobs with files: a file somebody downloads is what the on-chain record is there to vouch for.
+ */
+export async function retryFileCommitments(o: { nowMs?: number; limit?: number; post?: (memo: string) => Promise<string> } = {}): Promise<{ tried: number; landed: number }> {
+  const nowMs = o.nowMs ?? Date.now(), post = o.post ?? postMemoTransaction;
+  let rows: { task_id: string; output_hash: string; output_files_hash: string }[] = [];
+  try {
+    rows = getDb()
+      .prepare(
+        `SELECT task_id, output_hash, output_files_hash FROM tasks
+         WHERE status = 'completed' AND output_hash IS NOT NULL AND output_files_hash IS NOT NULL AND output_commitment IS NULL
+           AND completed_at <= ? AND completed_at >= ?
+         ORDER BY completed_at ASC LIMIT ?`,
+      )
+      .all(new Date(nowMs - RETRY_AFTER_MS).toISOString(), new Date(nowMs - RETRY_FOR_MS).toISOString(), o.limit ?? 3) as typeof rows;
+  } catch {
+    return { tried: 0, landed: 0 };
+  }
+  let tried = 0, landed = 0;
+  for (const r of rows) {
+    tried++;
+    try {
+      const signature = await post(commitmentMemo(r.task_id, r.output_hash, r.output_files_hash));
+      // only if nothing landed meanwhile: a commitment is written once
+      const done = getDb().prepare("UPDATE tasks SET output_commitment = ? WHERE task_id = ? AND output_commitment IS NULL").run(signature, r.task_id).changes;
+      if (done) { landed++; logger.info("output.committed", "Output commitment written on-chain on a later try", { taskId: r.task_id, signature }); }
+    } catch (err) {
+      logger.info("output.commitment_waiting", "The chain is still refusing; file commitments wait for the next try", { waiting: rows.length - tried + 1, reason: err instanceof Error ? err.message.split("\n")[0].slice(0, 160) : String(err) });
+      break;
+    }
+  }
+  if (landed) void syncToTurso();
+  return { tried, landed };
+}
+
 export function getOutputCommitment(taskId: string): OutputCommitment | null {
   const row = getDb()
     .prepare("SELECT output_hash, output_files_hash, output_commitment FROM tasks WHERE task_id = ?")
