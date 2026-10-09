@@ -459,7 +459,7 @@ export const outputFileFor = (f: FileRow): OutputFile => ({
 /** The key in a hire's context that asks for the answer as a file as well. Set by `reportFile` on a hire, never directly. */
 export const REPORT_KEY = "reportFile";
 /** What the agent is told when its answer is also going out as a file. */
-export const REPORT_NOTE = "\n\nThe person also receives your answer as a Markdown file to keep. Write it as a finished document: a title, then the content. Do not mention the file.";
+export const REPORT_NOTE = "\n\nThe person also receives your answer as a Markdown file to keep. It is made for you from what you write, so do not save the answer as a file yourself. Write it as a finished document: a title, then the content. Do not mention the file.";
 
 /** The name of an answer kept as a file: "Deep Dive AI" gives "deep-dive-ai-report.md". */
 export function reportName(agentName: string): string {

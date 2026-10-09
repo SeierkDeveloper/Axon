@@ -102,6 +102,17 @@ describe("an agent that runs code", () => {
     expect(sdk.del.mock.calls.map((c) => c[0]).sort()).toEqual(["file_in_sales.csv", "file_out_1", "file_out_2"]);
   });
 
+  it("hands a file back once, as it stood last, when the code wrote it more than once", async () => {
+    sdk.stream.mockReturnValueOnce(reply([...ran("srv_1", "python3 chart.py", "saved\n", ["draft_chart", "notes"]), ...ran("srv_2", "python3 chart.py", "saved\n", ["final_chart"]), { type: "text", text: "Chart attached." }]));
+    sdk.meta.mockImplementation(async (id: string) => (id === "notes" ? { filename: "notes.csv", mime_type: "text/csv", size_bytes: 9 } : { filename: "revenue.png", mime_type: "image/png", size_bytes: 12 }));
+    sdk.download.mockImplementation(async (id: string) => new Response(Buffer.from(`bytes of ${id}`)));
+    const got: SandboxFile[] = [];
+    await getProvider(agent).completeWithTools!("s", "Draw it", 1000, withCode(null), { sandbox: { files: [], onFile: (f) => { got.push(f); } } });
+    expect(got.map((f) => [f.name, f.bytes.toString()])).toEqual([["notes.csv", "bytes of notes"], ["revenue.png", "bytes of final_chart"]]);
+    // the draft is still removed from the provider
+    expect(sdk.del.mock.calls.map((c) => c[0]).sort()).toEqual(["draft_chart", "final_chart", "notes"]);
+  });
+
   it("keeps the same sandbox across the calls of one job", async () => {
     sdk.stream
       .mockReturnValueOnce(reply(ran("srv_1", "ls", "sales.csv\n"), { stop_reason: "pause_turn" }))

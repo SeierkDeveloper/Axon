@@ -518,14 +518,25 @@ class AnthropicProvider implements ProviderClient {
     try {
       return await this.runToolLoop(model, system + CODE_NOTE, message, maxTokens, tools, opts, box);
     } finally {
-      let handed = 0;
+      // Code that is run again writes its file again, under the same name. The person gets each file once, as it
+      // stood last: an earlier copy under the same name was a draft.
+      const latest = new Map<string, { id: string; mime: string; size: number }>();
       for (const id of box.produced) {
-        if (handed >= MAX_SANDBOX_OUTPUTS) break;
         try {
           const meta = await this.client.beta.files.retrieveMetadata(id);
-          if (meta.size_bytes > MAX_SANDBOX_OUTPUT_BYTES) continue;
-          const bytes = Buffer.from(await (await this.client.beta.files.download(id)).arrayBuffer());
-          await opts.sandbox?.onFile?.({ name: meta.filename, mime: meta.mime_type, bytes });
+          latest.delete(meta.filename);
+          latest.set(meta.filename, { id, mime: meta.mime_type, size: meta.size_bytes });
+        } catch (err) {
+          logger.warn("provider.sandbox_download_failed", "A file the agent wrote could not be looked up", { err });
+        }
+      }
+      let handed = 0;
+      for (const [name, f] of latest) {
+        if (handed >= MAX_SANDBOX_OUTPUTS) break;
+        if (f.size > MAX_SANDBOX_OUTPUT_BYTES) continue;
+        try {
+          const bytes = Buffer.from(await (await this.client.beta.files.download(f.id)).arrayBuffer());
+          await opts.sandbox?.onFile?.({ name, mime: f.mime, bytes });
           handed++;
         } catch (err) {
           logger.warn("provider.sandbox_download_failed", "A file the agent wrote could not be fetched", { err });
