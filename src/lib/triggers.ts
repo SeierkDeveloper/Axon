@@ -218,8 +218,9 @@ export function createTrigger(input: CreateInput, nowMs = Date.now()): { trigger
     if (event && event !== "transfer" && event !== "any") throw new TriggerError('chain.event is "transfer" or "any". For another event, give its first topic as chain.topic0.');
     if (raw && !/^0x[0-9a-f]{64}$/.test(raw)) throw new TriggerError("chain.topic0 is a 32-byte hash, 0x and 64 hex characters");
     topic0 = raw || (event === "transfer" ? TRANSFER_TOPIC : null);
-    if (!Number.isInteger(input.headBlock) || (input.headBlock as number) < 0) throw new TriggerError("The chain could not be read right now. Try again.", 409);
-    lastBlock = input.headBlock as number; // from here on: what happened before the trigger existed does not fire it
+    // From here on: what happened before the trigger existed does not fire it. When the chain cannot be read at
+    // this moment the trigger is still saved, and it starts from wherever the chain is at its first reading.
+    lastBlock = Number.isInteger(input.headBlock) && (input.headBlock as number) >= 0 ? (input.headBlock as number) : null;
   }
 
   const id = `trg_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
@@ -251,8 +252,8 @@ export function pauseTrigger(triggerId: string, wallet: string, nowMs = Date.now
 export function resumeTrigger(triggerId: string, wallet: string, o: { headBlock?: number } = {}, nowMs = Date.now()): Trigger {
   const t = ownTrigger(triggerId, wallet);
   if (agentUnavailable(t.agentId)) throw new TriggerError("The agent is not available any more. Delete the trigger and make one for another agent.", 409);
-  if (t.kind === "chain" && !Number.isInteger(o.headBlock)) throw new TriggerError("The chain could not be read right now. Try again.", 409);
-  set(t.triggerId, { status: "active", pause_reason: null, consecutive_failures: 0, ...(t.kind === "chain" ? { last_block: o.headBlock as number } : {}) }, nowMs);
+  // null means "from the chain's head at the next reading", which is what resuming when the chain cannot be read gets
+  set(t.triggerId, { status: "active", pause_reason: null, consecutive_failures: 0, ...(t.kind === "chain" ? { last_block: Number.isInteger(o.headBlock) ? (o.headBlock as number) : null } : {}) }, nowMs);
   return getTrigger(triggerId)!;
 }
 /** A new secret for an inbound trigger: the old address stops working at once. */

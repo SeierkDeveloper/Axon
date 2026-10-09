@@ -66,6 +66,13 @@ describe("a step as a line", () => {
     expect(lineFor(tool("bash_code_execution", { command: "mv -f out/report.csv ${OUTPUT_DIR}/report.csv" }))).toBe("Saving report.csv");
     expect(lineFor(tool("bash_code_execution", { command: "pip install -q matplotlib" }))).toBe("Installing matplotlib");
     expect(lineFor(tool("bash_code_execution", { command: "sort -u names.txt | wc -l" }))).toBe("Running: sort -u names.txt | wc -l");
+    // chains, as agents really write them: the most telling link names the step, never the shell text
+    expect(lineFor(tool("bash_code_execution", { command: "cp \"$INPUT_DIR/orders.csv\" . && python3 << 'EOF'\nimport pandas as pd\ndf = pd.read_csv('orders.csv')\nEOF" }))).toBe("Running Python: working through the data");
+    expect(lineFor(tool("bash_code_execution", { command: "mkdir -p \"$OUTPUT_DIR\" && cp /tmp/net_revenue_by_region.png \"$OUTPUT_DIR/\"" }))).toBe("Saving net_revenue_by_region.png");
+    expect(lineFor(tool("bash_code_execution", { command: "cd /tmp && pip install -q matplotlib && python3 chart.py" }))).toBe("Running chart.py");
+    expect(lineFor(tool("bash_code_execution", { command: "mkdir -p out && cd out" }))).toBe("Getting ready");
+    expect(lineFor(tool("bash_code_execution", { command: "awk -F, '{s+=$3} END {print s}' \"$INPUT_DIR/orders.csv\"" }))).toBe("Running a command");
+    expect(lineFor(tool("bash_code_execution", { command: "cat \"$INPUT_DIR/orders.csv\" | head -5" }))).toBe("Looking at orders.csv");
     expect(lineFor(tool("bash_code_execution", {}))).toBe("Running code");
     expect(lineFor(tool("text_editor_code_execution", { command: "create", path: "/tmp/report.md" }))).toBe("Writing report.md");
     expect(lineFor(tool("text_editor_code_execution", { command: "view", path: "/tmp/orders.csv" }))).toBe("Looking at orders.csv");
@@ -74,7 +81,8 @@ describe("a step as a line", () => {
   });
 
   it("is short, however long the thing it describes", () => {
-    const long = lineFor(tool("bash_code_execution", { command: `grep ${"x".repeat(500)} file` }))!;
+    expect(lineFor(tool("bash_code_execution", { command: `grep ${"x".repeat(500)} file` }))).toBe("Running a command");
+    const long = lineFor(tool("make_picture", { prompt: "A fox ".repeat(100) }))!;
     expect(long.length).toBeLessThanOrEqual(110);
     expect(long.endsWith("…")).toBe(true);
     expect(lineFor(tool("web_search", { query: "q".repeat(400) }))!.length).toBeLessThanOrEqual(MAX_STEP_CHARS);

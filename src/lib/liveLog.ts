@@ -52,24 +52,42 @@ function pythonLine(code: string): string {
   return "Running Python";
 }
 
-/** A shell command as a line: what it does where that is plain, else its first line. */
-function commandLine(command: string): string {
-  const firstRaw = command.split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#")) ?? "";
-  // where it runs is not what it does: "cd /tmp && python3 x.py" is the Python
-  const first = firstRaw.replace(/^(cd\s+\S+\s*(&&|;)\s*)+/, "");
+/** One command of a chain, as what it does. `rank` says how much it tells: the most telling one names the step. */
+function part(cmd: string, whole: string): { rank: number; line: string | null } {
   // a file written from the command itself, whichever side of the text its name is on
-  const written = first.match(/^cat\s*>+\s*(\S+)\s*<</) ?? first.match(/^cat\s*<<-?\s*\S+\s*>+\s*(\S+)/) ?? first.match(/^(?:tee|touch)\s+(?:-\S+\s+)*(\S+)/);
-  if (written) return `Writing ${baseName(written[1])}`;
-  const script = first.match(/^python3?\s+(?!-)(\S+\.py)\b/);
-  if (script) return `Running ${baseName(script[1])}`;
-  if (/^python3?\s*(-c\b|-\s*<<|<<)/.test(first)) return pythonLine(command);
-  if (/^pip3?\s+install\b/.test(first)) return oneLine(`Installing ${first.replace(/^pip3?\s+install\s+/, "").replace(/(^|\s)-\S+/g, " ")}`, 90);
-  if (/^(ls|find|pwd|tree)\b/.test(first)) return "Looking at the files";
-  if (/^(head|cat|tail|wc|file)\s/.test(first)) return `Looking at ${baseName(first.split(/\s+/).filter((w) => !w.startsWith("-")).pop())}`;
+  const written = cmd.match(/^cat\s*>+\s*(\S+)\s*<</) ?? cmd.match(/^cat\s*<<-?\s*\S+\s*>+\s*(\S+)/) ?? cmd.match(/^(?:tee|touch)\s+(?:-\S+\s+)*(\S+)/);
+  if (written) return { rank: 5, line: `Writing ${baseName(written[1].replace(/["']/g, ""))}` };
+  const script = cmd.match(/^python3?\s+(?!-)(\S+\.py)\b/);
+  if (script) return { rank: 6, line: `Running ${baseName(script[1])}` };
+  if (/^python3?\s*(-c\b|-\s*<<|<<)/.test(cmd)) return { rank: 6, line: pythonLine(whole) };
   // a file copied or moved to where finished work goes is a file being handed over
-  const saved = first.match(/^(cp|mv)\s+(?:-\S+\s+)*(\S+)\s+\S*\$\{?OUTPUT_DIR\b/);
-  if (saved) return `Saving ${baseName(saved[2].replace(/["']/g, ""))}`;
-  return oneLine(`Running: ${first}`, 110);
+  const saved = cmd.match(/^(?:cp|mv)\s+(?:-\S+\s+)*(\S+)\s+\S*\$\{?OUTPUT_DIR\b/);
+  if (saved) return { rank: 4, line: `Saving ${baseName(saved[1].replace(/["']/g, ""))}` };
+  if (/^pip3?\s+install\b/.test(cmd)) return { rank: 3, line: oneLine(`Installing ${cmd.replace(/^pip3?\s+install\s+/, "").replace(/(^|\s)-\S+/g, " ")}`, 90) };
+  if (/^(head|cat|tail|wc|file|less)\s/.test(cmd)) {
+    // the file is named before any pipe; what follows the pipe only trims what is shown
+    const named = cmd.split("|")[0].trim().split(/\s+/).slice(1).filter((w) => !w.startsWith("-")).pop() ?? "";
+    return { rank: 2, line: `Looking at ${baseName(named.replace(/["']/g, "")) || "a file"}` };
+  }
+  if (/^(ls|find|pwd|tree|du)\b/.test(cmd)) return { rank: 1, line: "Looking at the files" };
+  // getting ready is not a step worth a line of its own
+  if (/^(cd|mkdir|export|set|chmod|true|echo|source|unset|cp|mv|rm)\b/.test(cmd)) return { rank: 0, line: null };
+  // anything else: the command itself when it is short and plain, otherwise just that one ran
+  const plain = cmd.length <= 60 && !/[$`"'\\<>{}]/.test(cmd);
+  return { rank: 1.5, line: plain ? `Running: ${cmd}` : "Running a command" };
+}
+
+/**
+ * A shell command as a line a person can read. A command is often a chain ("get ready, then run this"): each link
+ * is read for what it does and the most telling one names the step, so the line says "Running Python: drawing the
+ * chart" and never the shell text that started it.
+ */
+function commandLine(command: string): string {
+  const first = command.split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#")) ?? "";
+  const links = first.split(/\s*(?:&&|\|\||;)\s*/).map((l) => l.trim()).filter(Boolean);
+  let best: { rank: number; line: string | null } = { rank: -1, line: null };
+  for (const l of links) { const p = part(l, command); if (p.rank > best.rank) best = p; }
+  return best.line ?? "Getting ready";
 }
 
 /** The line for one thing an agent does, or null when it is not worth a line. */

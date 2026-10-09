@@ -51,7 +51,12 @@ type ReadLogs = (from: bigint, to: bigint, filter: { address: string; topics?: (
 /** Read one trigger's new logs and fire it for each. Returns how many runs it started. */
 async function watch(t: Trigger, head: number, readLogs: ReadLogs, nowMs: number): Promise<number> {
   const db = getDb();
-  const from = (t.lastBlock ?? head) + 1;
+  if (t.lastBlock === null) {
+    // a trigger made or resumed while the chain could not be read: it starts here, at its first reading
+    db.prepare("UPDATE triggers SET last_block = ?, updated_at = ? WHERE trigger_id = ? AND last_block IS NULL").run(head, new Date(nowMs).toISOString(), t.triggerId);
+    return 0;
+  }
+  const from = t.lastBlock + 1;
   if (from > head || !t.chainAddress) return 0;
   // A trigger that has made its runs for the day does not read at all: what happens meanwhile is passed over, and
   // the owner is told so once for the day rather than once for every log.

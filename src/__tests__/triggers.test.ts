@@ -100,7 +100,6 @@ describe("making a trigger", () => {
     expect(make({ kind: "chain" })).toMatch(/chain\.address is the contract/);
     expect(make({ kind: "chain", chain: { address: wallet(), event: "mint" }, headBlock: 10 })).toMatch(/"transfer" or "any"/);
     expect(make({ kind: "chain", chain: { address: wallet(), topic0: "0x12" }, headBlock: 10 })).toMatch(/32-byte hash/);
-    expect(make({ kind: "chain", chain: { address: wallet() } })).toMatch(/chain could not be read/);
     const chain = createTrigger({ ownerWallet: owner, agentId: "free-agent", kind: "chain", instructions: "Explain it.", chain: { address: wallet(), event: "transfer" }, headBlock: 500 });
     expect(chain.secret).toBeNull();
     expect(chain.trigger).toMatchObject({ kind: "chain", chainTopic0: TRANSFER_TOPIC, lastBlock: 500, name: "Free Agent on chain" });
@@ -409,6 +408,23 @@ describe("a contract that is watched", () => {
     const runs = listTriggerRuns(trigger.triggerId, owner, 100);
     expect(runs.filter((r) => r.status === "skipped").map((r) => r.summary)).toEqual(["More happened on chain than today's runs. What came after was not run."]);
     expect(runs.filter((r) => r.taskId)).toHaveLength(2);
+  });
+
+  it("can be made and resumed while the chain cannot be read, and starts from the chain's head at its first reading", async () => {
+    const owner = wallet();
+    process.env.AGENT_TRIGGERS_FREE_DAILY = "100";
+    const { trigger } = createTrigger({ ownerWallet: owner, agentId: "free-agent", kind: "chain", instructions: "Explain.", chain: { address: token, event: "transfer" } });
+    expect(trigger.lastBlock).toBeNull();
+    const chain = [transfer(180, 0), transfer(205, 0)];
+    const readLogs = async (from: bigint, to: bigint) => chain.filter((l) => Number(BigInt(l.blockNumber)) >= Number(from) && Number(BigInt(l.blockNumber)) <= Number(to));
+    // the first reading only marks where it starts: nothing before it fires
+    expect(await runChainTriggers({ head: 202, readLogs })).toEqual({ watched: 1, started: 0 });
+    expect(getTrigger(trigger.triggerId)!.lastBlock).toBe(202 - CONFIRMATIONS);
+    expect(await runChainTriggers({ head: 210, readLogs })).toEqual({ watched: 1, started: 1 });
+    pauseTrigger(trigger.triggerId, owner);
+    expect(resumeTrigger(trigger.triggerId, owner).lastBlock).toBeNull();
+    expect(await runChainTriggers({ head: 300, readLogs })).toEqual({ watched: 1, started: 0 });
+    expect(getTrigger(trigger.triggerId)!.lastBlock).toBe(298);
   });
 
   it("waits for the next tick when the chain or one contract cannot be read", async () => {
