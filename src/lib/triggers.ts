@@ -120,9 +120,20 @@ export function triggerJson(t: Trigger) {
   };
 }
 
-/** Where an inbound trigger is called. The secret goes in a header, so it is not written into anybody's logs. */
-export const fireUrl = (triggerId: string, env: Env = process.env): string =>
-  `${(env.NEXT_PUBLIC_SITE_URL ?? env.SITE_URL ?? "https://axon-agents.com").replace(/\/+$/, "")}/api/triggers/${triggerId}/fire`;
+/**
+ * Where an inbound trigger is called. The secret goes in a header, so it is not written into anybody's logs. The
+ * site's own configured address is used when there is one; otherwise the address the owner reached the site at, so a
+ * second deployment never hands out the first one's address.
+ */
+export function fireUrl(triggerId: string, o: { env?: Env; host?: string | null; proto?: string | null } = {}): string {
+  const env = o.env ?? process.env;
+  const set = (env.NEXT_PUBLIC_SITE_URL ?? env.SITE_URL ?? "").trim().replace(/\/+$/, "");
+  const host = (o.host ?? "").split(",")[0].trim();
+  const reached = /^[a-z0-9.-]+(:\d{1,5})?$/i.test(host) ? `${o.proto === "http" ? "http" : "https"}://${host}` : "";
+  return `${set || reached || "https://axon-agents.com"}/api/triggers/${triggerId}/fire`;
+}
+/** The address a request came in on, as `fireUrl` takes it. */
+export const reachedAt = (headers: { get(name: string): string | null }) => ({ host: headers.get("x-forwarded-host") ?? headers.get("host"), proto: (headers.get("x-forwarded-proto") ?? "https").split(",")[0].trim() });
 
 export class TriggerError extends Error {
   constructor(message: string, readonly status: 400 | 403 | 404 | 409 = 400) {

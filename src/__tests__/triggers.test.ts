@@ -75,7 +75,11 @@ describe("making a trigger", () => {
     const row = getDb().prepare("SELECT secret_hash FROM triggers WHERE trigger_id = ?").get(trigger.triggerId) as { secret_hash: string };
     expect(row.secret_hash).not.toContain(secret!);
     expect(JSON.stringify(triggerJson(trigger))).not.toContain(secret!);
-    expect(fireUrl(trigger.triggerId, {})).toBe(`https://axon-agents.com/api/triggers/${trigger.triggerId}/fire`);
+    // its address: the site's configured one, else the one the owner reached the site at, never a made-up host
+    expect(fireUrl(trigger.triggerId, { env: {} })).toBe(`https://axon-agents.com/api/triggers/${trigger.triggerId}/fire`);
+    expect(fireUrl(trigger.triggerId, { env: {}, host: "private.example.app", proto: "https" })).toBe(`https://private.example.app/api/triggers/${trigger.triggerId}/fire`);
+    expect(fireUrl(trigger.triggerId, { env: { NEXT_PUBLIC_SITE_URL: "https://set.example/" }, host: "other.example" })).toBe(`https://set.example/api/triggers/${trigger.triggerId}/fire`);
+    expect(fireUrl(trigger.triggerId, { env: {}, host: "evil.example/path?x=<script>" })).toBe(`https://axon-agents.com/api/triggers/${trigger.triggerId}/fire`);
     // a new secret replaces the old one at once
     const turned = rotateSecret(trigger.triggerId, owner);
     expect(secretValid(trigger.triggerId, secret)).toBe(false);

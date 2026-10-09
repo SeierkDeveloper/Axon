@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { apiError } from "@/lib/apiError";
 import { requireApiKey } from "@/lib/apiAuth";
 import { withRequestContext } from "@/lib/withRequestContext";
-import { deleteTrigger, fireUrl, listTriggerRuns, ownTrigger, pauseTrigger, resumeTrigger, rotateSecret, triggerJson, triggersEnabled, TriggerError } from "@/lib/triggers";
+import { deleteTrigger, fireUrl, reachedAt, listTriggerRuns, ownTrigger, pauseTrigger, resumeTrigger, rotateSecret, triggerJson, triggersEnabled, TriggerError } from "@/lib/triggers";
 import { chainHead } from "@/lib/triggerChain";
 
 export const runtime = "nodejs";
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       const { triggerId } = await params;
       const t = ownTrigger(triggerId, auth.user.walletAddress);
       const runs = listTriggerRuns(triggerId, auth.user.walletAddress, 20).map((r) => ({ ...r, receiptUrl: r.taskId ? `/r/${r.taskId}` : null }));
-      return NextResponse.json({ trigger: { ...triggerJson(t), ...(t.kind === "inbound" ? { url: fireUrl(t.triggerId) } : {}) }, runs }, { headers: { "Cache-Control": "no-store" } });
+      return NextResponse.json({ trigger: { ...triggerJson(t), ...(t.kind === "inbound" ? { url: fireUrl(t.triggerId, reachedAt(req.headers)) } : {}) }, runs }, { headers: { "Cache-Control": "no-store" } });
     } catch (err) {
       return refuse(err);
     }
@@ -47,7 +47,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       }
       if (body?.action === "rotate") {
         const { trigger, secret } = rotateSecret(triggerId, wallet);
-        return NextResponse.json({ trigger: { ...triggerJson(trigger), url: fireUrl(trigger.triggerId) }, secret, note: "The old secret no longer works. This one is shown once." }, { headers: { "Cache-Control": "no-store" } });
+        return NextResponse.json({ trigger: { ...triggerJson(trigger), url: fireUrl(trigger.triggerId, reachedAt(req.headers)) }, secret, note: "The old secret no longer works. This one is shown once." }, { headers: { "Cache-Control": "no-store" } });
       }
       return apiError("VALIDATION_ERROR", 'action is "pause", "resume" or "rotate"', 400);
     } catch (err) {

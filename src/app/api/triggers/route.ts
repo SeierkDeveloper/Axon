@@ -3,7 +3,7 @@ import { apiError } from "@/lib/apiError";
 import { requireApiKey } from "@/lib/apiAuth";
 import { withRequestContext } from "@/lib/withRequestContext";
 import { checkRateLimit, tooManyRequests } from "@/lib/rateLimit";
-import { createTrigger, fireUrl, listTriggers, triggerJson, triggersEnabled, TriggerError, MAX_TRIGGERS, RUNS_PER_DAY, freeRunsPerDay, type CreateInput } from "@/lib/triggers";
+import { createTrigger, fireUrl, reachedAt, listTriggers, triggerJson, triggersEnabled, TriggerError, MAX_TRIGGERS, RUNS_PER_DAY, freeRunsPerDay, type CreateInput } from "@/lib/triggers";
 import { chainHead } from "@/lib/triggerChain";
 
 export const runtime = "nodejs";
@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
     if (!triggersEnabled()) return apiError("NOT_FOUND", "Not found", 404);
     const auth = requireApiKey(req);
     if (!auth.ok) return auth.response;
-    const triggers = listTriggers(auth.user.walletAddress).map((t) => ({ ...triggerJson(t), ...(t.kind === "inbound" ? { url: fireUrl(t.triggerId) } : {}) }));
+    const triggers = listTriggers(auth.user.walletAddress).map((t) => ({ ...triggerJson(t), ...(t.kind === "inbound" ? { url: fireUrl(t.triggerId, reachedAt(req.headers)) } : {}) }));
     return NextResponse.json({ triggers, limits: { triggers: MAX_TRIGGERS, runsPerDay: RUNS_PER_DAY, freeRunsPerDay: freeRunsPerDay() } }, { headers: { "Cache-Control": "no-store" } });
   });
 }
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       });
       return NextResponse.json(
         {
-          trigger: { ...triggerJson(trigger), ...(secret ? { url: fireUrl(trigger.triggerId) } : {}) },
+          trigger: { ...triggerJson(trigger), ...(secret ? { url: fireUrl(trigger.triggerId, reachedAt(req.headers)) } : {}) },
           ...(secret ? { secret, note: "Keep the secret: it is shown once. Send it as the X-Trigger-Key header when you call the url." } : {}),
         },
         { status: 201, headers: { "Cache-Control": "no-store" } },
