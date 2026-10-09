@@ -41,6 +41,10 @@ ENV NEXT_PUBLIC_RPC_URL=$NEXT_PUBLIC_RPC_URL
 ENV NEXT_PUBLIC_PAYMENT_RECEIVER_WALLET_ADDRESS=$NEXT_PUBLIC_PAYMENT_RECEIVER_WALLET_ADDRESS
 ENV NEXT_PUBLIC_WALLET_ADDRESS=$NEXT_PUBLIC_WALLET_ADDRESS
 ENV NEXT_PUBLIC_AXON_REWARDS_ENABLED=$NEXT_PUBLIC_AXON_REWARDS_ENABLED
+# The site's headers are written during the build too. Voice needs the microphone allowed to the site's own pages,
+# so the build has to know whether voice is on for this deployment. Unset (the default) the microphone stays refused.
+ARG AGENT_VOICE
+ENV AGENT_VOICE=$AGENT_VOICE
 
 # `npm run build` uses `next build --webpack` on purpose. Turbopack's standalone
 # output does NOT copy instrumentation.js into .next/standalone, so the
