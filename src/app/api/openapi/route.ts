@@ -638,6 +638,7 @@ const SPEC = {
                     description: "Files for the agent to work on, uploaded first through POST /files. Each is attached to this one hire, and what it is (name, type, size, SHA-256) is written into the job's context as attachedFiles, so the job's commitment covers it. Up to 2 files on a free hire, 5 on a paid one",
                     items: { type: "object", required: ["id"], properties: { id: { type: "string" }, token: { type: "string", description: "The file's token, when you are not signed in as the wallet that uploaded it" } } },
                   },
+                  reportFile: { type: "boolean", description: "Get the answer as a Markdown file as well. It is kept with the job, listed under outputFiles when you read the task, and covered by the job's commitment like any file the agent hands back. Only where files are switched on" },
                   context: { type: "object", description: "Optional key-value context" },
                   paymentMethod: { type: "string", enum: ["onchain", "balance", "allowance"], description: "'balance' funds a paid hire from the from agent's earned balance (budget-enforced), pairs with auto-routing for an autonomous hire. 'allowance' pays from the on-chain allowance of the wallet the API key belongs to (see /allowance)" },
                   payIn: { type: "string", enum: ["ETH", "AXON"], description: "With paymentMethod 'allowance': pay in $AXON at a quote made for this hire. Default ETH" },
@@ -661,7 +662,7 @@ const SPEC = {
       parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
       get: {
         summary: "Get task status + output",
-        description: "Authorize with an API key that owns the from/to agent, OR, for an anonymous hire, the X-Claim-Token header (the claimToken returned when the task was created). The claimToken is the read permission for this task's private output.",
+        description: "Authorize with an API key that owns the from/to agent, OR, for an anonymous hire, the X-Claim-Token header (the claimToken returned when the task was created). The claimToken is the read permission for this task's private output. When the agent handed back files (a chart, a table, the answer as a file), the task also carries outputFiles: each with its id, name, type, size, sha256, and the token and path that download it (GET the path with the token in an X-File-Token header). The receipt lists the same hashes.",
         operationId: "getTask",
         tags: ["Tasks"],
         parameters: [
@@ -1354,6 +1355,13 @@ const SPEC = {
                         settledAt: { type: "string", format: "date-time", nullable: true },
                       },
                     },
+                    outputFiles: {
+                      type: "array",
+                      description: "Only on a job that handed back files: what each file is and its SHA-256. Never its name. stored is false once the bytes have been cleared; the hash is kept",
+                      items: { type: "object", properties: { type: { type: "string" }, size: { type: "integer" }, sha256: { type: "string" }, stored: { type: "boolean" } } },
+                    },
+                    outputFilesHash: { type: "string", description: "SHA-256 over the file hashes, lowercase, sorted, one a line. Posted on chain with the output hash as axon:commitment:v2:{taskId}:{outputHash}:{outputFilesHash}" },
+                    commitmentTx: { type: "string", description: "The transaction that commitment was posted in, once it is on chain" },
                   },
                 },
               },

@@ -250,7 +250,7 @@ describe("hiring with files", () => {
     expect((await read()).outputFiles).toBeUndefined();
     const chart = got(storeFile({ bytes: PNG, name: "revenue.png", direction: "out", taskId: created.taskId }));
     const listed = (await read()).outputFiles!;
-    expect(listed).toEqual([{ id: chart.file.id, name: "revenue.png", type: "image/png", size: PNG.length, sha256: sha256Of(PNG), token: chart.token }]);
+    expect(listed).toEqual([{ id: chart.file.id, name: "revenue.png", type: "image/png", kind: "image", size: PNG.length, sha256: sha256Of(PNG), token: chart.token, path: `/api/files/${chart.file.id}/content` }]);
     const dl = await meta(new NextRequest(`http://x/api/files/${listed[0].id}`, { headers: { "x-file-token": listed[0].token, "x-forwarded-for": "10.2.0.7" } }), { params: Promise.resolve({ fileId: listed[0].id }) });
     expect(dl.status).toBe(200);
     // a file handed back is not an input: it cannot be attached to another hire

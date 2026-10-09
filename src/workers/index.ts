@@ -12,7 +12,7 @@ import { deliverPendingWebhooks } from "../lib/webhooks";
 import { recordTaskLatency } from "../lib/metrics";
 import { formatContext } from "../lib/formatContext";
 import { isWalletAddress } from "../lib/address";
-import { attachmentsForTask, codeEnabled, filesEnabled, readBytes, storeFile } from "../lib/agentFiles";
+import { attachmentsForTask, codeEnabled, filesEnabled, keepOutput, readBytes, REPORT_KEY, REPORT_NOTE, storeReport } from "../lib/agentFiles";
 import { hasCode, withCode } from "../lib/agentTools";
 import type { SandboxFile } from "../lib/providers";
 import { runWithProvider, runWithProviderTools, getAgentMaxTokens } from "../lib/providers";
@@ -279,7 +279,11 @@ async function processTasks() {
           // Files handed over with the hire: the text of text files follows the task in the message, and PDFs and
           // pictures go to the model as themselves. Nothing is read while the feature is off.
           const handed = filesEnabled() ? await attachmentsForTask(task.taskId) : { text: "", attachments: [], files: [] };
-          const fullMessage = task.task + formatContext(task.context) + handed.text + prices;
+          // The hirer asked for the answer as a file as well: the agent is told, so it writes a document, not a chat reply.
+          const wantsReport = filesEnabled() && task.context?.[REPORT_KEY] === true;
+          // whoever hired it owns what it hands back; a visitor's files are read with the job's token instead
+          const hirerWallet = isWalletAddress(task.fromAgent) ? task.fromAgent : null;
+          const fullMessage = task.task + formatContext(task.context) + handed.text + prices + (wantsReport ? REPORT_NOTE : "");
 
           // Promise.race abandons the loser, it doesn't stop it. For a single
           // model call that's one wasted request; a tool loop is up to seven, so
@@ -310,8 +314,8 @@ async function processTasks() {
             ? {
                 files: handed.files.flatMap((f) => { const bytes = readBytes(f); return bytes ? [{ name: f.name, mime: f.mime, bytes }] : []; }),
                 onFile: (f: SandboxFile) => {
-                  const kept = storeFile({ bytes: f.bytes, name: f.name, wallet: isWalletAddress(task.fromAgent) ? task.fromAgent : null, direction: "out", taskId: task.taskId });
-                  if (!kept.ok) logger.info("worker.output_file_refused", "A file the agent wrote was not kept", { taskId: task.taskId, name: f.name, refused: kept.refused });
+                  const kept = keepOutput({ taskId: task.taskId, bytes: f.bytes, name: f.name, wallet: hirerWallet });
+                  if (kept && !kept.ok) logger.info("worker.output_file_refused", "A file the agent wrote was not kept", { taskId: task.taskId, name: f.name, refused: kept.refused });
                 },
               }
             : undefined;
@@ -380,6 +384,12 @@ async function processTasks() {
             costUsd: estimateCostUsd(step.model, step.inputTokens, step.outputTokens),
             latencyMs: step.latencyMs,
           });
+
+          // The answer as a file, kept before the job completes so its commitment covers the file too.
+          if (wantsReport) {
+            const kept = storeReport({ taskId: task.taskId, output, agentName: agent.name, wallet: hirerWallet });
+            if (kept && !kept.ok) logger.info("worker.report_file_refused", "The answer was not kept as a file", { taskId: task.taskId, refused: kept.refused });
+          }
 
           if (completeTask(task.taskId, output)) {
             settleCompletedTask(task.taskId);

@@ -1,4 +1,4 @@
-import { filesEnabled, filesOfTask, fileTokenFor } from "@/lib/agentFiles";
+import { filesEnabled, filesOfTask, outputFileFor } from "@/lib/agentFiles";
 import { NextRequest, NextResponse } from "next/server";
 import { getTaskById } from "@/lib/tasks";
 import { canAccessIdentity, requireApiKey } from "@/lib/apiAuth";
@@ -20,7 +20,7 @@ function withFiles<T extends { taskId: string }>(task: T): T | (T & { outputFile
   if (!filesEnabled()) return task;
   const out = filesOfTask(task.taskId, "out");
   if (!out.length) return task;
-  return { ...task, outputFiles: out.map((f) => ({ id: f.id, name: f.name, type: f.mime, size: f.size, sha256: f.sha256, token: fileTokenFor(f.id) })) };
+  return { ...task, outputFiles: out.map((f) => outputFileFor(f)) };
 }
 
 export async function GET(

@@ -115,6 +115,9 @@ export const createTaskSchema = z.object({
     .array(z.object({ id: z.string().min(1).max(64), token: z.string().max(64).optional() }))
     .max(5, "a hire carries at most 5 files")
     .optional(),
+  // Ask for the answer as a file as well: a Markdown file kept with the job, listed with whatever else the agent
+  // hands back and covered by the same commitment.
+  reportFile: z.boolean().optional(),
 }).refine(
   (o) => !!o.to || !!o.capability || (o.capabilities?.length ?? 0) > 0,
   "provide `to`, or a `capability`/`capabilities` for the network to route the job",

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { payForBuild } from "@/lib/buildPaymentClient";
 import MarkdownOutput from "@/components/MarkdownOutput";
 import FileAttach, { type Attached } from "@/components/FileAttach";
+import OutputFiles, { type OutputFile } from "@/components/OutputFiles";
 
 // Close the loop: hire an agent right here. Free-lane agents run immediately;
 // paid agents settle a single on-chain ETH payment (x402) first — pay with
@@ -65,6 +66,9 @@ export default function HirePanel({
   const [error, setError] = useState<string | null>(null);
   // files handed over with the hire: uploaded as they are chosen, attached when the hire is created
   const [files, setFiles] = useState<Attached[]>([]);
+  // the answer as a file as well, and whatever the agent handed back with it
+  const [report, setReport] = useState(false);
+  const [outFiles, setOutFiles] = useState<OutputFile[]>([]);
   const cancelled = useRef(false);
   // A payment that already landed on-chain — kept so a failed submit retries with
   // the SAME signature instead of charging the wallet a second time.
@@ -102,10 +106,11 @@ export default function HirePanel({
         setPhase("error");
         return;
       }
-      const t = (await res.json()) as { status?: string; output?: string | null };
+      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[] };
       if (cancelled.current) return;
       if (t.status === "completed") {
         setOutput(t.output ?? "");
+        setOutFiles(Array.isArray(t.outputFiles) ? t.outputFiles : []);
         setPhase("done");
         return;
       }
@@ -133,7 +138,7 @@ export default function HirePanel({
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ from: "anonymous", to: agentId, task: task.trim(), ...(files.length ? { files: files.map((f) => ({ id: f.id, token: f.token })) } : {}), ...(payment ?? {}) }),
+        body: JSON.stringify({ from: "anonymous", to: agentId, task: task.trim(), ...(files.length ? { files: files.map((f) => ({ id: f.id, token: f.token })) } : {}), ...(report ? { reportFile: true } : {}), ...(payment ?? {}) }),
       });
       const data = (await res.json()) as { taskId?: string; claimToken?: string; error?: string };
       if (cancelled.current) return;
@@ -213,6 +218,8 @@ export default function HirePanel({
     setHint(null);
     setTaskId(null);
     setTask("");
+    setOutFiles([]);
+    setReport(false);
   }
 
   // ── Paid agent we can't settle in-browser (SOL price, or wallet config unset):
@@ -255,7 +262,7 @@ export default function HirePanel({
             disabled={phase === "hiring"}
             className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-teal-400 disabled:opacity-60 resize-y"
           />
-          <FileAttach agentId={agentId} paid={payAndHire} files={files} onChange={setFiles} disabled={phase === "hiring"} />
+          <FileAttach agentId={agentId} paid={payAndHire} files={files} onChange={setFiles} disabled={phase === "hiring"} report={report} onReport={setReport} />
           <div className="mt-3 flex items-center gap-3">
             <button
               onClick={payAndHire ? hirePaid : hireFree}
@@ -309,6 +316,7 @@ export default function HirePanel({
           <div className="rounded-md border border-gray-200 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-900/40 p-3 break-words max-h-80 overflow-auto">
             {output ? <MarkdownOutput text={output} /> : <span className="text-sm text-gray-400">(empty response)</span>}
           </div>
+          <OutputFiles files={outFiles} />
           <div className="mt-3 flex items-center gap-4">
             {taskId && (
               <a href={`/r/${encodeURIComponent(taskId)}`} target="_blank" rel="noopener noreferrer" className="text-xs text-teal-600 dark:text-teal-400 hover:underline">

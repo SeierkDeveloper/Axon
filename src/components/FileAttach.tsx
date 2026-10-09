@@ -19,7 +19,7 @@ interface Limits {
 const size = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
 const ACCEPT = ".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.md,.csv,.tsv,.json,application/pdf,image/png,image/jpeg,image/gif,image/webp,text/plain,text/markdown,text/csv,application/json";
 
-export default function FileAttach({ agentId, paid, files, onChange, disabled, apiKey }: {
+export default function FileAttach({ agentId, paid, files, onChange, disabled, apiKey, report, onReport }: {
   agentId: string;
   paid: boolean;
   files: Attached[];
@@ -27,6 +27,9 @@ export default function FileAttach({ agentId, paid, files, onChange, disabled, a
   disabled?: boolean;
   /** when the visitor is signed in, their files belong to their wallet */
   apiKey?: string | null;
+  /** the answer as a file as well: shown as a tick when the page passes `onReport` */
+  report?: boolean;
+  onReport?: (next: boolean) => void;
 }) {
   const [limits, setLimits] = useState<Limits | null>(null);
   const [busy, setBusy] = useState(0);
@@ -111,6 +114,12 @@ export default function FileAttach({ agentId, paid, files, onChange, disabled, a
           {reads.pdf && reads.image ? "PDF, picture or text file" : reads.image ? "Picture or text file" : "Text files (text, Markdown, CSV, JSON)"}, up to {cap.files} and {size(cap.bytes)} together. Or drop it here.
         </span>
       </div>
+      {onReport && (
+        <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+          <input type="checkbox" checked={Boolean(report)} onChange={(e) => onReport(e.target.checked)} disabled={disabled} className="h-3.5 w-3.5 accent-teal-600" />
+          Give me the answer as a file too
+        </label>
+      )}
       {note && <p role="status" className="mt-2 text-xs text-amber-600 dark:text-amber-400">{note}</p>}
     </div>
   );

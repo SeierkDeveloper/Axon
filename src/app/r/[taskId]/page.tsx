@@ -58,6 +58,41 @@ function HashRow({ label, hash, hint }: { label: string; hash: string | null; hi
   );
 }
 
+const fileSize = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
+const fileKind = (type: string) => (type === "application/pdf" ? "PDF" : type.startsWith("image/") ? type.slice(6).toUpperCase() : (type.split("/")[1] ?? "text").replace("plain", "text").toUpperCase());
+
+/** The files the job handed back: what each is and its hash. Never a name; the work stays private. */
+function ReturnedFiles({ files, filesHash }: { files: NonNullable<PublicReceipt["outputFiles"]>; filesHash?: string }) {
+  return (
+    <div>
+      <p className="text-[11px] uppercase tracking-[0.2em] text-gray-500 mb-1">{files.length === 1 ? "File handed back" : `Files handed back (${files.length})`}</p>
+      <ul className="space-y-1.5">
+        {files.map((f, i) => (
+          <li key={`${f.sha256}-${i}`} className="rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2">
+            <p className="flex items-center justify-between gap-3 text-[11px] text-gray-400">
+              <span>{fileKind(f.type)} · {fileSize(f.size)}</span>
+              {!f.stored && <span className="text-gray-500">no longer stored</span>}
+            </p>
+            <p className="font-mono text-[13px] text-teal-300 break-all" title={f.sha256}>{f.sha256}</p>
+          </li>
+        ))}
+      </ul>
+      <p className="text-[11px] text-gray-500 mt-1">
+        The SHA-256 of each file the agent delivered. Hash the file you were given and compare.
+      </p>
+      {filesHash && (
+        <div className="mt-3">
+          <HashRow
+            label="Files hash"
+            hash={filesHash}
+            hint="SHA-256 over the file hashes above, sorted, one a line. Committed with the output hash."
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Party({ label, name, id }: { label: string; name: string | null; id: string }) {
   return (
     <div className="min-w-0">
@@ -115,6 +150,17 @@ export default async function ReceiptPage({ params }: { params: Promise<{ taskId
                   hash={r.outputHash}
                   hint="Committed when the work completed, the delivered result, hashed."
                 />
+                {r.outputFiles && r.outputFiles.length > 0 && <ReturnedFiles files={r.outputFiles} filesHash={r.outputFilesHash} />}
+                {r.commitmentTx && isOnChainTxHash(r.commitmentTx) && (
+                  <a
+                    href={explorerTxUrl(r.commitmentTx)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block text-xs font-semibold text-teal-400 hover:text-teal-300 border border-teal-500/40 rounded-full px-3 py-1.5"
+                  >
+                    Output and file hashes on chain →
+                  </a>
+                )}
                 {r.specVerified !== null && (
                   <p className={`text-sm font-semibold ${r.specVerified ? "text-emerald-400" : "text-red-400"}`}>
                     {r.specVerified

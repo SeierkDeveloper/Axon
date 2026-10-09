@@ -23,7 +23,7 @@
 // task id, derived from SEED_SECRET) and get_task_result requires it — only the
 // party that hired can read the deliverable, with no API key and no DB state.
 
-import { filesEnabled } from "./agentFiles";
+import { filesEnabled, filesOfTask, outputFileFor } from "./agentFiles";
 import { createHmac, timingSafeEqual } from "crypto";
 import { NextRequest } from "next/server";
 import { getAgentById, searchAgents, toPublicAgent } from "./agents";
@@ -261,6 +261,14 @@ const HIRE_FILES_PROPERTY = {
   items: { type: "object", properties: { id: { type: "string" }, token: { type: "string" } }, required: ["id"] },
 } as const;
 
+const HIRE_REPORT_PROPERTY = {
+  type: "boolean",
+  description: "Set true to get the answer as a Markdown file as well. get_task_result then lists it under files, with a link that downloads it",
+} as const;
+
+/** What get_task_result says about itself while files are on: it also lists what the agent handed back. */
+const RESULT_WITH_FILES = " When the agent handed back files (a chart, a table, the answer as a file), they are listed under files, each with its SHA-256 and a url that downloads it.";
+
 /** The tools on offer right now: the standing list, plus files while they are switched on. */
 export function mcpTools(): readonly McpTool[] {
   const base = MCP_TOOLS as unknown as McpTool[];
@@ -268,9 +276,10 @@ export function mcpTools(): readonly McpTool[] {
   const out: McpTool[] = [];
   for (const t of base) {
     if (t.name === "hire_agent") {
-      out.push({ ...t, inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, files: HIRE_FILES_PROPERTY } } });
+      out.push({ ...t, inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, files: HIRE_FILES_PROPERTY, reportFile: HIRE_REPORT_PROPERTY } } });
       out.push(UPLOAD_FILE_TOOL as unknown as McpTool);
-    } else out.push(t);
+    } else if (t.name === "get_task_result") out.push({ ...t, description: t.description + RESULT_WITH_FILES });
+    else out.push(t);
   }
   return out;
 }
@@ -427,6 +436,7 @@ async function toolHireAgent(args: Record<string, unknown>, clientIp: string, ap
   const body: Record<string, unknown> = { from: "anonymous", to: agentId, task };
   if (args.context && typeof args.context === "object") body.context = args.context;
   if (Array.isArray(args.files) && args.files.length) body.files = args.files;
+  if (args.reportFile === true) body.reportFile = true;
   if (paymentSignature) body.paymentSignature = paymentSignature;
   if (payerWallet) body.payerWallet = payerWallet;
 
@@ -494,6 +504,7 @@ async function hireFromAllowance(
   const body: Record<string, unknown> = { from: wallet, to: agent.agentId, task, paymentMethod: "allowance" };
   if (args.context && typeof args.context === "object") body.context = args.context;
   if (Array.isArray(args.files) && args.files.length) body.files = args.files;
+  if (args.reportFile === true) body.reportFile = true;
 
   // The route makes a quote for this hire alone; see freshAxonQuoteFor.
   if (args.payIn === "AXON") body.payIn = "AXON";
@@ -630,6 +641,14 @@ function toolGetTaskResult(args: Record<string, unknown>) {
 
   const task = getTaskById(taskId);
   if (!task) return { error: `task '${taskId}' not found` };
+  // What the agent handed back, each with a link that downloads it. The link carries the file's own token, which only
+  // whoever holds this job's claim token is ever given.
+  const files = filesEnabled() && task.status === "completed"
+    ? filesOfTask(taskId, "out").map((f) => {
+        const o = outputFileFor(f);
+        return { name: o.name, type: o.type, size: o.size, sha256: o.sha256, url: `${BASE_URL}${o.path}?token=${o.token}` };
+      })
+    : [];
   // A failed TASK is a valid tool result, not a tool failure — report it as
   // `failureReason`, never `error` (the dispatcher flags isError by the presence
   // of an `error` key, so a completed result must not carry one).
@@ -638,6 +657,7 @@ function toolGetTaskResult(args: Record<string, unknown>) {
     status: task.status,
     output: task.status === "completed" ? (task.output ?? null) : null,
     failureReason: task.status === "failed" ? (task.error ?? null) : null,
+    ...(files.length ? { files } : {}),
     receiptUrl: `${BASE_URL}/r/${taskId}`,
   };
 }

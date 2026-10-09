@@ -14,7 +14,7 @@ import { checkFreeAllowance, freeLimitMessage } from "@/lib/freeAllowance";
 import { getTier } from "@/lib/holderTier";
 import { hashIdempotencyPayload, normalizeIdempotencyKey, validateIdempotencyKey } from "@/lib/idempotency";
 import { claimTokenFor } from "@/lib/mcpServer";
-import { agentReads, attachFiles, checkTaskFiles, CONTEXT_KEY } from "@/lib/agentFiles";
+import { agentReads, attachFiles, checkTaskFiles, CONTEXT_KEY, filesEnabled, REPORT_KEY } from "@/lib/agentFiles";
 import { getMcpServerByAgentId } from "@/lib/mcp";
 import { getDb } from "@/lib/db";
 import { createTaskSchema, parseBody } from "@/lib/schemas";
@@ -169,6 +169,16 @@ async function handlePost(req: NextRequest) {
     }
     fileIds = checked.rows.map((r) => r.id);
     body.context = { ...(body.context ?? {}), [CONTEXT_KEY]: checked.listed };
+  }
+
+  // The answer as a file as well. Asked for with `reportFile`; it is written into the job's context so the job's
+  // commitment covers the request, which is why a caller may not put the key there themselves.
+  if (filesEnabled() && body.context && REPORT_KEY in body.context) {
+    return apiError("VALIDATION_ERROR", `context.${REPORT_KEY} is filled in by Axon. Send "reportFile": true instead.`, 400);
+  }
+  if (body.reportFile) {
+    if (!filesEnabled()) return apiError("VALIDATION_ERROR", "Files are not switched on here, so an answer cannot be handed back as a file.", 400);
+    body.context = { ...(body.context ?? {}), [REPORT_KEY]: true };
   }
 
   // "balance" funds a paid hire from the paying agent's earned ledger balance

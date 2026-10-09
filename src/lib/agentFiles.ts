@@ -417,6 +417,62 @@ export function filesOfTask(taskId: string, direction: "in" | "out" = "in"): Fil
   return getDb().prepare("SELECT * FROM task_files WHERE task_id = ? AND direction = ? AND deleted_at IS NULL ORDER BY created_at ASC, id ASC").all(taskId, direction) as FileRow[];
 }
 
+// ── What an agent hands back ─────────────────────────────────────────────────────────────────────────────────────────
+// A file an agent wrote belongs to its job: whoever may read the job's answer may download it, and the job's receipt
+// names it by its hash, so the file somebody holds can be checked against what the job committed to.
+
+/** A file as a receipt lists it. `stored` is false once its bytes have been cleared; the hash stays. */
+export interface ReceiptFile { id: string; name: string; type: string; size: number; sha256: string; stored: boolean }
+
+/** The files a job handed back, for its receipt: every one it ever had, in order, cleared or not. */
+export function receiptFiles(taskId: string, direction: "in" | "out" = "out"): ReceiptFile[] {
+  const rows = getDb().prepare("SELECT * FROM task_files WHERE task_id = ? AND direction = ? ORDER BY created_at ASC, id ASC").all(taskId, direction) as FileRow[];
+  return rows.map((r) => ({ id: r.id, name: r.name, type: r.mime, size: r.size, sha256: r.sha256, stored: !r.deleted_at }));
+}
+
+/**
+ * One hash for a set of files: SHA-256 over their own hashes, lowercase, sorted, one a line. Sorted, so it does not
+ * depend on the order the files were written in. Null for no files.
+ */
+export function filesHash(shas: string[]): string | null {
+  if (!shas.length) return null;
+  return createHash("sha256").update(shas.map((s) => s.toLowerCase()).sort().join("\n"), "utf8").digest("hex");
+}
+
+/** True when this job already handed back these exact bytes, so a job that runs twice does not list a file twice. */
+export function hasOutput(taskId: string, sha256: string): boolean {
+  return Boolean(getDb().prepare("SELECT 1 FROM task_files WHERE task_id = ? AND direction = 'out' AND sha256 = ? LIMIT 1").get(taskId, sha256));
+}
+
+/** Keep a file an agent made with its job. Null when the job already has it. */
+export function keepOutput(input: { taskId: string; bytes: Buffer; name: string; wallet: string | null }, o: { now?: number; env?: Record<string, string | undefined> } = {}): StoreResult | null {
+  if (hasOutput(input.taskId, sha256Of(input.bytes))) return null;
+  return storeFile({ bytes: input.bytes, name: input.name, wallet: input.wallet, direction: "out", taskId: input.taskId }, o);
+}
+
+/** A returned file as the job's reader gets it: what it is, its hash, and the token and path that download it. */
+export interface OutputFile { id: string; name: string; type: string; kind: FileKind; size: number; sha256: string; token: string; path: string }
+export const outputFileFor = (f: FileRow): OutputFile => ({
+  id: f.id, name: f.name, type: f.mime, kind: f.kind, size: f.size, sha256: f.sha256, token: fileTokenFor(f.id), path: `/api/files/${f.id}/content`,
+});
+
+/** The key in a hire's context that asks for the answer as a file as well. Set by `reportFile` on a hire, never directly. */
+export const REPORT_KEY = "reportFile";
+/** What the agent is told when its answer is also going out as a file. */
+export const REPORT_NOTE = "\n\nThe person also receives your answer as a Markdown file to keep. Write it as a finished document: a title, then the content. Do not mention the file.";
+
+/** The name of an answer kept as a file: "Deep Dive AI" gives "deep-dive-ai-report.md". */
+export function reportName(agentName: string): string {
+  const slug = agentName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+  return `${slug || "agent"}-report.md`;
+}
+
+/** Keep a job's answer as a Markdown file beside it. Null when there is nothing to keep or it is already there. */
+export function storeReport(input: { taskId: string; output: string; agentName: string; wallet: string | null }, o: { now?: number; env?: Record<string, string | undefined> } = {}): StoreResult | null {
+  if (!input.output.trim()) return null;
+  return keepOutput({ taskId: input.taskId, bytes: Buffer.from(input.output, "utf8"), name: reportName(input.agentName), wallet: input.wallet }, o);
+}
+
 /** A file as a model is handed it: itself, not a description of it. */
 export interface ModelAttachment { kind: "pdf" | "image"; mime: string; name: string; data: string }
 

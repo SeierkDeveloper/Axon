@@ -9,6 +9,7 @@ import { getTaskProgress, type TaskProgressEntry } from "./progress";
 import { getPaymentNotes, type PaymentNote } from "./paymentNotes";
 import { getSplitsForTask, type TaskSplit } from "./escrowSplits";
 import { getSlaForTask, type TaskSla } from "./sla";
+import { receiptFiles, type ReceiptFile } from "./agentFiles";
 
 export interface Receipt {
   taskId: string;
@@ -22,6 +23,8 @@ export interface Receipt {
   notes: PaymentNote[]; // dispute/refund notes attached to this payment
   splits: TaskSplit[]; // escrow split recipients, if the payment is divided across agents
   sla: TaskSla | null; // service-level agreement and its status, if one was set
+  /** files the agent handed back, when it handed any back: named, since this receipt is read with a key */
+  outputFiles?: ReceiptFile[];
 }
 
 // The public face of a receipt — the explorer privacy rule applies: WHO
@@ -50,13 +53,32 @@ export interface PublicReceipt {
     signature: string | null;
     settledAt: string | null;
   } | null;
+  /**
+   * Files the job handed back. What each IS and its hash, never its name: a name can say what the work was about,
+   * and the work stays private. `stored` is false once the bytes have been cleared; the hash is kept.
+   */
+  outputFiles?: { type: string; size: number; sha256: string; stored: boolean }[];
+  /** SHA-256 over the file hashes, sorted, one a line: what the commitment on chain carries for the files. */
+  outputFilesHash?: string;
+  /** The transaction the output hash and the files hash were posted in, once it is on chain. */
+  commitmentTx?: string;
+}
+
+/** The files a job handed back, as its receipts list them. Empty (never an error) when there are none. */
+function returnedFiles(taskId: string): ReceiptFile[] {
+  try {
+    return receiptFiles(taskId, "out");
+  } catch {
+    return [];
+  }
 }
 
 export function getPublicReceipt(taskId: string): PublicReceipt | null {
   const db = getDb();
   const row = db
     .prepare(
-      `SELECT task_id, from_agent, to_agent, status, created_at, started_at, completed_at, spec_hash, output_hash, payment
+      `SELECT task_id, from_agent, to_agent, status, created_at, started_at, completed_at, spec_hash, output_hash, payment,
+              output_commitment, output_files_hash
        FROM tasks WHERE task_id = ?`,
     )
     .get(taskId) as
@@ -71,9 +93,12 @@ export function getPublicReceipt(taskId: string): PublicReceipt | null {
         spec_hash: string | null;
         output_hash: string | null;
         payment: string | null;
+        output_commitment: string | null;
+        output_files_hash: string | null;
       }
     | undefined;
   if (!row) return null;
+  const handedBack = returnedFiles(taskId);
 
   const pay = db
     .prepare(
@@ -114,6 +139,14 @@ export function getPublicReceipt(taskId: string): PublicReceipt | null {
           settledAt: pay.settled_at,
         }
       : null,
+    // only a job that handed back files gains anything here: every other receipt reads exactly as it did
+    ...(handedBack.length
+      ? {
+          outputFiles: handedBack.map((f) => ({ type: f.type, size: f.size, sha256: f.sha256, stored: f.stored })),
+          ...(row.output_files_hash ? { outputFilesHash: row.output_files_hash } : {}),
+          ...(row.output_commitment ? { commitmentTx: row.output_commitment } : {}),
+        }
+      : {}),
   };
 }
 
@@ -213,6 +246,7 @@ export function getReceipt(taskId: string): Receipt {
     notes: getPaymentNotes(taskId),
     splits: getSplitsForTask(taskId),
     sla: getSlaForTask(taskId),
+    ...(returnedFiles(taskId).length ? { outputFiles: returnedFiles(taskId) } : {}),
   };
 }
 
