@@ -57,7 +57,7 @@ export interface PublicReceipt {
    * Files the job handed back. What each IS and its hash, never its name: a name can say what the work was about,
    * and the work stays private. `stored` is false once the bytes have been cleared; the hash is kept.
    */
-  outputFiles?: { type: string; size: number; sha256: string; stored: boolean }[];
+  outputFiles?: { type: string; size: number; sha256: string; stored: boolean; madeBy?: { agentId: string; name: string; taskId: string } }[];
   /** SHA-256 over the file hashes, sorted, one a line: what the commitment on chain carries for the files. */
   outputFilesHash?: string;
   /** The transaction the output hash and the files hash were posted in, once it is on chain. */
@@ -142,7 +142,8 @@ export function getPublicReceipt(taskId: string): PublicReceipt | null {
     // only a job that handed back files gains anything here: every other receipt reads exactly as it did
     ...(handedBack.length
       ? {
-          outputFiles: handedBack.map((f) => ({ type: f.type, size: f.size, sha256: f.sha256, stored: f.stored })),
+          // which agent made a file is public the way every party to a job is; its name still is not
+          outputFiles: handedBack.map((f) => ({ type: f.type, size: f.size, sha256: f.sha256, stored: f.stored, ...(f.madeBy ? { madeBy: f.madeBy } : {}) })),
           ...(row.output_files_hash ? { outputFilesHash: row.output_files_hash } : {}),
           ...(row.output_commitment ? { commitmentTx: row.output_commitment } : {}),
         }

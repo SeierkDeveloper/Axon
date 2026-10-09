@@ -63,7 +63,9 @@ describe("which files an agent reads", () => {
     // GPT and Grok look at pictures but are not given PDFs; a model Axon knows nothing about gets text only
     for (const provider of ["openai", "grok"]) expect(agentReads({ provider })).toMatchObject({ text: true, pdf: false, image: true });
     expect(agentReads({ provider: "ollama" })).toMatchObject({ text: true, pdf: false, image: false });
-    expect(agentReads({ provider: "anthropic", orchestrator: true })).toMatchObject({ text: true, pdf: false, image: false });
+    // an agent that hires specialists reads what its own model reads, and hands the files on
+    expect(agentReads({ provider: "anthropic", orchestrator: true })).toMatchObject({ text: true, pdf: true, image: true });
+    expect(agentReads({ provider: "openai", orchestrator: true, endpoint: "https://x.example" })).toMatchObject({ text: true, pdf: false, image: true });
     expect(agentReads({ provider: "anthropic" }, { runsThroughMcp: true })).toMatchObject({ text: true, pdf: false, image: false });
     expect(agentReads({ provider: "grok", endpoint: "https://agent.example/run" })).toEqual(ALL);
   });

@@ -5,6 +5,8 @@ import { getAgentById } from "./agents";
 import { debitChannel, parseMppPrice, refundDebitForTask } from "./mpp";
 import { createTask, markTaskPaymentConfirmed } from "./tasks";
 import { logger } from "./logger";
+import { agentReads, filesEnabled, filesOfTask, fitForHire, listFiles, passFiles, CONTEXT_KEY, type FileRow } from "./agentFiles";
+import { getMcpServerByAgentId } from "./mcp";
 
 export type WorkflowStatus = "running" | "completed" | "failed";
 
@@ -96,6 +98,8 @@ export function createWorkflow(opts: {
   agents: string[];
   task: string;
   mppChannelId?: string;
+  /** files for the first agent to work on; what each step makes travels on to the next */
+  files?: FileRow[];
 }): Workflow {
   const db = getDb();
   const workflowId = randomUUID();
@@ -115,6 +119,7 @@ export function createWorkflow(opts: {
       task: opts.task,
       stepIndex: 0,
       mppChannelId: opts.mppChannelId,
+      files: opts.files,
     });
   } catch (err) {
     db.prepare("DELETE FROM workflows WHERE workflow_id=?").run(workflowId);
@@ -132,6 +137,8 @@ function createWorkflowStepTask(opts: {
   task: string;
   stepIndex: number;
   mppChannelId?: string | null;
+  /** files handed to this step: listed in its context, so its commitment covers them, and attached once it stands */
+  files?: FileRow[];
 }): void {
   const agent = getAgentById(opts.toAgent);
   if (!agent) throw new Error(`Agent '${opts.toAgent}' not found`);
@@ -145,6 +152,7 @@ function createWorkflowStepTask(opts: {
     fromAgent: opts.fromAgent,
     toAgent: opts.toAgent,
     task: opts.task,
+    ...(opts.files?.length ? { context: { [CONTEXT_KEY]: listFiles(opts.files) } } : {}),
     payment: agent.price,
     workflowId: opts.workflowId,
     stepIndex: opts.stepIndex,
@@ -152,7 +160,9 @@ function createWorkflowStepTask(opts: {
     initialStatus: paidPrice ? "payment_pending" : "queued",
   });
 
-  if (!paidPrice) return;
+  // Attached only once the step is sure to run: a step that is rolled back below never held a file.
+  const hand = () => { if (opts.files?.length) passFiles(opts.files, task.taskId); };
+  if (!paidPrice) { hand(); return; }
   if (!opts.mppChannelId) {
     getDb().prepare("DELETE FROM tasks WHERE task_id = ?").run(task.taskId);
     throw new Error(`Workflow paid step '${opts.toAgent}' requires an MPP channel`);
@@ -169,6 +179,28 @@ function createWorkflowStepTask(opts: {
     refundDebitForTask(task.taskId);
     getDb().prepare("DELETE FROM tasks WHERE task_id = ?").run(task.taskId);
     throw new Error(`Workflow step '${opts.toAgent}' payment could not be confirmed`);
+  }
+  hand();
+}
+
+/**
+ * What the next step of a pipeline is handed: what the step before it made, then the files that step was itself
+ * working from, as far as one hire of the next agent may carry. Empty while files are off, and never an error.
+ */
+function filesForNextStep(workflowId: string, stepIndex: number, nextAgentId: string): FileRow[] {
+  if (!filesEnabled()) return [];
+  try {
+    const prev = getDb().prepare("SELECT task_id FROM tasks WHERE workflow_id = ? AND step_index = ?").get(workflowId, stepIndex) as { task_id: string } | undefined;
+    const next = getAgentById(nextAgentId);
+    if (!prev || !next) return [];
+    return fitForHire(
+      [...filesOfTask(prev.task_id, "out").reverse(), ...filesOfTask(prev.task_id, "in")],
+      agentReads(next, { runsThroughMcp: Boolean(getMcpServerByAgentId(next.agentId)) }),
+      Boolean(next.price && parseMppPrice(next.price)),
+    ).rows;
+  } catch (err) {
+    logger.warn("workflow.files_skipped", "A pipeline step's files could not be handed on", { workflowId, stepIndex, err });
+    return [];
   }
 }
 
@@ -234,6 +266,7 @@ export function advanceWorkflow(workflowId: string, stepIndex: number, output: s
         workflowId,
         stepIndex: nextStep,
         mppChannelId: row.mpp_channel_id,
+        files: filesForNextStep(workflowId, stepIndex, agents[nextStep]),
       });
     } catch (err) {
       logger.error("workflow.step_failed", "Workflow step creation failed, failing workflow", {

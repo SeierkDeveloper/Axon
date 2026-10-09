@@ -70,7 +70,15 @@ function ReturnedFiles({ files, filesHash }: { files: NonNullable<PublicReceipt[
         {files.map((f, i) => (
           <li key={`${f.sha256}-${i}`} className="rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2">
             <p className="flex items-center justify-between gap-3 text-[11px] text-gray-400">
-              <span>{fileKind(f.type)} · {fileSize(f.size)}</span>
+              <span>
+                {fileKind(f.type)} · {fileSize(f.size)}
+                {f.madeBy && (
+                  <>
+                    {" · made by "}
+                    <a href={`/r/${encodeURIComponent(f.madeBy.taskId)}`} className="text-gray-300 underline decoration-white/20 hover:text-white">{f.madeBy.name}</a>
+                  </>
+                )}
+              </span>
               {!f.stored && <span className="text-gray-500">no longer stored</span>}
             </p>
             <p className="font-mono text-[13px] text-teal-300 break-all" title={f.sha256}>{f.sha256}</p>

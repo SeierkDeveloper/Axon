@@ -145,6 +145,8 @@ export function fileTokenValid(fileId: string, token: unknown): boolean {
 export interface FileRow {
   id: string; sha256: string; name: string; mime: string; kind: FileKind; size: number; direction: "in" | "out";
   owner_wallet: string | null; task_id: string | null; created_at: string; expires_at: string; deleted_at: string | null;
+  /** the job this file first belonged to, when it was handed on from another job; null for an upload */
+  source_task_id?: string | null;
 }
 export interface FileView {
   id: string; name: string; mime: string; kind: FileKind; size: number; sha256: string; direction: "in" | "out";
@@ -183,7 +185,7 @@ export function storeBytes(): number {
 
 /** What a wallet has added since a point in time. A visitor is held to their allowance by the route's rate limiter. */
 export function addedSince(wallet: string, sinceIso: string): { files: number; bytes: number } {
-  return getDb().prepare("SELECT COUNT(*) files, COALESCE(SUM(size), 0) bytes FROM task_files WHERE owner_wallet = ? AND created_at >= ? AND direction = 'in'").get(wallet.toLowerCase(), sinceIso) as { files: number; bytes: number };
+  return getDb().prepare("SELECT COUNT(*) files, COALESCE(SUM(size), 0) bytes FROM task_files WHERE owner_wallet = ? AND created_at >= ? AND direction = 'in' AND source_task_id IS NULL").get(wallet.toLowerCase(), sinceIso) as { files: number; bytes: number };
 }
 
 function volume(dir: string): { free: number; total: number } | null {
@@ -359,7 +361,6 @@ export interface Reads { text: boolean; pdf: boolean; image: boolean; why: strin
 export function agentReads(agent: { provider?: string | null; endpoint?: string | null; orchestrator?: boolean }, o: { runsThroughMcp?: boolean } = {}): Reads {
   if (agent.endpoint && !agent.orchestrator && !o.runsThroughMcp) return { text: true, pdf: true, image: true, why: null };
   if (o.runsThroughMcp) return { text: true, pdf: false, image: false, why: "This agent takes text files only." };
-  if (agent.orchestrator) return { text: true, pdf: false, image: false, why: "This agent hands work on to other agents and takes text files only for now." };
   const provider = agent.provider ?? "anthropic";
   if (provider === "anthropic") return { text: true, pdf: true, image: true, why: null };
   // these models look at pictures; a PDF they are not given
@@ -417,17 +418,105 @@ export function filesOfTask(taskId: string, direction: "in" | "out" = "in"): Fil
   return getDb().prepare("SELECT * FROM task_files WHERE task_id = ? AND direction = ? AND deleted_at IS NULL ORDER BY created_at ASC, id ASC").all(taskId, direction) as FileRow[];
 }
 
+// ── Files between agents ─────────────────────────────────────────────────────────────────────────────────────────────
+// A job is often more than one agent: an agent that hires specialists, a crew that runs in order, a pipeline. The
+// files travel with the work. Nothing is uploaded again and no bytes are copied: a file handed on is a new row that
+// points at the same stored content, and it remembers the job it came from.
+//
+// A job that is handed files carries what any hire may carry, and no more: the same count, size and page limits, and
+// only the kinds its agent reads. What does not fit is left behind and named, never silently dropped.
+
+export interface LeftBehind { name: string; why: string }
+
+/**
+ * Of these files, in this order of preference, the ones a hire of this agent can carry. The same content is taken
+ * once. A file whose bytes are gone, of a kind the agent does not read, with too many pages, or past the hire's
+ * count or size, is left behind with the reason.
+ */
+export function fitForHire(rows: FileRow[], reads: Reads, paid: boolean): { rows: FileRow[]; left: LeftBehind[] } {
+  const limits = paid ? TASK_FILES.paid : TASK_FILES.free;
+  const taken: FileRow[] = [], left: LeftBehind[] = [], seen = new Set<string>();
+  let total = 0;
+  for (const r of rows) {
+    if (seen.has(r.sha256)) continue;
+    seen.add(r.sha256);
+    const leave = (why: string) => { left.push({ name: r.name, why }); };
+    if (r.deleted_at || !fs.existsSync(blobPath(r.sha256))) { leave("it is no longer stored"); continue; }
+    if (r.kind === "pdf" && !reads.pdf) { leave("this agent does not read PDFs"); continue; }
+    if (r.kind === "image" && !reads.image) { leave("this agent does not read pictures"); continue; }
+    if (taken.length >= limits.files) { leave(`a hire carries at most ${limits.files} files`); continue; }
+    if (total + r.size > limits.bytes) { leave(`a hire carries at most ${mb(limits.bytes)}`); continue; }
+    if (r.kind === "pdf") {
+      const bytes = readBytes(r), pages = bytes ? pdfPages(bytes) : null;
+      if (pages !== null && pages > limits.pdfPages) { leave(`it has ${pages} pages, and a hire takes up to ${limits.pdfPages}`); continue; }
+    }
+    total += r.size;
+    taken.push(r);
+  }
+  return { rows: taken, left };
+}
+
+/** What a hire's context lists for these files. */
+export const listFiles = (rows: FileRow[]): AttachedFile[] => rows.map((r) => ({ name: r.name, type: r.mime, size: r.size, sha256: r.sha256 }));
+
+function copyRow(r: FileRow, to: { taskId: string | null; direction: "in" | "out"; wallet: string | null }, now: number): FileRow {
+  const id = `f_${randomBytes(16).toString("hex")}`;
+  const wallet = to.wallet ? to.wallet.toLowerCase() : null;
+  const createdAt = new Date(now).toISOString();
+  const expiresAt = new Date(now + (wallet ? KEEP_MS.wallet : KEEP_MS.guest)).toISOString();
+  // The job that MADE it: a file handed on twice still names where it was made. A file somebody uploaded was made
+  // by no job, however far it travels.
+  const source = r.source_task_id ?? (r.direction === "out" ? r.task_id : null);
+  getDb().prepare("INSERT INTO task_files (id, sha256, name, mime, kind, size, direction, owner_wallet, task_id, created_at, expires_at, source_task_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
+    .run(id, r.sha256, r.name, r.mime, r.kind, r.size, to.direction, wallet, to.taskId, createdAt, expiresAt, source);
+  return getDb().prepare("SELECT * FROM task_files WHERE id = ?").get(id) as FileRow;
+}
+
+/**
+ * Hand files to a job as its input. With no job yet (`taskId` null) the copies wait, unattached, for the hire that
+ * is about to be created to take them by id and token, exactly as uploads do.
+ */
+export function passFiles(rows: FileRow[], taskId: string | null, o: { wallet?: string | null; now?: number } = {}): FileRow[] {
+  if (!rows.length) return [];
+  const now = o.now ?? Date.now();
+  // a millisecond apart, so the job lists them in the order they were handed over
+  return getDb().transaction(() => rows.map((r, i) => copyRow(r, { taskId, direction: "in", wallet: o.wallet ?? null }, now + i)))();
+}
+
+/**
+ * What one job handed back becomes part of what another hands back: the files a specialist made are the hirer's too.
+ * Content the job already has is not added twice. Returns what was added.
+ */
+export function adoptOutputs(taskId: string, fromTaskId: string, o: { wallet?: string | null; now?: number } = {}): FileRow[] {
+  const now = o.now ?? Date.now();
+  return getDb().transaction(() => {
+    const added: FileRow[] = [];
+    for (const r of filesOfTask(fromTaskId, "out")) {
+      if (hasOutput(taskId, r.sha256)) continue;
+      added.push(copyRow(r, { taskId, direction: "out", wallet: o.wallet ?? null }, now + added.length));
+    }
+    return added;
+  })();
+}
+
+/** Which agent made a file that was handed on, and in which job. Null for a file made by the job itself. */
+export function madeBy(row: { source_task_id?: string | null; task_id?: string | null }): { agentId: string; name: string; taskId: string } | null {
+  if (!row.source_task_id || row.source_task_id === row.task_id) return null;
+  const r = getDb().prepare("SELECT t.to_agent agentId, a.name name FROM tasks t LEFT JOIN agents a ON a.agent_id = t.to_agent WHERE t.task_id = ?").get(row.source_task_id) as { agentId: string; name: string | null } | undefined;
+  return r ? { agentId: r.agentId, name: r.name ?? r.agentId, taskId: row.source_task_id } : null;
+}
+
 // ── What an agent hands back ─────────────────────────────────────────────────────────────────────────────────────────
 // A file an agent wrote belongs to its job: whoever may read the job's answer may download it, and the job's receipt
 // names it by its hash, so the file somebody holds can be checked against what the job committed to.
 
 /** A file as a receipt lists it. `stored` is false once its bytes have been cleared; the hash stays. */
-export interface ReceiptFile { id: string; name: string; type: string; size: number; sha256: string; stored: boolean }
+export interface ReceiptFile { id: string; name: string; type: string; size: number; sha256: string; stored: boolean; madeBy?: { agentId: string; name: string; taskId: string } }
 
 /** The files a job handed back, for its receipt: every one it ever had, in order, cleared or not. */
 export function receiptFiles(taskId: string, direction: "in" | "out" = "out"): ReceiptFile[] {
   const rows = getDb().prepare("SELECT * FROM task_files WHERE task_id = ? AND direction = ? ORDER BY created_at ASC, id ASC").all(taskId, direction) as FileRow[];
-  return rows.map((r) => ({ id: r.id, name: r.name, type: r.mime, size: r.size, sha256: r.sha256, stored: !r.deleted_at }));
+  return rows.map((r) => { const by = madeBy(r); return { id: r.id, name: r.name, type: r.mime, size: r.size, sha256: r.sha256, stored: !r.deleted_at, ...(by ? { madeBy: by } : {}) }; });
 }
 
 /**
@@ -451,10 +540,11 @@ export function keepOutput(input: { taskId: string; bytes: Buffer; name: string;
 }
 
 /** A returned file as the job's reader gets it: what it is, its hash, and the token and path that download it. */
-export interface OutputFile { id: string; name: string; type: string; kind: FileKind; size: number; sha256: string; token: string; path: string }
-export const outputFileFor = (f: FileRow): OutputFile => ({
-  id: f.id, name: f.name, type: f.mime, kind: f.kind, size: f.size, sha256: f.sha256, token: fileTokenFor(f.id), path: `/api/files/${f.id}/content`,
-});
+export interface OutputFile { id: string; name: string; type: string; kind: FileKind; size: number; sha256: string; token: string; path: string; madeBy?: { agentId: string; name: string; taskId: string } }
+export const outputFileFor = (f: FileRow): OutputFile => {
+  const by = madeBy(f);
+  return { id: f.id, name: f.name, type: f.mime, kind: f.kind, size: f.size, sha256: f.sha256, token: fileTokenFor(f.id), path: `/api/files/${f.id}/content`, ...(by ? { madeBy: by } : {}) };
+};
 
 /** The key in a hire's context that asks for the answer as a file as well. Set by `reportFile` on a hire, never directly. */
 export const REPORT_KEY = "reportFile";

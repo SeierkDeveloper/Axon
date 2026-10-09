@@ -2,6 +2,10 @@
 // moves); the agents, crews, tasks and Mylo's records are real rows.
 import { describe, it, expect, beforeEach } from "vitest";
 import { randomUUID } from "crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { keepOutput, fileTokenFor } from "@/lib/agentFiles";
 import { getDb } from "@/lib/db";
 import { createAgent } from "@/lib/agents";
 import { runTool, MYLO_TOOL_DEFS } from "@/lib/myloTools";
@@ -74,6 +78,44 @@ describe("crews", () => {
     expect(done.message.content).toMatch(/^The crew "Notes" finished\. Here is the final result, from Writer:\n\nv3 is faster and adds billing\./);
     expect(done.message.content).toMatch(/1\. \*\*Researcher\*\* \(find what changed\): \[receipt\]\(\/r\//);
     expect((refreshAction(p.actionId!, c.owner) as { message: unknown }).message).toBeNull();
+  });
+
+  it("hands what one step made to the next step, as files the hire takes, and nothing while files are off", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axon-crew-files-"));
+    const before = { files: process.env.AGENT_FILES, dir: process.env.AXON_FILES_DIR };
+    Object.assign(process.env, { AGENT_FILES: "on", AXON_FILES_DIR: dir });
+    try {
+      const w = wallet(), c = ctx(w), one = agent("Analyst"), two = agent("Writer");
+      await runTool("save_crew", { name: "Charts", members: [{ agent_id: one.agentId }, { agent_id: two.agentId }] }, c);
+      const p = await runTool("run_crew", { crew: "Charts", task: "Chart the quarter" }, c);
+      const sent: Record<string, unknown>[] = [];
+      const create: CreateTask = async (body) => { sent.push(body); return { status: 201, json: { taskId: randomUUID() }, replay: false }; };
+      await confirmAction(p.actionId!, c.owner, w, { method: "wallet", payments: {}, clientIp: "x" }, create);
+      expect(sent[0]).not.toHaveProperty("files");
+      const first = getAction(p.actionId!, w)!.hires[0].taskId!;
+      finish(first, "completed", "See the chart.");
+      const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40, 7)]);
+      const chart = keepOutput({ taskId: first, bytes: PNG, name: "quarter.png", wallet: null });
+      expect(chart?.ok).toBe(true);
+      await advanceCrew(p.actionId!, c.owner, create);
+      const files = sent[1].files as { id: string; token: string }[];
+      expect(files).toHaveLength(1);
+      expect(files[0].token).toBe(fileTokenFor(files[0].id));
+      // a copy waiting for the hire to take it: same bytes, no job yet, and it knows which job made it
+      expect(getDb().prepare("SELECT name, direction, task_id, source_task_id FROM task_files WHERE id = ?").get(files[0].id)).toEqual({ name: "quarter.png", direction: "in", task_id: null, source_task_id: first });
+
+      process.env.AGENT_FILES = "off";
+      const p2 = await runTool("run_crew", { crew: "Charts", task: "Chart the year" }, c);
+      await confirmAction(p2.actionId!, c.owner, w, { method: "wallet", payments: {}, clientIp: "x" }, create);
+      const first2 = getAction(p2.actionId!, w)!.hires[0].taskId!;
+      finish(first2, "completed", "Done.");
+      await advanceCrew(p2.actionId!, c.owner, create);
+      expect(sent.at(-1)).not.toHaveProperty("files");
+    } finally {
+      if (before.files === undefined) delete process.env.AGENT_FILES; else process.env.AGENT_FILES = before.files;
+      if (before.dir === undefined) delete process.env.AXON_FILES_DIR; else process.env.AXON_FILES_DIR = before.dir;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("stops at a step that fails and says so, and doesn't start the rest", async () => {

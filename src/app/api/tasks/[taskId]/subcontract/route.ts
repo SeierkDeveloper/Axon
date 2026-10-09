@@ -9,6 +9,9 @@ import { apiError } from "@/lib/apiError";
 import { subcontractSchema, parseBody } from "@/lib/schemas";
 import { checkRateLimit, getClientIp, tooManyRequests } from "@/lib/rateLimit";
 import { withRequestContext } from "@/lib/withRequestContext";
+import { agentReads, filesEnabled, filesOfTask, fitForHire, listFiles, passFiles, CONTEXT_KEY, type FileRow } from "@/lib/agentFiles";
+import { getMcpServerByAgentId } from "@/lib/mcp";
+import { parsePriceToEth } from "@/lib/payments";
 
 // GET /api/tasks/[taskId]/subcontract — the sub-agents this task hired (provenance).
 export async function GET(req: NextRequest, { params }: { params: Promise<{ taskId: string }> }) {
@@ -82,13 +85,33 @@ async function handlePost(req: NextRequest, params: Promise<{ taskId: string }>)
     if (!getAgentById(subId)) return apiError("NOT_FOUND", `Agent '${subId}' not found`, 404);
   }
 
+  // Files between agents: asked for with passFiles, the files of the job being worked on go to the agent hired for
+  // part of it, as far as one hire of that agent may carry. Its context lists them, so its commitment covers them.
+  let context = body.context;
+  let passing: FileRow[] = [];
+  if (context && CONTEXT_KEY in context) {
+    return apiError("VALIDATION_ERROR", `context.${CONTEXT_KEY} is filled in by Axon. Send "passFiles": true to hand the job's files on.`, 400);
+  }
+  if (body.passFiles) {
+    if (!filesEnabled()) return apiError("VALIDATION_ERROR", "Files are not switched on here, so there are none to hand on.", 400);
+    const sub = getAgentById(subId)!;
+    passing = fitForHire(
+      filesOfTask(taskId, "in"),
+      agentReads(sub, { runsThroughMcp: Boolean(getMcpServerByAgentId(sub.agentId)) }),
+      parsePriceToEth(sub.price ?? undefined) !== null,
+    ).rows;
+    if (passing.length) context = { ...(context ?? {}), [CONTEXT_KEY]: listFiles(passing) };
+  }
+
   // Hire the sub-agent from the working agent, paid from its balance (bounded by
   // its budget — createHiredTask → createBalancePayment → checkBudget).
   let hire;
   try {
     // Provenance (subcontractOf) is recorded in task_subcontracts, not injected into
     // the sub-agent's prompt — only the caller's own context is passed through.
-    hire = createHiredTask(parent.toAgent, subId, body.task, body.context);
+    hire = createHiredTask(parent.toAgent, subId, body.task, context);
+    // attached in the same breath as the hire is created, so it is never picked up without them
+    if (passing.length) passFiles(passing, hire.taskId);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Subcontract hire failed";
     // Budget rejections and insufficient balance are payment failures (402).

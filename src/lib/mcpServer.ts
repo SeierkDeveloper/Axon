@@ -651,7 +651,7 @@ function toolGetTaskResult(args: Record<string, unknown>) {
   const files = filesEnabled() && task.status === "completed"
     ? filesOfTask(taskId, "out").map((f) => {
         const o = outputFileFor(f);
-        return { name: o.name, type: o.type, size: o.size, sha256: o.sha256, url: `${BASE_URL}${o.path}?token=${o.token}` };
+        return { name: o.name, type: o.type, size: o.size, sha256: o.sha256, url: `${BASE_URL}${o.path}?token=${o.token}`, ...(o.madeBy ? { madeBy: o.madeBy.name } : {}) };
       })
     : [];
   // What the agent has done so far, one line a step: something to show while the job is still running.

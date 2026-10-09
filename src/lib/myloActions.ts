@@ -37,6 +37,8 @@ import { maxDailySpendWei } from "./retainerPolicy";
 import { weiToEth } from "./money";
 import { LIMITS, MIN_PUBLISH_SCORE, PRICE_ETH } from "./studioPolicy";
 import { logger } from "./logger";
+import { agentReads, filesEnabled, filesOfTask, fileTokenFor, fitForHire, passFiles } from "./agentFiles";
+import { getMcpServerByAgentId } from "./mcp";
 
 /** How long a proposal can wait for its confirmation: prices move and people change their minds. */
 export const PROPOSAL_MINUTES = 15;
@@ -385,11 +387,33 @@ function crewTask(a: Action, i: number, before: { name: string; role: string; ou
   return `${head}The task: ${a.task}\n\nThe step before you (${before.name}${before.role ? `, ${before.role}` : ""}) produced:\n\n${before.output.slice(0, 6000)}`;
 }
 
+/** The files a crew step is handed from the step before it, as the hire route takes them. Empty while files are off. */
+function crewFiles(a: Action, i: number): { id: string; token: string }[] {
+  const prev = i > 0 ? a.hires[i - 1]?.taskId : null;
+  if (!prev || !filesEnabled()) return [];
+  try {
+    const agent = getAgentById(a.hires[i].agentId);
+    if (!agent) return [];
+    const fit = fitForHire(
+      [...filesOfTask(prev, "out").reverse(), ...filesOfTask(prev, "in")],
+      agentReads(agent, { runsThroughMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }),
+      a.hires[i].priceEth !== null,
+    );
+    return passFiles(fit.rows, null).map((f) => ({ id: f.id, token: fileTokenFor(f.id) }));
+  } catch {
+    return []; // a crew goes on without the files rather than stopping over them
+  }
+}
+
 /** Hand one crew step to the hire route, paid by its own payment from the person's wallet (or free). */
 async function startCrewStep(a: Action, i: number, wallet: string, createTask: CreateTask, before: { name: string; role: string; output: string } | null): Promise<void> {
   const d = a.detail as CrewDetail, h = a.hires[i];
   const body: Record<string, unknown> = { to: h.agentId, task: crewTask(a, i, before), from: "anonymous" };
   if (h.priceEth !== null) Object.assign(body, { paymentSignature: d.payments[h.agentId], payerWallet: wallet });
+  // Files travel with the work: what the step before made, and what it was itself working from, go to this step as
+  // far as one hire of this agent may carry. They wait as copies for the hire route to take, exactly as uploads do.
+  const handed = crewFiles(a, i);
+  if (handed.length) body.files = handed;
   try {
     const r = await createTask(body, { "x-forwarded-for": "mylo-crew" });
     if (r.status >= 400) h.error = String(r.json.error ?? `The hire was refused (${r.status}).`);

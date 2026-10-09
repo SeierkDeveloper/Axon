@@ -200,6 +200,8 @@ export const subcontractSchema = z.object({
   context: z.record(z.string(), z.unknown())
     .refine((obj) => JSON.stringify(obj).length <= 50_000, "context must serialize to 50 KB or fewer")
     .optional(),
+  // Hand the files of the job being worked on to the agent being hired for part of it.
+  passFiles: z.boolean().optional(),
 }).refine((o) => !!o.to || !!o.capability, "provide `to`, or a `capability` for the network to route the subcontract");
 
 // ── Bidding (Phase 8) ───────────────────────────────────────────────────────

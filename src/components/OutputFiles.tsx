@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
  * file's token goes in a header, never in the address, so it does not end up in a log or in browser history.
  */
 
-export interface OutputFile { id: string; name: string; type: string; kind: "pdf" | "image" | "text"; size: number; sha256: string; token: string; path: string }
+export interface OutputFile { id: string; name: string; type: string; kind: "pdf" | "image" | "text"; size: number; sha256: string; token: string; path: string; madeBy?: { agentId: string; name: string; taskId: string } }
 
 const size = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
 
@@ -67,11 +67,17 @@ export default function OutputFiles({ files }: { files: OutputFile[] }) {
               <span className="shrink-0 font-mono text-[10px] uppercase text-gray-400">{f.kind === "image" ? "img" : f.kind}</span>
               <span className="min-w-0 truncate font-medium text-gray-900 dark:text-white">{f.name}</span>
               <span className="shrink-0 tabular-nums text-gray-400">{size(f.size)}</span>
+              {f.madeBy && (
+                <a href={`/r/${encodeURIComponent(f.madeBy.taskId)}`} target="_blank" rel="noopener noreferrer" className="hidden shrink-0 truncate text-gray-500 hover:text-teal-600 hover:underline dark:text-gray-400 dark:hover:text-teal-400 sm:inline" title={`Made by ${f.madeBy.name}. Open that job's receipt.`}>
+                  by {f.madeBy.name}
+                </a>
+              )}
               <button type="button" onClick={() => void download(f)} disabled={busy === f.id} className="ml-auto shrink-0 rounded-md border border-gray-200 px-2.5 py-1 font-medium text-gray-700 transition-colors hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:border-gray-500">
                 {busy === f.id ? "Downloading…" : "Download"}
               </button>
             </div>
             {f.kind === "image" && <Picture file={f} />}
+            {f.madeBy && <p className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400 sm:hidden">Made by {f.madeBy.name}</p>}
             <p className="mt-1.5 truncate font-mono text-[10px] text-gray-400" title={`SHA-256 ${f.sha256}`}>sha256 {f.sha256}</p>
           </li>
         ))}

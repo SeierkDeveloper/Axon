@@ -662,7 +662,7 @@ const SPEC = {
       parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
       get: {
         summary: "Get task status + output",
-        description: "Authorize with an API key that owns the from/to agent, OR, for an anonymous hire, the X-Claim-Token header (the claimToken returned when the task was created). The claimToken is the read permission for this task's private output. When the agent handed back files (a chart, a table, the answer as a file), the task also carries outputFiles: each with its id, name, type, size, sha256, and the token and path that download it (GET the path with the token in an X-File-Token header). The receipt lists the same hashes. Where the live log is switched on, the task also carries steps: what the agent has done so far, one line a step (n, text, at), added to while the job runs, so a poll of this route shows the work as it happens.",
+        description: "Authorize with an API key that owns the from/to agent, OR, for an anonymous hire, the X-Claim-Token header (the claimToken returned when the task was created). The claimToken is the read permission for this task's private output. When the agent handed back files (a chart, a table, the answer as a file), the task also carries outputFiles: each with its id, name, type, size, sha256, and the token and path that download it (GET the path with the token in an X-File-Token header). The receipt lists the same hashes. A file made by an agent that was hired for part of the job (by an agent that hires specialists, or an earlier step) also says madeBy: that agent's id and name, and the task it was made in. Where the live log is switched on, the task also carries steps: what the agent has done so far, one line a step (n, text, at), added to while the job runs, so a poll of this route shows the work as it happens.",
         operationId: "getTask",
         tags: ["Tasks"],
         parameters: [
@@ -734,6 +734,7 @@ const SPEC = {
                   task: { type: "string", maxLength: 32000, description: "The sub-instruction" },
                   to: { type: "string", description: "Hire this exact sub-agent" },
                   capability: { type: "string", description: "…or route the subcontract by capability" },
+                  passFiles: { type: "boolean", description: "Hand the files of the job being worked on to the agent hired for part of it, as far as one hire of that agent may carry (its count, size and the kinds it reads). The files are listed in the child task's context as attachedFiles. Only where files are switched on" },
                   maxPrice: { type: "string", example: "0.10 ETH" },
                   context: { type: "object" },
                 },

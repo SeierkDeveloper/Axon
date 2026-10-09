@@ -6,6 +6,8 @@ import { getChannelById, parseMppPrice, verifyChannelKey } from "@/lib/mpp";
 import { apiError } from "@/lib/apiError";
 import { checkRateLimit, getClientIp, tooManyRequests, rateLimitHeaders } from "@/lib/rateLimit";
 import { withRequestContext } from "@/lib/withRequestContext";
+import { agentReads, checkTaskFiles, type FileRow } from "@/lib/agentFiles";
+import { getMcpServerByAgentId } from "@/lib/mcp";
 
 export async function POST(req: NextRequest) {
   return withRequestContext(req, () => handlePost(req));
@@ -16,6 +18,7 @@ async function handlePost(req: NextRequest) {
     from?: string;
     agents?: string[];
     task?: string;
+    files?: { id: string; token?: string }[];
   } | null;
   if (!body || typeof body !== "object") {
     return apiError("INVALID_JSON", "Request body must be valid JSON", 400);
@@ -104,6 +107,28 @@ async function handlePost(req: NextRequest) {
     }
   }
 
+  // Files for the pipeline: checked against its first agent, exactly as on a single hire. What each step makes is
+  // handed on to the next from there.
+  let files: FileRow[] = [];
+  if (body.files !== undefined) {
+    if (!Array.isArray(body.files) || body.files.length > 5 || body.files.some((f) => !f || typeof f.id !== "string")) {
+      return apiError("VALIDATION_ERROR", "files must be up to 5 entries of { id, token? }, uploaded first through POST /api/files", 400);
+    }
+    if (body.files.length) {
+      const first = getAgentById(body.agents[0])!;
+      const checked = checkTaskFiles({
+        files: body.files,
+        wallet: auth.user.walletAddress,
+        reads: agentReads(first, { runsThroughMcp: Boolean(getMcpServerByAgentId(first.agentId)) }),
+        paid: Boolean(first.price),
+      });
+      if (!checked.ok) {
+        return apiError(checked.refused === "not_found" ? "NOT_FOUND" : "VALIDATION_ERROR", checked.reason, checked.refused === "not_found" ? 404 : 400, { refused: checked.refused });
+      }
+      files = checked.rows;
+    }
+  }
+
   let workflow: ReturnType<typeof createWorkflow>;
   try {
     workflow = createWorkflow({
@@ -111,6 +136,7 @@ async function handlePost(req: NextRequest) {
       agents: body.agents,
       task: body.task,
       mppChannelId,
+      files,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Workflow could not be created";
