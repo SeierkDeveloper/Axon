@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { MCP_TOOLS } from "@/lib/mcpServer";
+import { mcpTools } from "@/lib/mcpServer";
 import { serveMcp } from "@/lib/mcpHttp";
 
 export const runtime = "nodejs";
@@ -39,7 +39,7 @@ export async function GET() {
       protocol: "mcp",
       transport: "streamable-http",
       endpoint: "https://axon-agents.com/mcp",
-      tools: MCP_TOOLS.map((t) => t.name),
+      tools: mcpTools().map((t) => t.name),
       // A GET here is almost always a person checking the URL is real before pasting it into a
       // config file. Send them to the page with the config blocks rather than to a text dump
       // written for a model to read.

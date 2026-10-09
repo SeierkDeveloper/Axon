@@ -109,6 +109,12 @@ export const createTaskSchema = z.object({
   capability: z.string().min(1).optional(),
   capabilities: z.array(z.string().min(1)).max(20).optional(),
   maxPrice: z.string().regex(/^\d+(\.\d+)?\s+ETH$/i, 'maxPrice must be an amount like "0.10 ETH"').optional(),
+  // Files the agent is to work on, uploaded first through POST /api/files. `token` is the file's own token, needed
+  // when the caller is not signed in as the wallet that uploaded it.
+  files: z
+    .array(z.object({ id: z.string().min(1).max(64), token: z.string().max(64).optional() }))
+    .max(5, "a hire carries at most 5 files")
+    .optional(),
 }).refine(
   (o) => !!o.to || !!o.capability || (o.capabilities?.length ?? 0) > 0,
   "provide `to`, or a `capability`/`capabilities` for the network to route the job",

@@ -12,6 +12,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { Agent } from "@/sdk/types";
+import type { ModelAttachment } from "./agentFiles";
 import { getInstructions, withKnowledge } from "./agentKnowledge";
 import { publicHttpFetch } from "./urlSecurity";
 import { logger } from "./logger";
@@ -201,10 +202,16 @@ export interface ToolRunOptions {
    */
   maxSteps?: number;
   maxToolResultChars?: number;
+  /** PDFs and pictures handed over with the hire. Given to the model as themselves, ahead of the message. */
+  attachments?: ModelAttachment[];
 }
 
 export interface ProviderClient {
-  complete(system: string, message: string, maxTokens?: number, temperature?: number): Promise<string>;
+  /**
+   * `attachments` are PDFs and pictures handed over with the hire. Only a provider that can take them is ever given
+   * any: the hire is refused up front for an agent whose model cannot read them.
+   */
+  complete(system: string, message: string, maxTokens?: number, temperature?: number, attachments?: ModelAttachment[]): Promise<string>;
   stream(system: string, message: string, maxTokens?: number): AsyncIterable<string>;
   /**
    * Run the completion as a bounded tool loop: the model may search, fetch, and
@@ -364,6 +371,17 @@ async function runLocalTool(
   }
 }
 
+/** The first user turn: the hire's PDFs and pictures as themselves, then the words. Just the words when there are none. */
+export function firstTurn(message: string, attachments?: ModelAttachment[]): Anthropic.MessageParam["content"] {
+  if (!attachments?.length) return message;
+  const blocks: Anthropic.ContentBlockParam[] = attachments.map((a) =>
+    a.kind === "pdf"
+      ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: a.data }, title: a.name }
+      : { type: "image", source: { type: "base64", media_type: a.mime as "image/png" | "image/jpeg" | "image/gif" | "image/webp", data: a.data } },
+  );
+  return [...blocks, { type: "text", text: message }];
+}
+
 class AnthropicProvider implements ProviderClient {
   private client: Anthropic;
   private model: string;
@@ -380,8 +398,8 @@ class AnthropicProvider implements ProviderClient {
 
   // 4096: Opus-tier agents write full deliverables — 2048 truncated pipeline
   // outputs mid-sentence.
-  async complete(system: string, message: string, maxTokens = 4096, temperature?: number): Promise<string> {
-    return this.withModelFallback((model) => this.completeWith(model, system, message, maxTokens, temperature));
+  async complete(system: string, message: string, maxTokens = 4096, temperature?: number, attachments?: ModelAttachment[]): Promise<string> {
+    return this.withModelFallback((model) => this.completeWith(model, system, message, maxTokens, temperature, attachments));
   }
 
   // Runs `attempt` on the configured model and, if that model is unavailable to
@@ -442,7 +460,7 @@ class AnthropicProvider implements ProviderClient {
     message: string,
     maxTokens: number,
     tools: ResolvedTools,
-    { onToolCall, signal, maxSteps: maxStepsOpt, maxToolResultChars }: ToolRunOptions,
+    { onToolCall, signal, maxSteps: maxStepsOpt, maxToolResultChars, attachments }: ToolRunOptions,
   ): Promise<{ text: string; refused: boolean }> {
     const timeoutMs = Math.max(120_000, maxTokens * 30);
     const byName = new Map<string, LocalTool>(tools.localTools.map((t) => [t.name, t]));
@@ -455,7 +473,7 @@ class AnthropicProvider implements ProviderClient {
       })),
     ];
 
-    const messages: Anthropic.MessageParam[] = [{ role: "user", content: message }];
+    const messages: Anthropic.MessageParam[] = [{ role: "user", content: firstTurn(message, attachments) }];
     let lastText = "";
 
     // One extra pass past the cap, with tools switched off, so a loop that runs
@@ -542,8 +560,10 @@ class AnthropicProvider implements ProviderClient {
     message: string,
     maxTokens: number,
     temperature?: number,
+    attachments?: ModelAttachment[],
   ): Promise<{ text: string; refused: boolean }> {
     const timeoutMs = Math.max(120_000, maxTokens * 30);
+    const first = firstTurn(message, attachments);
     // If the model hits the token ceiling mid-output, ask it to continue from
     // where it stopped — as a normal follow-up turn, since this model doesn't
     // allow assistant prefill (the conversation must end with a user message).
@@ -554,9 +574,9 @@ class AnthropicProvider implements ProviderClient {
     for (let round = 0; round <= MAX_CONTINUATIONS; round++) {
       const messages: Anthropic.MessageParam[] =
         round === 0
-          ? [{ role: "user", content: message }]
+          ? [{ role: "user", content: first }]
           : [
-              { role: "user", content: message },
+              { role: "user", content: first },
               { role: "assistant", content: full },
               {
                 role: "user",
@@ -797,12 +817,14 @@ export async function runWithProvider(
   // output, reproducible). Real hires pass no override and keep the agent's configured
   // model. Ignored for non-anthropic providers (e.g. grok).
   modelOverride?: string,
+  // PDFs and pictures handed over with the hire, for a provider that takes them.
+  attachments?: ModelAttachment[],
 ): Promise<string> {
   const client =
     modelOverride && agent.provider === "anthropic"
       ? getProvider({ ...agent, providerModel: modelOverride })
       : getProvider(agent);
-  return client.complete(getAgentSystem(agent), await withKnowledge(agent.agentId, message), maxTokens);
+  return client.complete(getAgentSystem(agent), await withKnowledge(agent.agentId, message), maxTokens, undefined, attachments?.length ? attachments : undefined);
 }
 
 // Same as runWithProvider, but the agent gets to use its granted tools first:
@@ -825,7 +847,7 @@ export async function runWithProviderTools(
       provider: agent.provider,
       grants: tools.grants,
     });
-    return client.complete(system, message, maxTokens);
+    return client.complete(system, message, maxTokens, undefined, opts.attachments);
   }
   try {
     return await client.completeWithTools(system, message, maxTokens, tools, opts);
@@ -841,7 +863,7 @@ export async function runWithProviderTools(
         grants: tools.grants,
         reason: err instanceof Error ? err.message : String(err),
       });
-      return client.complete(system, message, maxTokens);
+      return client.complete(system, message, maxTokens, undefined, opts.attachments);
     }
     throw err;
   }

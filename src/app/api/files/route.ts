@@ -5,7 +5,9 @@ import { getBearerToken } from "@/lib/identity";
 import { checkRateLimit, getClientIp, refundRateLimit, tooManyRequests } from "@/lib/rateLimit";
 import { withRequestContext } from "@/lib/withRequestContext";
 import { normalizeAddress } from "@/lib/address";
-import { DAILY, filesEnabled, guestBytesAllowed, guestBytesRefund, maxFileBytes, readCapped, storeFile } from "@/lib/agentFiles";
+import { agentReads, DAILY, filesEnabled, guestBytesAllowed, guestBytesRefund, IMAGE_MAX_BYTES, maxFileBytes, readCapped, storeFile, TASK_FILES } from "@/lib/agentFiles";
+import { getAgentById } from "@/lib/agents";
+import { getMcpServerByAgentId } from "@/lib/mcp";
 
 export const runtime = "nodejs";
 
@@ -23,6 +25,27 @@ const headerName = (req: NextRequest): string | null => {
     return raw;
   }
 };
+
+// GET /api/files: what can be handed to an agent here, and how much. With ?agent=<id>, also which kinds of file that
+// agent reads. It answers 404 while files are switched off, which is how a page knows not to offer them.
+export async function GET(req: NextRequest) {
+  return withRequestContext(req, async () => {
+    if (!filesEnabled()) return apiError("NOT_FOUND", "Not found", 404);
+    const agentId = req.nextUrl.searchParams.get("agent");
+    const agent = agentId ? getAgentById(agentId) : null;
+    if (agentId && !agent) return apiError("NOT_FOUND", `Agent '${agentId.slice(0, 80)}' not found`, 404);
+    return NextResponse.json(
+      {
+        maxBytes: maxFileBytes(),
+        imageMaxBytes: IMAGE_MAX_BYTES,
+        types: ["application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp", "text/plain", "text/markdown", "text/csv", "application/json"],
+        perHire: TASK_FILES,
+        ...(agent ? { reads: agentReads(agent, { runsThroughMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }) } : {}),
+      },
+      { headers: { "Cache-Control": "public, max-age=60" } },
+    );
+  });
+}
 
 // POST /api/files: hand over one file an agent will work on. The body is the file itself (with its name in
 // X-File-Name), or a multipart form with one "file" field, which is what a browser sends. Anyone may upload within a

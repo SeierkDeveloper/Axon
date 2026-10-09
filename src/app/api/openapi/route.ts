@@ -632,6 +632,12 @@ const SPEC = {
                   capability: { type: "string", description: "Auto-routing: route to the best worker for this capability (when `to` is omitted)" },
                   capabilities: { type: "array", items: { type: "string" }, description: "Auto-routing: require ALL of these capabilities" },
                   maxPrice: { type: "string", example: "0.20 ETH", description: "Auto-routing price ceiling" },
+                  files: {
+                    type: "array",
+                    maxItems: 5,
+                    description: "Files for the agent to work on, uploaded first through POST /files. Each is attached to this one hire, and what it is (name, type, size, SHA-256) is written into the job's context as attachedFiles, so the job's commitment covers it. Up to 2 files on a free hire, 5 on a paid one",
+                    items: { type: "object", required: ["id"], properties: { id: { type: "string" }, token: { type: "string", description: "The file's token, when you are not signed in as the wallet that uploaded it" } } },
+                  },
                   context: { type: "object", description: "Optional key-value context" },
                   paymentMethod: { type: "string", enum: ["onchain", "balance", "allowance"], description: "'balance' funds a paid hire from the from agent's earned balance (budget-enforced), pairs with auto-routing for an autonomous hire. 'allowance' pays from the on-chain allowance of the wallet the API key belongs to (see /allowance)" },
                   payIn: { type: "string", enum: ["ETH", "AXON"], description: "With paymentMethod 'allowance': pay in $AXON at a quote made for this hire. Default ETH" },
@@ -1265,6 +1271,13 @@ const SPEC = {
     },
 
     "/files": {
+      get: {
+        summary: "What can be handed to an agent here and how much: the size limit, the types taken, and what one hire may carry. With ?agent=<id>, also which kinds of file that agent reads",
+        operationId: "getFileLimits",
+        tags: ["Files"],
+        security: [],
+        parameters: [{ name: "agent", in: "query", required: false, schema: { type: "string" } }],
+      },
       post: {
         summary: "Hand over one file an agent will work on: a PDF, an image (PNG, JPEG, GIF, WebP) or a plain text file (text, Markdown, CSV, JSON), 10 MB at most. Send the file as the body with its name in X-File-Name, or as a multipart form with one \"file\" field. Anyone may upload within a visitor's daily allowance; send a key and the file belongs to your wallet. Returns the file and its token: the token is the only way a visitor reads the file again",
         operationId: "uploadFile",

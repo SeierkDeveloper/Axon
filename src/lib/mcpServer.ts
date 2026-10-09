@@ -23,6 +23,7 @@
 // task id, derived from SEED_SECRET) and get_task_result requires it — only the
 // party that hired can read the deliverable, with no API key and no DB state.
 
+import { filesEnabled } from "./agentFiles";
 import { createHmac, timingSafeEqual } from "crypto";
 import { NextRequest } from "next/server";
 import { getAgentById, searchAgents, toPublicAgent } from "./agents";
@@ -236,6 +237,45 @@ export const MCP_TOOLS = [
   ASK_MYLO_TOOL,
 ] as const;
 
+// ── Files (only while AGENT_FILES is on) ──────────────────────────────────────────────────────────────────────────────
+// With the switch off the tool list is exactly MCP_TOOLS: no upload tool, no files on a hire.
+
+const UPLOAD_FILE_TOOL = {
+    name: "upload_file",
+    description:
+      "Hand over a file for an agent to work on, before hiring it. Give the file's name and either its text (for a text, Markdown, CSV or JSON file) or its bytes as base64 (for a PDF or a picture: PNG, JPEG, GIF, WebP). Returns the file's id and token: pass both in hire_agent's files. A file is attached to one hire and is not public. Only available where files are switched on.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "The file's name, for example report.pdf or sales.csv" },
+        text: { type: "string", description: "The file's contents, when it is a text file" },
+        base64: { type: "string", description: "The file's bytes as base64, when it is a PDF or a picture" },
+      },
+      required: ["name"],
+    },
+  } as const;
+
+const HIRE_FILES_PROPERTY = {
+  type: "array",
+  description: "Files for the agent to work on, uploaded first with upload_file: each entry is the id and token upload_file returned. Up to 2 on a free hire, 5 on a paid one",
+  items: { type: "object", properties: { id: { type: "string" }, token: { type: "string" } }, required: ["id"] },
+} as const;
+
+/** The tools on offer right now: the standing list, plus files while they are switched on. */
+export function mcpTools(): readonly McpTool[] {
+  const base = MCP_TOOLS as unknown as McpTool[];
+  if (!filesEnabled()) return base;
+  const out: McpTool[] = [];
+  for (const t of base) {
+    if (t.name === "hire_agent") {
+      out.push({ ...t, inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, files: HIRE_FILES_PROPERTY } } });
+      out.push(UPLOAD_FILE_TOOL as unknown as McpTool);
+    } else out.push(t);
+  }
+  return out;
+}
+
+
 /** A tool as MCP lists it. */
 export interface McpTool { name: string; description: string; inputSchema: { type: string; properties: Record<string, unknown>; required?: readonly string[] } }
 
@@ -253,7 +293,7 @@ export function agentToolset(agentId: string): { toolName: string; agent: Agent;
   if (!agent || agent.agentId.startsWith("build-")) return null;
   // what every function-calling API accepts as a name: letters, digits, _ and -, at most 64
   const toolName = agent.agentId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
-  const hire = MCP_TOOLS.find((t) => t.name === "hire_agent")!;
+  const hire = mcpTools().find((t) => t.name === "hire_agent")!;
   const { agentId: _id, ...props } = hire.inputSchema.properties as Record<string, unknown>;
   const studio = studioInfo(agent.agentId);
   const what = (agent.description ?? agent.capabilities.join(", ")).replace(/\.$/, "");
@@ -325,6 +365,33 @@ function toolGetAgent(args: Record<string, unknown>) {
 // Delegates to the real /api/tasks route handler so the MCP path inherits its
 // free-lane limits, x402 payment verification, and replay guards verbatim. The
 // caller's IP is forwarded so per-IP limits apply to the actual client.
+/** What one upload_file call may carry: tool arguments travel as JSON, so a large file does not belong here. */
+const MCP_UPLOAD_MAX_BYTES = 2 * 1024 * 1024;
+
+// Hands the upload to the real /api/files route, so its type check, its limits and a visitor's daily allowance are
+// the same from an assistant as from the site.
+async function toolUploadFile(args: Record<string, unknown>, clientIp: string, apiKey: string | null) {
+  const name = typeof args.name === "string" ? args.name.trim() : "";
+  if (!name) return { error: "name is required" };
+  let bytes: Buffer;
+  if (typeof args.text === "string" && args.text.length) bytes = Buffer.from(args.text, "utf8");
+  else if (typeof args.base64 === "string" && args.base64.length) {
+    if (!/^[A-Za-z0-9+/=\s_-]+$/.test(args.base64)) return { error: "base64 is not valid base64" };
+    bytes = Buffer.from(args.base64.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+  } else return { error: "send the file as text or as base64" };
+  if (bytes.length > MCP_UPLOAD_MAX_BYTES) return { error: `a file sent through this tool is at most ${MCP_UPLOAD_MAX_BYTES / 1048576} MB; upload larger files with POST /api/files` };
+
+  const { POST: uploadRoute } = await import("@/app/api/files/route");
+  const res = await uploadRoute(new NextRequest(`${BASE_URL}/api/files`, {
+    method: "POST",
+    headers: { "content-length": String(bytes.length), "x-file-name": encodeURIComponent(name), "x-forwarded-for": clientIp, ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+    body: new Uint8Array(bytes),
+  }));
+  const json = (await res.json()) as { file?: { id: string; name: string; mime: string; size: number; sha256: string; expiresAt: string }; fileToken?: string; error?: string; code?: string };
+  if (!res.ok || !json.file) return { error: String(json.error ?? `upload failed (${res.status})`), code: json.code ?? null };
+  return { id: json.file.id, token: json.fileToken, name: json.file.name, type: json.file.mime, size: json.file.size, sha256: json.file.sha256, expiresAt: json.file.expiresAt, next: "Pass { id, token } in hire_agent's files." };
+}
+
 async function toolHireAgent(args: Record<string, unknown>, clientIp: string, apiKey: string | null) {
   const agentId = String(args.agentId ?? "");
   const task = typeof args.task === "string" ? args.task.trim() : "";
@@ -359,6 +426,7 @@ async function toolHireAgent(args: Record<string, unknown>, clientIp: string, ap
   const { POST: createTaskRoute } = await import("@/app/api/tasks/route");
   const body: Record<string, unknown> = { from: "anonymous", to: agentId, task };
   if (args.context && typeof args.context === "object") body.context = args.context;
+  if (Array.isArray(args.files) && args.files.length) body.files = args.files;
   if (paymentSignature) body.paymentSignature = paymentSignature;
   if (payerWallet) body.payerWallet = payerWallet;
 
@@ -425,6 +493,7 @@ async function hireFromAllowance(
 
   const body: Record<string, unknown> = { from: wallet, to: agent.agentId, task, paymentMethod: "allowance" };
   if (args.context && typeof args.context === "object") body.context = args.context;
+  if (Array.isArray(args.files) && args.files.length) body.files = args.files;
 
   // The route makes a quote for this hire alone; see freshAxonQuoteFor.
   if (args.payIn === "AXON") body.payIn = "AXON";
@@ -599,6 +668,8 @@ async function callTool(name: string, args: Record<string, unknown>, clientIp: s
       return toolGetAgent(args);
     case "hire_agent":
       return toolHireAgent(args, clientIp, apiKey);
+    case "upload_file":
+      return toolUploadFile(args, clientIp, apiKey);
     case "get_allowance":
       return toolGetAllowance(apiKey);
     case "ask_mylo":
@@ -661,7 +732,7 @@ export async function handleMcpMessage(
     case "ping":
       return isNotification ? null : rpcResult(id, {});
     case "tools/list":
-      return rpcResult(id, { tools: scoped ? scoped.tools : MCP_TOOLS });
+      return rpcResult(id, { tools: scoped ? scoped.tools : mcpTools() });
     case "tools/call": {
       const params = msg.params ?? {};
       const name = String(params.name ?? "");

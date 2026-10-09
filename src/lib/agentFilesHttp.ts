@@ -7,6 +7,17 @@ import { getBearerToken } from "./identity";
 import { checkRateLimit, getClientIp, tooManyRequests } from "./rateLimit";
 import { normalizeAddress } from "./address";
 import { filesEnabled, getFile, mayRead, type FileRow } from "./agentFiles";
+import { getDb } from "./db";
+
+/**
+ * An agent that runs on its own server fetches the files of a hire itself, with its owner's key: whoever owns the
+ * agent a file's hire went to may read that file. Nobody else is let in this way.
+ */
+function hiredAgentBelongsTo(file: FileRow, wallet: string): boolean {
+  if (!file.task_id) return false;
+  const row = getDb().prepare("SELECT a.wallet_address w FROM tasks t JOIN agents a ON a.agent_id = t.to_agent WHERE t.task_id = ?").get(file.task_id) as { w: string | null } | undefined;
+  return Boolean(row?.w && row.w.toLowerCase() === wallet.toLowerCase());
+}
 
 const READS_PER_MINUTE = 120;
 
@@ -26,6 +37,7 @@ export async function fileFor(req: NextRequest, fileId: string): Promise<{ file:
   }
   const token = req.headers.get("x-file-token") ?? req.nextUrl.searchParams.get("token");
   const file = getFile(fileId);
-  if (!file || !mayRead(file, { wallet, token })) return { response: apiError("NOT_FOUND", "No file with that id", 404) };
-  return { file };
+  if (!file) return { response: apiError("NOT_FOUND", "No file with that id", 404) };
+  if (mayRead(file, { wallet, token }) || (wallet && hiredAgentBelongsTo(file, wallet))) return { file };
+  return { response: apiError("NOT_FOUND", "No file with that id", 404) };
 }

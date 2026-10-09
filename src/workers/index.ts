@@ -11,6 +11,7 @@ import { listMcpServers, createMcpAgentHandler } from "../lib/mcp";
 import { deliverPendingWebhooks } from "../lib/webhooks";
 import { recordTaskLatency } from "../lib/metrics";
 import { formatContext } from "../lib/formatContext";
+import { attachmentsForTask, filesEnabled } from "../lib/agentFiles";
 import { runWithProvider, runWithProviderTools, getAgentMaxTokens } from "../lib/providers";
 import { limitsForAgent } from "../lib/agentTierLimits";
 import type { ToolCallEvent } from "../lib/providers";
@@ -272,7 +273,10 @@ async function processTasks() {
         let timeoutTimer: NodeJS.Timeout | undefined;
         try {
           const prices = PRICE_AGENTS.has(agent.agentId) ? livePrices : "";
-          const fullMessage = task.task + formatContext(task.context) + prices;
+          // Files handed over with the hire: the text of text files follows the task in the message, and PDFs and
+          // pictures go to the model as themselves. Nothing is read while the feature is off.
+          const handed = filesEnabled() ? attachmentsForTask(task.taskId) : { text: "", attachments: [], files: [] };
+          const fullMessage = task.task + formatContext(task.context) + handed.text + prices;
 
           // Promise.race abandons the loser, it doesn't stop it. For a single
           // model call that's one wasted request; a tool loop is up to seven, so
@@ -332,8 +336,9 @@ async function processTasks() {
                       signal: abort.signal,
                       maxSteps: depth.toolSteps,
                       maxToolResultChars: depth.toolResultChars,
+                      attachments: handed.attachments,
                     })
-                  : runWithProvider(agent, fullMessage, getAgentMaxTokens(agent.agentId)),
+                  : runWithProvider(agent, fullMessage, getAgentMaxTokens(agent.agentId), undefined, handed.attachments),
               taskTimeout,
             ]),
           );

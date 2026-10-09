@@ -310,3 +310,123 @@ export async function readCapped(body: ReadableStream<Uint8Array> | null, max: n
   }
   return Buffer.concat(chunks, total);
 }
+
+// ── Files on a hire ──────────────────────────────────────────────────────────────────────────────────────────────────
+// A file is attached to exactly one hire. What it is (name, type, size, hash) is written into the hire's context, so
+// the job's commitment and its receipt cover the files as much as the words. The agent is handed the bytes when it
+// runs: text is put into the message, a PDF or a picture is given to the model as itself.
+
+/** A picture is at most this, whatever the limit for other files: it is what the models take. */
+export const IMAGE_MAX_BYTES = 5 * MB;
+/** How much text from files goes into one message. The rest is cut, and the message says so. */
+export const INLINE_TEXT_CHARS = 120_000;
+/**
+ * What one hire may carry. A free hire is paid for by the project and a paid one by a price fixed in advance, so both
+ * are bounded: a long PDF is the expensive case, and it is held by its page count where that can be read.
+ */
+export const TASK_FILES = {
+  free: { files: 2, bytes: 2 * MB, pdfPages: 10 },
+  paid: { files: MAX_FILES_PER_TASK, bytes: 10 * MB, pdfPages: 40 },
+} as const;
+/** The key in a hire's context that lists its files. A caller may not set it themselves. */
+export const CONTEXT_KEY = "attachedFiles";
+
+/** Pages in a PDF, counted from its page objects. Null when they cannot be seen (compressed object streams). */
+export function pdfPages(bytes: Buffer): number | null {
+  const found = bytes.toString("latin1").match(/\/Type\s*\/Page(?![s\w])/g);
+  return found ? found.length : null;
+}
+
+export interface Reads { text: boolean; pdf: boolean; image: boolean; why: string | null }
+/**
+ * What kinds of file an agent can be handed. Text reaches every agent, since it goes into the message. A PDF or a
+ * picture needs a model that takes them: today that is an agent Axon runs on Claude. An agent that runs on its own
+ * server fetches its files itself, so it is offered everything and decides what to do with it.
+ */
+export function agentReads(agent: { provider?: string | null; endpoint?: string | null; orchestrator?: boolean }, o: { runsThroughMcp?: boolean } = {}): Reads {
+  if (agent.endpoint && !agent.orchestrator && !o.runsThroughMcp) return { text: true, pdf: true, image: true, why: null };
+  if (o.runsThroughMcp) return { text: true, pdf: false, image: false, why: "This agent takes text files only." };
+  if (agent.orchestrator) return { text: true, pdf: false, image: false, why: "This agent hands work on to other agents and takes text files only for now." };
+  if ((agent.provider ?? "anthropic") === "anthropic") return { text: true, pdf: true, image: true, why: null };
+  return { text: true, pdf: false, image: false, why: "This agent cannot read PDFs or pictures. Text files work with every agent." };
+}
+
+export interface AttachedFile { name: string; type: string; size: number; sha256: string }
+export type AttachRefusal = "off" | "too_many" | "not_found" | "taken" | "too_large" | "kind" | "pages";
+export type AttachCheck = { ok: true; rows: FileRow[]; listed: AttachedFile[] } | { ok: false; refused: AttachRefusal; reason: string };
+
+const mb = (n: number) => `${+(n / MB).toFixed(1)} MB`;
+
+/**
+ * Whether these files may go on this hire. Nothing is changed: `attachFiles` does that once the hire exists. Every
+ * file must be one the caller may read, not yet on another hire, of a kind the agent reads, and inside the limits.
+ */
+export function checkTaskFiles(input: { files: { id: string; token?: string }[]; wallet: string | null; reads: Reads; paid: boolean }, o: { now?: number; env?: Record<string, string | undefined> } = {}): AttachCheck {
+  const no = (refused: AttachRefusal, reason: string): AttachCheck => ({ ok: false, refused, reason });
+  if (!filesEnabled(o.env)) return no("off", "Files cannot be attached to a hire yet.");
+  const limits = input.paid ? TASK_FILES.paid : TASK_FILES.free;
+  const ids = [...new Set(input.files.map((f) => f.id))];
+  if (ids.length !== input.files.length) return no("not_found", "The same file is listed twice.");
+  if (ids.length > limits.files) return no("too_many", `${input.paid ? "A hire" : "A free hire"} carries at most ${limits.files} files.`);
+  const rows: FileRow[] = [];
+  let total = 0;
+  for (const f of input.files) {
+    const row = getFile(f.id, o.now);
+    // a file the caller may not read answers exactly as one that does not exist
+    if (!row || row.direction !== "in" || !mayRead(row, { wallet: input.wallet, token: f.token })) return no("not_found", `No file with the id ${String(f.id).slice(0, 40)}. Upload it first, and send its token if you are not signed in.`);
+    if (row.task_id) return no("taken", `${row.name} is already attached to another hire. Upload it again to use it here.`);
+    if (row.kind === "pdf" && !input.reads.pdf) return no("kind", `${row.name} is a PDF. ${input.reads.why ?? "This agent cannot read PDFs."}`);
+    if (row.kind === "image" && !input.reads.image) return no("kind", `${row.name} is a picture. ${input.reads.why ?? "This agent cannot read pictures."}`);
+    if (row.kind === "image" && row.size > IMAGE_MAX_BYTES) return no("too_large", `${row.name} is ${mb(row.size)}. A picture is at most ${mb(IMAGE_MAX_BYTES)}.`);
+    if (row.kind === "pdf") {
+      const bytes = readBytes(row);
+      if (!bytes) return no("not_found", `${row.name} is no longer stored. Upload it again.`);
+      const pages = pdfPages(bytes);
+      if (pages !== null && pages > limits.pdfPages) return no("pages", `${row.name} has ${pages} pages. ${input.paid ? "A hire" : "A free hire"} takes PDFs of up to ${limits.pdfPages} pages.`);
+    }
+    total += row.size;
+    rows.push(row);
+  }
+  if (total > limits.bytes) return no("too_large", `These files are ${mb(total)} together. ${input.paid ? "A hire" : "A free hire"} carries at most ${mb(limits.bytes)}.`);
+  return { ok: true, rows, listed: rows.map((r) => ({ name: r.name, type: r.mime, size: r.size, sha256: r.sha256 })) };
+}
+
+/** Put files on a hire. Only files not yet on one are taken, so two hires racing for a file cannot both have it. */
+export function attachFiles(taskId: string, ids: string[]): number {
+  const db = getDb(), set = db.prepare("UPDATE task_files SET task_id = ? WHERE id = ? AND task_id IS NULL AND deleted_at IS NULL");
+  return db.transaction(() => ids.reduce((n, id) => n + set.run(taskId, id).changes, 0))();
+}
+
+/** The files on a hire, in the order they were uploaded. */
+export function filesOfTask(taskId: string, direction: "in" | "out" = "in"): FileRow[] {
+  return getDb().prepare("SELECT * FROM task_files WHERE task_id = ? AND direction = ? AND deleted_at IS NULL ORDER BY created_at ASC, id ASC").all(taskId, direction) as FileRow[];
+}
+
+/** A file as a model is handed it: itself, not a description of it. */
+export interface ModelAttachment { kind: "pdf" | "image"; mime: string; name: string; data: string }
+
+/**
+ * What an agent is handed for a hire's files: the text of the text files, ready to follow the task in the message, and
+ * the PDFs and pictures as themselves. A file whose bytes are gone is named as missing rather than silently dropped.
+ */
+export function attachmentsForTask(taskId: string): { text: string; attachments: ModelAttachment[]; files: FileRow[] } {
+  const files = filesOfTask(taskId);
+  if (!files.length) return { text: "", attachments: [], files };
+  const parts: string[] = [], attachments: ModelAttachment[] = [];
+  let room = INLINE_TEXT_CHARS;
+  for (const f of files) {
+    const bytes = readBytes(f);
+    if (!bytes) { parts.push(`[Attached file ${f.name} could not be read: it is no longer stored.]`); continue; }
+    if (f.kind === "text") {
+      const all = bytes.toString("utf8");
+      const shown = all.slice(0, Math.max(0, room));
+      room -= shown.length;
+      const cut = shown.length < all.length ? `\n[The file is longer: ${all.length - shown.length} more characters were left out.]` : "";
+      parts.push(`Attached file: ${f.name} (${f.mime}, ${f.size} bytes)\n<<<\n${shown}\n>>>${cut}`);
+    } else {
+      attachments.push({ kind: f.kind, mime: f.mime, name: f.name, data: bytes.toString("base64") });
+      parts.push(`Attached file: ${f.name} (${f.mime}, ${f.size} bytes) is given to you with this message.`);
+    }
+  }
+  return { text: `\n\n${parts.join("\n\n")}`, attachments, files };
+}

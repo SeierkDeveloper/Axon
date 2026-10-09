@@ -14,6 +14,9 @@ import { checkFreeAllowance, freeLimitMessage } from "@/lib/freeAllowance";
 import { getTier } from "@/lib/holderTier";
 import { hashIdempotencyPayload, normalizeIdempotencyKey, validateIdempotencyKey } from "@/lib/idempotency";
 import { claimTokenFor } from "@/lib/mcpServer";
+import { agentReads, attachFiles, checkTaskFiles, CONTEXT_KEY } from "@/lib/agentFiles";
+import { getMcpServerByAgentId } from "@/lib/mcp";
+import { getDb } from "@/lib/db";
 import { createTaskSchema, parseBody } from "@/lib/schemas";
 import { withRequestContext } from "@/lib/withRequestContext";
 
@@ -50,6 +53,9 @@ function taskResponse(
     },
   );
 }
+
+/** A file listed on this hire was taken by another one between the check and the write. */
+class FileTaken extends Error {}
 
 export async function POST(req: NextRequest) {
   return withRequestContext(req, () => handlePost(req));
@@ -143,6 +149,27 @@ async function handlePost(req: NextRequest) {
 
   const payment = agent.price;
   const amountEth = parsePriceToEth(payment);
+
+  // Files handed over with the hire. They are checked before anything is paid or created: each must be one this
+  // caller may read, not yet on another hire, of a kind this agent reads, and inside what one hire may carry. What
+  // they are (name, type, size, hash) goes into the hire's context, so the job's commitment covers them.
+  let fileIds: string[] = [];
+  if (body.context && CONTEXT_KEY in body.context) {
+    return apiError("VALIDATION_ERROR", `context.${CONTEXT_KEY} is filled in by Axon from the files you attach. Send files in "files" instead.`, 400);
+  }
+  if (body.files?.length) {
+    const checked = checkTaskFiles({
+      files: body.files,
+      wallet: authWallet,
+      reads: agentReads(agent, { runsThroughMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }),
+      paid: amountEth !== null,
+    });
+    if (!checked.ok) {
+      return apiError(checked.refused === "not_found" ? "NOT_FOUND" : "VALIDATION_ERROR", checked.reason, checked.refused === "not_found" ? 404 : 400, { refused: checked.refused });
+    }
+    fileIds = checked.rows.map((r) => r.id);
+    body.context = { ...(body.context ?? {}), [CONTEXT_KEY]: checked.listed };
+  }
 
   // "balance" funds a paid hire from the paying agent's earned ledger balance
   // instead of a fresh on-chain transfer — so an agent can reinvest what it earns.
@@ -239,7 +266,7 @@ async function handlePost(req: NextRequest) {
     // has today.
     const { tier: hirerTier } = await getTier(authWallet);
 
-    task = createTask({
+    const create = () => createTask({
       fromAgent: body.from,
       toAgent: toAgentId,
       task: body.task,
@@ -253,7 +280,21 @@ async function handlePost(req: NextRequest) {
       idempotencyHash,
       priority: hirerTier.rank,
     });
+    if (fileIds.length) {
+      // The hire and its files are written as one step, so a worker can never pick the hire up without them, and
+      // two hires racing for the same file cannot both be created with it.
+      task = getDb().transaction(() => {
+        const created = create();
+        if (attachFiles(created.taskId, fileIds) !== fileIds.length) throw new FileTaken();
+        return created;
+      })();
+    } else {
+      task = create();
+    }
   } catch (err) {
+    if (err instanceof FileTaken) {
+      return apiError("CONFLICT", "One of these files was attached to another hire a moment ago. Upload it again to use it here.", 409, { refused: "taken" });
+    }
     if (idempotencyKey) {
       const existing = getTaskByIdempotency(idempotencyScope!, idempotencyKey);
       if (existing) {

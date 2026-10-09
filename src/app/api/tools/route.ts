@@ -14,7 +14,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { publicOrigin } from "@/lib/publicUrl";
-import { MCP_TOOLS, agentToolset, type McpTool } from "@/lib/mcpServer";
+import { mcpTools, agentToolset, type McpTool } from "@/lib/mcpServer";
 import { tooManyRequests } from "@/lib/rateLimit";
 import { checkTieredRateLimit } from "@/lib/tieredRateLimit";
 import { publicJson } from "@/lib/httpCache";
@@ -45,7 +45,7 @@ type Format = "openai" | "anthropic" | "grok" | "gemini" | "mcp";
 
 const FORMATS: Format[] = ["openai", "anthropic", "grok", "gemini", "mcp"];
 
-function formatTools(format: Format, list: readonly McpTool[] = MCP_TOOLS as unknown as McpTool[]) {
+function formatTools(format: Format, list: readonly McpTool[] = mcpTools()) {
   switch (format) {
     case "anthropic":
       // Anthropic takes the tool flat, with the schema under input_schema.
