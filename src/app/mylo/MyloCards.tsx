@@ -244,6 +244,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
   const [err, setErr] = useState<string | null>(null);
   const [allowance, setAllowance] = useState<{ ok: boolean; available: number } | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [waits, setWaits] = useState(false);
   const cost = a.hires.reduce((s, h) => s + (h.priceEth ?? 0), 0);
   const paid = a.hires.filter((h) => h.priceEth !== null);
   const expired = a.status === "proposed" && Date.parse(a.expiresAt) < nowMs;
@@ -267,8 +268,10 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
     const tick = async () => {
       const r = await fetch(`/api/mylo/actions/${a.id}`, { headers: headers(), cache: "no-store" }).catch(() => null);
       if (!alive || !r?.ok) return;
-      const j = (await r.json()) as { action: ActionView; message: { id: string; content: string } | null };
+      const j = (await r.json()) as { action: ActionView; tasks?: { status: string | null }[]; message: { id: string; content: string } | null };
       setA(j.action);
+      // a job that stopped to ask, or whose plan waits, is not "working": it waits on the person
+      setWaits((j.tasks ?? []).some((t) => t.status === "waiting"));
       if (j.message) onMessage(j.message);
     };
     const t = setInterval(() => void tick(), 3000);
@@ -355,7 +358,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
   const pays = kind === "hire" || kind === "crew";
   const label = build ? (build.change ? "Change and retest" : "Build") : pub ? "Publish" : wd ? "Withdraw" : imp ? "Better version" : crew ? `Crew: ${crew.crewName}` : sched ? "Autopilot" : a.hires.length > 1 ? "Second opinion" : "Hire";
   const doneWord = build ? "Built" : pub ? "Live" : wd ? "Sent" : imp ? "Applied" : sched ? "On autopilot" : "Done";
-  const badge = { proposed: expired ? "Expired" : "Waiting for your OK", running: build ? "Building" : pub ? "Publishing" : wd ? "Sending" : imp ? "Applying" : sched ? "Starting" : crew ? `Step ${crew.current + 1} of ${a.hires.length}` : "Working", done: doneWord, failed: "Didn't finish", cancelled: "Cancelled" }[a.status];
+  const badge = { proposed: expired ? "Expired" : "Waiting for your OK", running: waits ? "Needs your answer" : build ? "Building" : pub ? "Publishing" : wd ? "Sending" : imp ? "Applying" : sched ? "Starting" : crew ? `Step ${crew.current + 1} of ${a.hires.length}` : "Working", done: doneWord, failed: "Didn't finish", cancelled: "Cancelled" }[a.status];
   const stage = build ? ({ changing: "Making the change", drafting: "Writing the agent", drafted: "Getting ready to test", testing: `Testing${build.round ? `, round ${build.round + 1}` : ""}`, improving: `Improving after round ${build.round}` } as Record<string, string>)[build.stage ?? ""] ?? "Starting" : null;
   const studioLink = build?.buildId ? `/studio?build=${build.buildId}` : null;
   return (

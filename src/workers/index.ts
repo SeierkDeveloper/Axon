@@ -12,7 +12,7 @@ import { deliverPendingWebhooks } from "../lib/webhooks";
 import { recordTaskLatency } from "../lib/metrics";
 import { formatContext } from "../lib/formatContext";
 import { isWalletAddress } from "../lib/address";
-import { attachmentsForTask, codeEnabled, filesEnabled, keepOutput, readBytes, REPORT_KEY, REPORT_NOTE, storeReport } from "../lib/agentFiles";
+import { attachmentsForTask, CODE_MAX_TOKENS, codeEnabled, filesEnabled, keepOutput, readBytes, REPORT_KEY, REPORT_NOTE, storeReport } from "../lib/agentFiles";
 import { conversationBefore, earlierTurns, followUpEnabled, FOLLOW_KEY } from "../lib/followUp";
 import { markRevision, REVISE_NOTE } from "../lib/revisions";
 import { askEnabled, askedSoFar, askTool, closeStrays, mayAsk, parkForAnswer, resumeOverdue, withAsk, ASK_KEY, type Question } from "../lib/ask";
@@ -508,7 +508,7 @@ async function processTasks() {
               mcpHandler
                 ? mcpHandler(fullMessage)
                 : hasTools(tools)
-                  ? runWithProviderTools(agent, fullMessage, office ? Math.max(getAgentMaxTokens(agent.agentId), OFFICE_MAX_TOKENS) : getAgentMaxTokens(agent.agentId), tools, {
+                  ? runWithProviderTools(agent, fullMessage, Math.max(getAgentMaxTokens(agent.agentId), office ? OFFICE_MAX_TOKENS : sandbox ? CODE_MAX_TOKENS : 0), tools, {
                       onToolCall,
                       ...(live.on ? { onLive: live.onLive } : {}),
                       signal: abort.signal,

@@ -181,6 +181,24 @@ describe("the note reaches the agent", () => {
     expect(sdk.stream).toHaveBeenCalledTimes(2);
   });
 
+  it("a sandbox step cut off at the length limit is asked for again, once, in smaller pieces", async () => {
+    const cut = [{ type: "text", text: "Let me draw the chart." }, { type: "server_tool_use", id: "st_1", name: "code_execution", input: {} }];
+    sdk.stream
+      .mockReturnValueOnce(reply(cut, { stop_reason: "max_tokens" }))
+      .mockReturnValueOnce(reply([{ type: "text", text: "The chart is drawn." }]));
+    expect(await getProvider(who).completeWithTools!("system", "Chart it", 500, tools, {})).toBe("The chart is drawn.");
+    expect(sdk.stream).toHaveBeenCalledTimes(2);
+    const back = sent(1).slice(-2);
+    // the half-written step is not sent back, only what it said and that it was cut
+    expect(back[0]).toEqual({ role: "assistant", content: "Let me draw the chart." });
+    expect(String(back[1].content)).toMatch(/cut off at the length limit[\s\S]*smaller pieces/);
+    // cut a second time, it ends with what it has rather than going round for ever
+    sdk.stream.mockReset();
+    sdk.stream.mockReturnValue(reply(cut, { stop_reason: "max_tokens" }));
+    expect(await getProvider(who).completeWithTools!("system", "Chart it", 500, tools, {})).toBe("Let me draw the chart.");
+    expect(sdk.stream).toHaveBeenCalledTimes(2);
+  });
+
   it("nothing changes for a job nobody wrote to, or when reading the notes fails", async () => {
     sdk.stream.mockReturnValue(reply([{ type: "text", text: "The answer." }]));
     expect(await getProvider(who).completeWithTools!("system", "Do it", 500, tools, { notes: () => null })).toBe("The answer.");

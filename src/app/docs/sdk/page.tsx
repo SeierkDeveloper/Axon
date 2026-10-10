@@ -1255,7 +1255,7 @@ console.log(brief?.setAt);`}
         The mind&apos;s own treasury pays for each answer inside its daily thinking limit. Holders of $AXON come
         first: a wallet above the base tier of the holder ladder gets longer answers, ten questions a minute instead
         of five, and is still answered when the last part of a mind&apos;s day has been kept for holders. These are
-        plain HTTP calls for now, not yet in the SDK. The same chat is on every token's page, under its mind, in the
+        plain HTTP calls for now, not yet in the SDK. The same chat is on every token&apos;s page, under its mind, in the
         Ask it tab.
       </p>
       <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 overflow-hidden mb-8">

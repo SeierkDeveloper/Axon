@@ -44,6 +44,13 @@ export function codeEnabled(env: Record<string, string | undefined> = process.en
   return filesEnabled(env) && (env.AGENT_CODE ?? "off").trim().toLowerCase() === "on";
 }
 
+/**
+ * How much an agent may write in one step when it works in the sandbox. Its usual limit is sized for an answer in
+ * words; the code that draws a chart or builds a table is longer than that, and a step cut off in the middle never
+ * runs. This is room to write, not something a job is charged for: only what is written is paid.
+ */
+export const CODE_MAX_TOKENS = 4_000;
+
 const MB = 1024 * 1024;
 const DAY_MS = 86_400_000;
 

@@ -631,6 +631,8 @@ class AnthropicProvider implements ProviderClient {
     let lastText = "";
     // the sandbox lives across the calls of one job: later calls name it, so its files and state are still there
     let containerId: string | null = null;
+    // a step in the sandbox that was cut off at the length limit is asked for again, once
+    let cutOnce = false;
 
     // One extra pass past the cap, with tools switched off, so a loop that runs
     // long still ends with a real deliverable instead of a dangling tool call.
@@ -702,6 +704,17 @@ class AnthropicProvider implements ProviderClient {
         // a run that ends with nothing said fails below; say first how it ended, since the message alone does not
         if (!late && !lastText.trim()) {
           logger.warn("provider.tool_loop_empty", "A tool loop ended with no words", { model, step, stop: msg.stop_reason, blocks: msg.content.map((b) => b.type).join(",") });
+        }
+        // Cut off at the length limit while it was writing a step for the sandbox: the step never ran, so there is
+        // no result and often no answer either. Once, it is told so and asked to take the step in smaller pieces.
+        // The cut step itself is not sent back: half a call is not something the model can be shown again.
+        const cutStep = (msg.stop_reason as string) === "max_tokens" && msg.content.some((b) => (b.type as string) === "server_tool_use");
+        if (cutStep && !exhausted && !cutOnce) {
+          cutOnce = true;
+          logger.warn("provider.tool_step_cut", "A sandbox step was cut off at the length limit; asking for it again in smaller pieces", { model, step, maxTokens });
+          messages.push({ role: "assistant", content: text || "(My last step was cut off before it could run.)" });
+          messages.push({ role: "user", content: `${late ? `${late}\n\n` : ""}Your last step was cut off at the length limit before it could run, so nothing came of it. Take it again in smaller pieces: shorter code, one part at a time. Then give your answer.` });
+          continue;
         }
         if (!late) return { text: requireText(lastText), refused: false };
         messages.push({ role: "assistant", content: msg.content as Anthropic.ContentBlockParam[] });

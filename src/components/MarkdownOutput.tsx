@@ -41,6 +41,26 @@ function renderInline(text: string, links = false): React.ReactNode {
   });
 }
 
+/** A table row: cells between bars. The bars at the two ends are optional in Markdown, but agents write them. */
+const isRow = (line: string): boolean => /^\s*\|.*\|\s*$/.test(line);
+/** The line under a table's header: dashes in every cell, with an optional colon for alignment. */
+const isDivider = (line: string): boolean => isRow(line) && cellsOf(line).every((c) => /^:?-{1,}:?$/.test(c));
+/** A row's cells. A bar inside backticks, or written as \\|, is part of its cell. */
+export function cellsOf(line: string): string[] {
+  const inner = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  const cells: string[] = [];
+  let cell = "", code = false;
+  for (let n = 0; n < inner.length; n++) {
+    const ch = inner[n];
+    if (ch === "\\" && inner[n + 1] === "|") { cell += "|"; n++; continue; }
+    if (ch === "`") code = !code;
+    if (ch === "|" && !code) { cells.push(cell.trim()); cell = ""; continue; }
+    cell += ch;
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
 export default function MarkdownOutput({ text, links = false }: { text: string; links?: boolean }) {
   const lines = text.split("\n");
   const elements: React.ReactNode[] = [];
@@ -65,6 +85,50 @@ export default function MarkdownOutput({ text, links = false }: { text: string; 
         </pre>
       );
       i++;
+      continue;
+    }
+
+    // Table: a row of cells, then the line of dashes under the header. Wide ones scroll sideways inside their own
+    // box, so a table never pushes the page wider than the screen.
+    if (isRow(line) && i + 1 < lines.length && isDivider(lines[i + 1]) && cellsOf(line).length === cellsOf(lines[i + 1]).length) {
+      const head = cellsOf(line), start = i, rows: string[][] = [];
+      i += 2;
+      while (i < lines.length && isRow(lines[i]) && !isDivider(lines[i])) { rows.push(cellsOf(lines[i])); i++; }
+      elements.push(
+        <div key={`table-${start}`} className="my-3 overflow-x-auto rounded-md border border-gray-200 dark:border-gray-700">
+          <table className="w-full border-collapse text-left text-sm">
+            <thead className="bg-gray-50 dark:bg-gray-800/60">
+              <tr>{head.map((c, n) => <th key={n} className="whitespace-nowrap px-3 py-2 text-xs font-semibold text-gray-900 dark:text-white">{renderInline(c, links)}</th>)}</tr>
+            </thead>
+            <tbody>
+              {rows.map((r, n) => (
+                <tr key={n} className="border-t border-gray-100 dark:border-gray-800">
+                  {head.map((_, c) => <td key={c} className="px-3 py-2 align-top text-gray-700 dark:text-gray-300">{renderInline(r[c] ?? "", links)}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
+
+    // A line across
+    if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      elements.push(<hr key={i} className="my-3 border-gray-200 dark:border-gray-700" />);
+      i++;
+      continue;
+    }
+
+    // Quote
+    if (line.startsWith(">")) {
+      const start = i, quoted: string[] = [];
+      while (i < lines.length && lines[i].startsWith(">")) { quoted.push(lines[i].replace(/^>\s?/, "")); i++; }
+      elements.push(
+        <blockquote key={`quote-${start}`} className="my-2 border-l-2 border-gray-300 pl-3 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-300">
+          {quoted.map((q, n) => (q.trim() ? <p key={n} className="leading-relaxed">{renderInline(q, links)}</p> : <div key={n} className="h-2" />))}
+        </blockquote>
+      );
       continue;
     }
 
