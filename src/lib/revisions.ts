@@ -66,7 +66,8 @@ export function markRevision(taskId: string, fileId: string, env: Record<string,
 /** One version of a file, as its reader gets it. */
 export interface FileVersion {
   version: number; id: string; name: string; type: string; kind: FileKind; size: number; sha256: string;
-  taskId: string | null; createdAt: string; token: string; path: string; current: boolean; revises?: string;
+  /** the job that made this version; null for a file a person uploaded, which no job made (`uploaded` is then true) */
+  taskId: string | null; uploaded?: boolean; createdAt: string; token: string; path: string; current: boolean; revises?: string;
 }
 
 /**
@@ -78,7 +79,9 @@ export function versionsOf(file: FileRow): FileVersion[] {
   const db = getDb();
   const view = (r: FileRow): FileVersion => ({
     version: r.version ?? 1, id: r.id, name: r.name, type: r.mime, kind: r.kind, size: r.size, sha256: r.sha256,
-    taskId: r.task_id, createdAt: r.created_at, token: fileTokenFor(r.id), path: `/api/files/${r.id}/content`, current: r.id === file.id,
+    taskId: r.direction === "out" ? r.task_id : (r.source_task_id ?? null),
+    ...(r.direction === "in" && !r.source_task_id ? { uploaded: true } : {}),
+    createdAt: r.created_at, token: fileTokenFor(r.id), path: `/api/files/${r.id}/content`, current: r.id === file.id,
     ...(versionInfo(r).revises ? { revises: r.revises_sha256! } : {}),
   });
   if (!file.task_id) return [view(file)];

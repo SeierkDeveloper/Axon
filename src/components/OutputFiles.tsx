@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 export interface OutputFile { id: string; name: string; type: string; kind: "pdf" | "image" | "text"; size: number; sha256: string; token: string; path: string; madeBy?: { agentId: string; name: string; taskId: string }; version?: number; revises?: string; first?: { sha256: string; taskId: string | null } }
 
 /** One version of a file, as GET /api/files/{id}/versions lists it. */
-interface Version { version: number; id: string; name: string; size: number; sha256: string; taskId: string | null; token: string; path: string; current: boolean }
+interface Version { version: number; id: string; name: string; size: number; sha256: string; taskId: string | null; uploaded?: boolean; token: string; path: string; current: boolean }
 
 const size = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
 
@@ -76,6 +76,7 @@ function EarlierVersions({ file, onDownload, busy }: { file: OutputFile; onDownl
               {v.taskId && (
                 <a href={`/r/${encodeURIComponent(v.taskId)}`} target="_blank" rel="noopener noreferrer" className="shrink-0 text-teal-600 hover:underline dark:text-teal-400">Receipt →</a>
               )}
+              {v.uploaded && <span className="shrink-0 text-gray-400">your upload</span>}
               <button type="button" onClick={() => onDownload(v)} disabled={busy === v.id} className="ml-auto shrink-0 rounded-md border border-gray-200 px-2 py-0.5 font-medium text-gray-700 transition-colors hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:border-gray-500">
                 {busy === v.id ? "Downloading…" : "Download"}
               </button>

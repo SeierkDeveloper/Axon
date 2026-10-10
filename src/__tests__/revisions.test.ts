@@ -125,6 +125,8 @@ describe("a changed file is the next version", () => {
     const first = await hired({ from: "anonymous", to: "edit-agent", task: "Add a Q3 row", files: [{ id: sheet.file.id, token: sheet.token }] });
     const edited = handBack(first.taskId, Buffer.from("Quarter,Revenue\nQ1,120\nQ2,180\nQ3,200\n"), "revenue.csv");
     expect(edited.rev).toEqual({ version: 2, revises: sha256Of(CSV), first: { sha256: sha256Of(CSV), taskId: null } });
+    // the first version is listed as what it is: an upload, made by no job
+    expect(versionsOf(row(edited.file.id)).map((v) => [v.version, v.taskId, v.uploaded ?? false])).toEqual([[1, null, true], [2, first.taskId, false]]);
   });
 
   it("the answer kept as a file is revised by the next answer kept as a file", async () => {
