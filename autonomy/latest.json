@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-09T17:41:53.010Z",
-  "finishedAt": "2026-10-09T17:45:49.535Z",
-  "commit": "2791528",
+  "startedAt": "2026-10-10T11:45:32.825Z",
+  "finishedAt": "2026-10-10T11:45:59.984Z",
+  "commit": "b5669fe",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 13434
+      "ms": 15256
     },
     {
       "id": "links",
@@ -17,13 +17,13 @@
       "ok": true,
       "checked": 204,
       "findings": [],
-      "ms": 67
+      "ms": 68
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 1049,
+      "checked": 1051,
       "findings": [
         {
           "severity": "warn",
@@ -42,7 +42,7 @@
           ]
         }
       ],
-      "ms": 1225
+      "ms": 1083
     },
     {
       "id": "api-reference",
@@ -83,7 +83,7 @@
           ]
         }
       ],
-      "ms": 2050
+      "ms": 4802
     },
     {
       "id": "migrations",
@@ -91,28 +91,11 @@
       "ok": true,
       "checked": 110,
       "findings": [],
-      "ms": 0
+      "ms": 1
     }
   ],
   "errors": 0,
   "warnings": 3,
-  "changed": true,
-  "changes": [
-    {
-      "what": "dropped the export from filesDir()",
-      "where": "src/lib/agentFiles.ts",
-      "files": [
-        "src/lib/agentFiles.ts"
-      ],
-      "status": "applied"
-    },
-    {
-      "what": "dropped the export from hasOutput()",
-      "where": "src/lib/agentFiles.ts",
-      "files": [
-        "src/lib/agentFiles.ts"
-      ],
-      "status": "applied"
-    }
-  ]
+  "changed": false,
+  "changes": []
 }
