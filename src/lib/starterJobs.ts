@@ -62,7 +62,7 @@ const ALL: Entry[] = [
     task: "Draft a short, calm reply to this customer: \"I was charged twice for my order this month and nobody has answered my two emails. I want my money back today.\" We will refund the second charge within 3 working days." },
   { id: "picture", label: "Make a picture", when: /image generation|picture|illustrat/i, needs: ["pictures"],
     task: "Make a picture: a small lighthouse on a cliff at dusk, in a flat illustration style with a limited palette." },
-  { id: "logo", label: "Sketch a logo", when: /image generation|picture|illustrat|design/i, needs: ["pictures"],
+  { id: "logo", label: "Sketch a logo", when: /image generation|picture|illustrat|logo/i, needs: ["pictures"],
     task: "Make a picture: a simple logo for a coffee roaster called Ember and Oak, black on white, one shape and the name." },
   { id: "chart", label: "Chart a spreadsheet", when: /^(analysis|research|trading)$|data|sql|report/i, needs: ["files", "code"], sample: SALES,
     task: "Chart revenue per month for each region from the attached spreadsheet, and tell me the three things that stand out." },

@@ -222,6 +222,8 @@ describe("files and versions", () => {
 
     const files = (await list(mine, "?view=files")).body.files!;
     expect(files.map((f) => [f.name, f.version ?? 1]).sort()).toEqual([["extra.csv", 1], ["table.csv", 2]]);
+    // and the conversation counts a revised file once
+    expect((await list(mine)).body.conversations![0].files).toBe(2);
     const table = files.find((f) => f.name === "table.csv")!;
     expect(table).toMatchObject({ thread: first.body.taskId, receipt: `/r/${next.body.taskId}` });
     expect(table.token).toBeTruthy();

@@ -83,8 +83,9 @@ export function conversationsOf(owners: string[], o: { agentId?: string | null; 
     const agents = [...new Set(turns.map((t) => t.to_agent))];
     if (o.agentId && !agents.includes(o.agentId)) continue;
     const first = turns[0], last = turns.at(-1)!;
+    // a file that was revised counts once, however many versions of it there are
     const files = filesEnabled()
-      ? (db.prepare(`SELECT COUNT(*) c FROM task_files WHERE direction = 'out' AND deleted_at IS NULL AND task_id IN (${marks(turns.map((t) => t.task_id))})`).get(...turns.map((t) => t.task_id)) as { c: number }).c
+      ? latestOnly(db.prepare(`SELECT * FROM task_files WHERE direction = 'out' AND deleted_at IS NULL AND task_id IN (${marks(turns.map((t) => t.task_id))})`).all(...turns.map((t) => t.task_id)) as FileRow[]).length
       : 0;
     out.push({
       thread,
