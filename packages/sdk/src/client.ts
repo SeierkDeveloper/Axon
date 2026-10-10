@@ -90,6 +90,17 @@ import type {
   CreateQuorumOptions,
   AbuseReport,
   FileAbuseReportOptions,
+  AgentMemory,
+  Conversation,
+  ConversationTurn,
+  FileVersion,
+  FollowUpOptions,
+  HirerOptions,
+  LibraryFile,
+  LibraryOptions,
+  TaskNote,
+  UploadedFile,
+  WaitOptions,
   FeePolicy,
   ProtocolInfo,
   ProtocolNegotiation,
@@ -104,8 +115,13 @@ import type {
   MindBriefState,
   SetMindBriefResult,
 } from "./types";
-import { hire as hireHelper } from "./hire";
+import { hire as hireHelper, waitForTask as waitForTaskHelper } from "./hire";
 import { buildAxonTools } from "./tools";
+
+/** The header that acts for the hirer of a job made without signing in. */
+const hirer = (o: { claimToken?: string }): Record<string, string> | undefined => (o.claimToken ? { "X-Claim-Token": o.claimToken } : undefined);
+/** The header that reads what is kept under a key of the caller's own instead of a wallet. */
+const keyed = (o: { memoryKey?: string }): Record<string, string> | undefined => (o.memoryKey ? { "X-Memory-Key": o.memoryKey } : undefined);
 
 function pathPart(value: string): string {
   return encodeURIComponent(value);
@@ -365,8 +381,9 @@ export class AxonClient {
     ) as Promise<TaskRequest>;
   }
 
-  async getTask(taskId: string): Promise<TaskRequest> {
-    return this.get(`/api/tasks/${pathPart(taskId)}`) as Promise<TaskRequest>;
+  /** Read a task. A hire made without signing in is read with its own `claimToken`. */
+  async getTask(taskId: string, opts: HirerOptions = {}): Promise<TaskRequest> {
+    return this.request("GET", `/api/tasks/${pathPart(taskId)}`, { headers: hirer(opts) }) as Promise<TaskRequest>;
   }
 
   async startTask(taskId: string): Promise<TaskRequest> {
@@ -549,6 +566,117 @@ export class AxonClient {
    */
   tools(opts: AxonToolsOptions = {}): AxonTool[] {
     return buildAxonTools(this, { ...opts, pay: opts.pay ?? this.config.pay });
+  }
+
+  // ── Work with your agent ───────────────────────────────────────────────────
+  // A hire is a conversation: it can be followed up, the agent may ask and be answered, a plan can be approved
+  // before the work starts, a running job can be told something or stopped, the agent remembers you, and all of
+  // it is kept in your library. Each part exists where the network has switched it on; elsewhere the call is
+  // answered with a 404 (AxonApiError).
+
+  /**
+   * Say more about a finished job. The agent that did it (or another one, `to`) is hired again and is given the
+   * conversation so far and the files from before. A follow-up is a hire of its own: its own price, its own
+   * receipt. Returns the new task; follow it with `waitForTask`.
+   */
+  async followUp(taskId: string, task: string, opts: FollowUpOptions = {}): Promise<TaskRequest> {
+    const { claimToken, from, idempotencyKey, ...rest } = opts;
+    const who = from ?? (claimToken ? "anonymous" : (await this.getTask(taskId)).fromAgent);
+    return this.sendTask({ ...rest, from: who, task, followUpOf: taskId, ...(claimToken ? { followUpToken: claimToken } : {}), ...(idempotencyKey ? { idempotencyKey } : {}) });
+  }
+
+  /** Follow a job until it has finished, failed or been called off, answering its questions and plans on the way. */
+  async waitForTask(taskId: string, opts: WaitOptions = {}): Promise<{ task: TaskRequest; timedOut: boolean }> {
+    return waitForTaskHelper(this, taskId, opts);
+  }
+
+  /** Answer the question a job is waiting on. The same job goes on with the answer; nothing is paid again. */
+  async answerQuestion(taskId: string, answer: string, opts: HirerOptions = {}): Promise<TaskRequest> {
+    return this.post(`/api/tasks/${pathPart(taskId)}/answer`, { answer }, hirer(opts)) as Promise<TaskRequest>;
+  }
+
+  /**
+   * Decide on the plan a job is waiting on: "approve" starts the work, "change" has the agent write the plan
+   * again from `change`, "cancel" ends the job before any work and refunds what was paid.
+   */
+  async decidePlan(taskId: string, action: "approve" | "change" | "cancel", opts: HirerOptions & { change?: string } = {}): Promise<TaskRequest> {
+    return this.post(`/api/tasks/${pathPart(taskId)}/plan`, { action, ...(opts.change ? { change: opts.change } : {}) }, hirer(opts)) as Promise<TaskRequest>;
+  }
+
+  /** Tell a running job something. The agent reads it at its next step, or before it finishes. */
+  async sendNote(taskId: string, note: string, opts: HirerOptions = {}): Promise<{ note: TaskNote; steer?: TaskRequest["steer"]; notes?: TaskNote[] }> {
+    return this.post(`/api/tasks/${pathPart(taskId)}/steer`, { note }, hirer(opts)) as Promise<{ note: TaskNote; steer?: TaskRequest["steer"]; notes?: TaskNote[] }>;
+  }
+
+  /** Stop a job that has not finished. It ends as cancelled: nothing is delivered and what was paid is refunded. */
+  async stopTask(taskId: string, opts: HirerOptions = {}): Promise<TaskRequest> {
+    return this.post(`/api/tasks/${pathPart(taskId)}/stop`, {}, hirer(opts)) as Promise<TaskRequest>;
+  }
+
+  /** What an agent remembers about you: the lines it noted on your jobs. Yours by this client's key, or by `memoryKey`. */
+  async getAgentMemory(agentId: string, opts: LibraryOptions = {}): Promise<AgentMemory> {
+    return this.request("GET", `/api/agents/${pathPart(agentId)}/memory`, { headers: keyed(opts) }) as Promise<AgentMemory>;
+  }
+
+  /** Have an agent forget you, or with `lineId` forget one line. The jobs and their receipts are not touched. */
+  async forgetAgentMemory(agentId: string, opts: LibraryOptions & { lineId?: string } = {}): Promise<{ forgotten: number }> {
+    const path = `/api/agents/${pathPart(agentId)}/memory${opts.lineId ? `/${pathPart(opts.lineId)}` : ""}`;
+    return this.request("DELETE", path, { headers: keyed(opts) }) as Promise<{ forgotten: number }>;
+  }
+
+  /** Your library: your conversations with agents, the latest first. `agent` keeps those one agent worked on. */
+  async listConversations(opts: LibraryOptions & { agent?: string; limit?: number } = {}): Promise<Conversation[]> {
+    const q = new URLSearchParams();
+    if (opts.agent) q.set("agent", opts.agent);
+    if (opts.limit) q.set("limit", String(opts.limit));
+    const res = await this.request("GET", `/api/library${q.size ? `?${q}` : ""}`, { headers: keyed(opts) }) as { conversations: Conversation[] };
+    return res.conversations;
+  }
+
+  /** One conversation in full, oldest turn first, each turn with its answer, its files, its receipt and its claimToken. */
+  async getConversation(thread: string, opts: LibraryOptions = {}): Promise<{ thread: string; turns: ConversationTurn[] }> {
+    return this.request("GET", `/api/library/${pathPart(thread)}`, { headers: keyed(opts) }) as Promise<{ thread: string; turns: ConversationTurn[] }>;
+  }
+
+  /** Every file agents handed back to you, the latest version of each, the latest first. */
+  async listLibraryFiles(opts: LibraryOptions & { limit?: number } = {}): Promise<LibraryFile[]> {
+    const res = await this.request("GET", `/api/library?view=files${opts.limit ? `&limit=${opts.limit}` : ""}`, { headers: keyed(opts) }) as { files: LibraryFile[] };
+    return res.files;
+  }
+
+  /** Take a conversation out of your library. Its jobs and their receipts stay. */
+  async removeConversation(thread: string, opts: LibraryOptions = {}): Promise<{ removed: number }> {
+    return this.request("DELETE", `/api/library/${pathPart(thread)}`, { headers: keyed(opts) }) as Promise<{ removed: number }>;
+  }
+
+  /**
+   * Hand over a file for an agent to work on: text, a PDF, a picture, or a Word, Excel or PowerPoint file where
+   * the network takes them. Pass what comes back in a hire's `files`. `data` is the file's bytes, or its text.
+   */
+  async uploadFile(file: { name: string; data: Uint8Array | ArrayBuffer | string }): Promise<UploadedFile> {
+    const bytes = typeof file.data === "string" ? new TextEncoder().encode(file.data) : file.data instanceof Uint8Array ? file.data : new Uint8Array(file.data);
+    const res = await fetch(`${this.baseUrl()}/api/files`, {
+      method: "POST",
+      headers: this.headers({ "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name) }),
+      body: bytes as unknown as BodyInit,
+      signal: AbortSignal.timeout(this.config.timeoutMs ?? 30_000),
+    });
+    if (!res.ok) throw await this.apiErrorFromResponse(res, "POST", "/api/files");
+    const made = (await res.json()) as { file: { id: string; name: string; mime: string; size: number; sha256: string; expiresAt?: string }; fileToken: string };
+    return { id: made.file.id, token: made.fileToken, name: made.file.name, type: made.file.mime, size: made.file.size, sha256: made.file.sha256, ...(made.file.expiresAt ? { expiresAt: made.file.expiresAt } : {}) };
+  }
+
+  /** The bytes of a file an agent handed back (an entry of a task's `outputFiles`, or a version of one). */
+  async downloadFile(file: { path: string; token: string }): Promise<Uint8Array> {
+    const res = await fetch(`${this.baseUrl()}${file.path}`, { headers: { "X-File-Token": file.token }, signal: AbortSignal.timeout(this.config.timeoutMs ?? 30_000) });
+    if (!res.ok) throw await this.apiErrorFromResponse(res, "GET", file.path);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
+  /** Every version of a file that is still stored, oldest first, each with its own hash and the job that made it. */
+  async listFileVersions(file: { id: string; token: string }): Promise<FileVersion[]> {
+    const res = await this.request("GET", `/api/files/${pathPart(file.id)}/versions`, { headers: { "X-File-Token": file.token } }) as { versions: FileVersion[] };
+    return res.versions;
   }
 
   // ── Allowances ─────────────────────────────────────────────────────────────

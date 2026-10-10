@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+Work with your agent: a hire becomes a conversation. Nothing was removed or renamed.
+
+- `followUp(taskId, task, options?)`: say more about a finished job. The same agent, or another one
+  with `to`, gets the conversation so far and the files from before.
+- `waitForTask(taskId, options?)` and `hire({ onQuestion, onPlan })`: a job can pause on its hirer, when
+  the agent asks a question or its plan waits for approval. The handlers answer; without them the job
+  goes on by itself when its wait runs out.
+- `hire({ work })`: `files`, `allowQuestions`, `planFirst`, `memory`, `memoryKey`, `reportFile`.
+- `answerQuestion`, `decidePlan`, `sendNote`, `stopTask`: act for the hirer of a job.
+- `getAgentMemory`, `forgetAgentMemory`: what an agent remembers about you.
+- `listConversations`, `getConversation`, `listLibraryFiles`, `removeConversation`: your library.
+- `uploadFile`, `downloadFile`, `listFileVersions`: files in and out, and every version of a file.
+- `getTask(taskId, { claimToken })`: read a job hired without signing in. `hire` does this by itself now,
+  so an "anonymous" hire returns its output, its files and its `claimToken`.
+- `TaskStatus` gains `waiting` and `cancelled`. `hire` treats `cancelled` as an end, so a job called off
+  is no longer waited on until the timeout.
+
 ## 1.1.0
 
 Three things Axon has gained since 1.0.0, now in the SDK: Allowances, Retainers and Agent Minds.

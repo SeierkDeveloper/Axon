@@ -11,7 +11,7 @@
 //   console.log(result.receipt);  // the verifiable proof
 
 import type { AxonClient } from "./client";
-import type { HireOptions, HireResult, Receipt, TaskRequest, X402Requirements } from "./types";
+import type { HireOptions, HireResult, Receipt, TaskRequest, WaitOptions, X402Requirements } from "./types";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -21,12 +21,13 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  * supplied `pay` function. Polls the task to completion and (by default) returns
  * the verifiable receipt alongside the output.
  *
- * Retrieving the private output requires reading the task back, so set `from` to
- * an identity this client can read — your wallet address, or an agent you own —
- * with an initialized (`init({ apiKey })`) client. The default `from: "anonymous"`
- * creates the task fine but its private output isn't readable here (the receipt
- * still is); for accountless hiring that returns the output, use the in-browser
- * claim-token flow instead.
+ * The private output is read back with the hire's own claim token when it was made
+ * as "anonymous" (the default), otherwise as the `from` identity of an initialized
+ * (`init({ apiKey })`) client: your wallet address, or an agent you own.
+ *
+ * A job can pause on its hirer: the agent asks a question, or its plan waits for
+ * approval. Pass `onQuestion` / `onPlan` to deal with those; without them the job
+ * goes on by itself once its wait runs out.
  */
 export async function hire(client: AxonClient, opts: HireOptions): Promise<HireResult> {
   const {
@@ -39,6 +40,7 @@ export async function hire(client: AxonClient, opts: HireOptions): Promise<HireR
     pollIntervalMs = 2000,
     timeoutMs = 120_000,
     withReceipt = true,
+    work = {},
   } = opts;
 
   let created: TaskRequest;
@@ -60,6 +62,7 @@ export async function hire(client: AxonClient, opts: HireOptions): Promise<HireR
       to,
       task,
       context,
+      ...work,
       paymentMethod: "allowance",
       ...(opts.payWith === "axon" ? { payIn: "AXON" as const } : {}),
     });
@@ -73,7 +76,7 @@ export async function hire(client: AxonClient, opts: HireOptions): Promise<HireR
         'paymentMethod "balance" requires an authenticated `from` agent — init the client with an apiKey and set `from` to an agent you own. Balance is spent from that agent\'s earnings.',
       );
     }
-    created = await client.sendTask({ from, to, task, context, paymentMethod: "balance" });
+    created = await client.sendTask({ from, to, task, context, ...work, paymentMethod: "balance" });
     paid = true;
   } else {
     // Is this agent priced? A 402 means yes (and carries the requirements); null
@@ -98,33 +101,26 @@ export async function hire(client: AxonClient, opts: HireOptions): Promise<HireR
     if (paid && pay) {
       created = await client.submitTaskX402(to, task, pay, { from, context, payWith: opts.payWith });
     } else {
-      created = await client.sendTask({ from, to, task, context });
+      created = await client.sendTask({ from, to, task, context, ...work });
     }
   }
 
-  // Poll to a terminal state or the timeout.
-  const deadline = Date.now() + timeoutMs;
-  let current = created;
-  while (current.status !== "completed" && current.status !== "failed") {
-    if (Date.now() >= deadline) {
-      return { taskId: current.taskId, status: current.status, paid, timedOut: true };
-    }
-    await sleep(pollIntervalMs);
-    try {
-      current = await client.getTask(current.taskId);
-    } catch {
-      // Transient read failure — keep polling until the deadline.
-    }
-  }
+  // a hire made without signing in is read back, and acted on, with its own token
+  const claimToken = created.claimToken;
+  const waited = await waitForTask(client, created, { claimToken, pollIntervalMs, timeoutMs, onQuestion: opts.onQuestion, onPlan: opts.onPlan });
+  const current = waited.task;
 
   const result: HireResult = {
     taskId: current.taskId,
     status: current.status,
     paid,
-    timedOut: false,
+    timedOut: waited.timedOut,
+    ...(claimToken ? { claimToken } : {}),
   };
+  if (waited.timedOut) return result;
   if (current.status === "completed") {
     result.output = current.output ?? "";
+    if (current.outputFiles?.length) result.files = current.outputFiles;
     if (withReceipt) {
       try {
         const receipt: Receipt = (await client.getReceipt(current.taskId)).receipt;
@@ -133,8 +129,47 @@ export async function hire(client: AxonClient, opts: HireOptions): Promise<HireR
         // The result stands even if the receipt isn't fetchable yet.
       }
     }
+  } else if (current.status === "cancelled") {
+    result.error = "The job was called off before it delivered. Whatever was paid for it is refunded.";
   } else {
     result.error = current.error ?? "Task failed";
   }
   return result;
+}
+
+const DONE = new Set(["completed", "failed", "cancelled"]);
+
+/**
+ * Follow a job until it has finished, failed or been called off, or until `timeoutMs` runs out. While it pauses on
+ * its hirer, `onQuestion` and `onPlan` are asked what to do, once for each question and each plan.
+ */
+export async function waitForTask(client: AxonClient, job: TaskRequest | string, opts: WaitOptions = {}): Promise<{ task: TaskRequest; timedOut: boolean }> {
+  const { pollIntervalMs = 2000, timeoutMs = 120_000, claimToken } = opts;
+  const who = claimToken ? { claimToken } : {};
+  let current: TaskRequest = typeof job === "string" ? await client.getTask(job, who) : job;
+  const deadline = Date.now() + timeoutMs;
+  const answered = new Set<number>(), decided = new Set<number>();
+  while (!DONE.has(current.status)) {
+    if (current.status === "waiting") {
+      const q = current.question, p = current.plan;
+      if (q && opts.onQuestion && !answered.has(q.n)) {
+        answered.add(q.n);
+        const said = await opts.onQuestion(q, current);
+        if (typeof said === "string" && said.trim()) await client.answerQuestion(current.taskId, said, who).catch(() => {});
+      } else if (p && opts.onPlan && !decided.has(p.n)) {
+        decided.add(p.n);
+        const choice = await opts.onPlan(p, current);
+        if (choice === "approve" || choice === "cancel") await client.decidePlan(current.taskId, choice, who).catch(() => {});
+        else if (choice && typeof choice === "object" && choice.change) await client.decidePlan(current.taskId, "change", { ...who, change: choice.change }).catch(() => {});
+      }
+    }
+    if (Date.now() >= deadline) return { task: current, timedOut: true };
+    await sleep(pollIntervalMs);
+    try {
+      current = await client.getTask(current.taskId, who);
+    } catch {
+      // Transient read failure: keep polling until the deadline.
+    }
+  }
+  return { task: current, timedOut: false };
 }

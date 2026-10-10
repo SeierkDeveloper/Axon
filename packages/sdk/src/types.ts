@@ -154,7 +154,11 @@ export interface AgentMetrics {
 
 // ─── Messaging ────────────────────────────────────────────────────────────────
 
-export type TaskStatus = "payment_pending" | "queued" | "running" | "completed" | "failed";
+/**
+ * Where a task stands. `waiting` is a job paused on the person who hired it (the agent asked a question, or its
+ * plan waits for approval); `cancelled` is a job called off before it delivered, refunded.
+ */
+export type TaskStatus = "payment_pending" | "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
 
 export interface TaskRequest {
   taskId: string;
@@ -170,6 +174,142 @@ export interface TaskRequest {
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
+  /** Returned once, when a hire is made without signing in: what reads the job back and acts for its hirer. */
+  claimToken?: string;
+  /** The job this one follows, and the conversation both belong to. */
+  parentTaskId?: string;
+  threadId?: string;
+  /** Which turn of its conversation this is, and whether it can be followed up. */
+  followUp?: FollowUpInfo;
+  /** The files the agent handed back, each with the token that downloads it. */
+  outputFiles?: TaskFile[];
+  /** What the agent has done so far, one line a step. */
+  steps?: { n: number; text: string }[];
+  /** The question the job is waiting on, and every question it has asked. */
+  question?: TaskQuestion;
+  questions?: TaskQuestion[];
+  /** The plan the job is waiting on, and every plan it has had. */
+  plan?: TaskPlan & { price: string | null; changesLeft: number };
+  plans?: TaskPlan[];
+  /** Whether the job can be sent a note or stopped right now, and the notes sent so far. */
+  steer?: { open: boolean; stoppable: boolean; notesLeft: number };
+  notes?: TaskNote[];
+  /** What the agent noted about its hirer during this job, for the next one. */
+  remembered?: { id: string; text: string }[];
+}
+
+// ── Work with your agent ──────────────────────────────────────────────────────
+
+export interface FollowUpInfo { thread: string; turn: number; of?: string; open: boolean; turnsLeft: number }
+
+/** A file an agent handed back. `version` is above 1 for a file it revised; `revises` is the content it replaced. */
+export interface TaskFile {
+  id: string; name: string; type: string; kind: "pdf" | "image" | "text" | "office"; size: number; sha256: string;
+  token: string; path: string; version?: number; revises?: string; first?: { sha256: string; taskId: string | null };
+  madeBy?: { agentId: string; name: string; taskId: string };
+}
+
+/** A file handed over with a hire: what `uploadFile` returned. */
+export interface FileRef { id: string; token?: string }
+export interface UploadedFile { id: string; token: string; name: string; type: string; size: number; sha256: string; expiresAt?: string }
+
+/** One version of a file, oldest first in `listFileVersions`. */
+export interface FileVersion {
+  version: number; id: string; name: string; type: string; size: number; sha256: string;
+  taskId: string | null; uploaded?: boolean; createdAt: string; token: string; path: string; current: boolean; revises?: string;
+}
+
+export interface TaskQuestion {
+  n: number; text: string; choices?: string[]; askedAt: string; answerBy: string;
+  answer?: string; answeredAt?: string; answeredHow?: "person" | "timeout";
+}
+
+export interface TaskPlan {
+  n: number; text: string; madeAt: string; answerBy: string;
+  outcome?: "approved" | "changed" | "cancelled" | "timeout"; change?: string; answeredAt?: string;
+}
+
+export interface TaskNote { n: number; text: string; sentAt: string; deliveredAt?: string }
+
+/** What a hire may ask for beyond the task itself. Each is ignored where its feature is not switched on. */
+export interface WorkOptions {
+  /** Let the agent stop and ask when something it needs is unclear. */
+  allowQuestions?: boolean;
+  /** Have the agent say what it will do, and start only when the plan is approved. */
+  planFirst?: boolean;
+  /** The agent is told what it noted about you before, and may note more. Yours by wallet, or by `memoryKey`. */
+  memory?: boolean;
+  /** Without an API key: a long random string you keep (32 to 128 letters, digits, - or _). It names your memory and your library. */
+  memoryKey?: string;
+  /** Files for the agent to work on, uploaded first with `uploadFile`. */
+  files?: FileRef[];
+  /** The answer as a Markdown file as well. */
+  reportFile?: boolean;
+}
+
+export interface FollowUpOptions extends WorkOptions {
+  /** Another agent to bring into the conversation. Default: the agent that did the job. */
+  to?: string;
+  /** Who is hiring. Default: "anonymous" with a `claimToken`, otherwise whoever hired the job being followed. */
+  from?: string;
+  /** The followed job's claimToken, for a job hired without signing in. It proves the job is yours. */
+  claimToken?: string;
+  context?: Record<string, unknown>;
+  /** For a paid agent: pay from the allowance or the `from` agent's balance, or prove a payment already made. */
+  paymentMethod?: "balance" | "allowance";
+  paymentSignature?: string;
+  payerWallet?: string;
+  idempotencyKey?: string;
+}
+
+/** Acting for the hirer of a job made without signing in: its claimToken. A signed-in client needs none. */
+export interface HirerOptions { claimToken?: string }
+
+/** What an agent remembers about you. */
+export interface AgentMemory { lines: { id: string; text: string; createdAt: string; taskId: string | null }[]; jobs: number; most: number }
+
+/** Reading a library kept under a browser-style key instead of (or beside) this client's wallet. */
+export interface LibraryOptions { memoryKey?: string }
+
+export interface Conversation {
+  thread: string;
+  agent: { id: string; name: string };
+  agents: string[];
+  lastAgent: { id: string; name: string };
+  turns: number;
+  asked: string;
+  startedAt: string;
+  lastAt: string;
+  status: TaskStatus;
+  files: number;
+  lastTaskId: string;
+  onSite: boolean;
+}
+
+export interface ConversationTurn {
+  taskId: string;
+  claimToken: string;
+  agent: { id: string; name: string; price: string | null };
+  task: string;
+  status: TaskStatus;
+  output: string | null;
+  error: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  outputFiles: TaskFile[];
+  receipt: string;
+}
+
+export interface LibraryFile extends TaskFile { taskId: string; thread: string; agent: { id: string; name: string }; createdAt: string; receipt: string }
+
+/** How `waitForTask` (and `hire`) deal with a job that pauses on its hirer. */
+export interface WaitOptions extends HirerOptions {
+  pollIntervalMs?: number;
+  timeoutMs?: number;
+  /** Called when the agent asks. Return the answer; return nothing to leave it (the job goes on by itself later). */
+  onQuestion?: (question: TaskQuestion, task: TaskRequest) => string | void | Promise<string | void>;
+  /** Called when a plan waits. Return "approve", "cancel" or `{ change }`; return nothing to leave it. */
+  onPlan?: (plan: TaskPlan & { price: string | null; changesLeft: number }, task: TaskRequest) => "approve" | "cancel" | { change: string } | void | Promise<"approve" | "cancel" | { change: string } | void>;
 }
 
 export interface TaskResult {
@@ -182,7 +322,8 @@ export interface TaskResult {
 
 export interface SendTaskOptions {
   from: string;
-  to: string;
+  /** The agent to hire. May be left out on a follow-up (`followUpOf`): it then stays with the agent that did the job. */
+  to?: string;
   task: string;
   context?: Record<string, unknown>;
   payment?: string;
@@ -200,6 +341,17 @@ export interface SendTaskOptions {
   quoteId?: string;
   signature?: string;
   idempotencyKey?: string;
+  /** With `paymentSignature`: the address that sent the payment. */
+  payerWallet?: string;
+  /** Continue a finished job: its taskId, and for a job hired without signing in its claimToken. `to` may then be left out. */
+  followUpOf?: string;
+  followUpToken?: string;
+  allowQuestions?: boolean;
+  planFirst?: boolean;
+  memory?: boolean;
+  memoryKey?: string;
+  files?: FileRef[];
+  reportFile?: boolean;
 }
 
 export interface GetTaskHistoryOptions {
@@ -1289,12 +1441,26 @@ export interface HireOptions {
   timeoutMs?: number;
   /** Fetch the verifiable receipt once completed. Default true. */
   withReceipt?: boolean;
+  /**
+   * Work with your agent: let it ask (`allowQuestions`), see its plan first (`planFirst`), have it remember you
+   * (`memory`), hand it files (`files`). Each is ignored where the feature is not switched on. With a paid agent
+   * these travel on the `allowance` and `balance` paths; a hire paid by a `pay` function carries the task alone.
+   */
+  work?: WorkOptions;
+  /** Called when the agent asks a question. Return the answer. Without it a question is left to time out. */
+  onQuestion?: WaitOptions["onQuestion"];
+  /** Called when the agent's plan waits for approval. Return "approve", "cancel" or `{ change }`. */
+  onPlan?: WaitOptions["onPlan"];
 }
 
 export interface HireResult {
   taskId: string;
-  /** Terminal status observed (`completed` / `failed`), or the last status seen on timeout. */
+  /** Terminal status observed (`completed` / `failed` / `cancelled`), or the last status seen on timeout. */
   status: TaskStatus;
+  /** The files the agent handed back, when there are any. */
+  files?: TaskFile[];
+  /** For a hire made without signing in: what reads the job again and follows it up (`followUp`). */
+  claimToken?: string;
   /** The agent's output, when completed. */
   output?: string;
   /** The failure reason, when failed. */

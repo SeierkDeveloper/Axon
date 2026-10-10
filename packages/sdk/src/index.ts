@@ -11,7 +11,7 @@ export type {
 
 // High-level agent framework (v0.3): the batteries-included runtime + one-shot hire.
 export { defineAgent } from "./runtime";
-export { hire } from "./hire";
+export { hire, waitForTask } from "./hire";
 
 // Agent checkout (v0.6): your agents propose real purchases, you sign them.
 export { CommerceApi, CommerceRefusedError, parseAuthorisation, assertAuthorisationMatches } from "./commerce";
