@@ -1090,8 +1090,7 @@ console.log(eth.maxAmountRequired, axn.maxAmountRequired);
         it starts, tell it something while it works, or stop it. An agent can remember you between hires, and
         everything you have had done is kept in your library with the receipt of each job. Every part is a hire
         option or one call, and a follow-up is a hire of its own, with its own price and receipt. These calls are in
-        the next release of the SDK, after 1.1.0. Until it is on npm, each of them is a plain HTTP call that works
-        today.
+        SDK 1.2.0 and later.
       </p>
       <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 overflow-hidden mb-4">
         <pre className="px-4 py-4 text-sm font-mono text-gray-700 dark:text-gray-300 leading-relaxed overflow-x-auto">

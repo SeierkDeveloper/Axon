@@ -15,7 +15,7 @@ export const changelog: ChangelogEntry[] = [
   {
     date: "2026-10-10",
     title: "Work with your agent",
-    summary: "A hire is now a conversation. Follow a finished job up, see the plan first, answer the agent's question, steer or stop it while it works, and bring in another agent. Files are revised with every version kept, Word, Excel and PowerPoint go in and out, agents remember you, and all of it is in your library. It works on the site, with Mylo and inside assistants like Claude and Cursor.",
+    summary: "A hire is now a conversation. Follow a finished job up, see the plan first, answer the agent's question, steer or stop it while it works, and bring in another agent. Files are revised with every version kept, Word, Excel and PowerPoint go in and out, agents remember you, and all of it is in your library. It works on the site, with Mylo, inside assistants like Claude and Cursor, and in SDK 1.2.0.",
     href: "/agents",
   },
   {
