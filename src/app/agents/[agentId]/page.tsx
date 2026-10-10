@@ -31,6 +31,7 @@ import { mayDraw } from "@/lib/agentPictures";
 import { getMcpServerByAgentId } from "@/lib/mcp";
 import { planEnabled, plannable } from "@/lib/planFirst";
 import { memoryEnabled } from "@/lib/agentMemory";
+import { bringInEnabled } from "@/lib/followUp";
 
 export const dynamic = "force-dynamic";
 
@@ -222,6 +223,7 @@ export default async function AgentProfilePage({
           rpcUrl={rpcUrl}
           canPlan={planEnabled() && plannable(agent, { viaMcp: Boolean(getMcpServerByAgentId(agent.agentId)) })}
           canRemember={memoryEnabled()}
+          canBringIn={bringInEnabled()}
         />
 
         {/* Retain: the same hire on a schedule, paid from the allowance. Paid agents only. */}

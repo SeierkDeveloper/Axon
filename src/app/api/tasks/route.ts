@@ -15,7 +15,7 @@ import { getTier } from "@/lib/holderTier";
 import { hashIdempotencyPayload, normalizeIdempotencyKey, validateIdempotencyKey } from "@/lib/idempotency";
 import { claimTokenFor, claimTokenValid } from "@/lib/mcpServer";
 import { agentReads, attachFiles, checkTaskFiles, CONTEXT_KEY, filesEnabled, listFiles, passFiles, REPORT_KEY, type FileRow } from "@/lib/agentFiles";
-import { carriedFiles, checkFollowUp, followNote, followUpEnabled, FOLLOW_KEY, type FollowCheck } from "@/lib/followUp";
+import { bringInEnabled, carriedFiles, checkFollowUp, followNote, followUpEnabled, FOLLOW_KEY, type FollowCheck } from "@/lib/followUp";
 import { askEnabled, ASK_KEY } from "@/lib/ask";
 import { planEnabled, PLAN_KEY } from "@/lib/planFirst";
 import { memoryEnabled, memoryOwnerFor, memoryOwnerOf, setMemoryOwner } from "@/lib/agentMemory";
@@ -87,7 +87,9 @@ async function handlePost(req: NextRequest) {
   // Whether this caller may follow it is decided further down, once we know who they are.
   if (body.followUpOf) {
     if (!followUpEnabled()) return apiError("VALIDATION_ERROR", "Follow-ups are not switched on here.", 400, { refused: "off" });
-    if (!toAgentId) {
+    // Bringing in another agent without naming one: with a capability, the network picks the specialist below.
+    const routeIt = bringInEnabled() && (Boolean(body.capability) || (body.capabilities?.length ?? 0) > 0);
+    if (!toAgentId && !routeIt) {
       const followed = getTaskById(body.followUpOf);
       if (!followed) return apiError("NOT_FOUND", "That job was not found, or it is not yours to follow up.", 404, { refused: "not_found" });
       toAgentId = followed.toAgent;

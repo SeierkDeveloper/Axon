@@ -9,12 +9,23 @@
 // changes.
 
 import { getDb } from "./db";
+import { getAgentById } from "./agents";
 import { getTaskById, type Task } from "./tasks";
 import { isWalletAddress } from "./address";
 import { filesOfTask, fitForHire, latestOnly, type FileRow, type LeftBehind, type Reads } from "./agentFiles";
 
 export function followUpEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return (env.AGENT_FOLLOWUP ?? "off").trim().toLowerCase() === "on";
+}
+
+/**
+ * Bringing in another agent: a follow-up may go to a different agent than the one that did the job. The specialist
+ * joins the same conversation, is given what was said and the files, and is hired and paid for its own turn like
+ * any agent. Inside follow-ups: AGENT_BRINGIN=on, and only while follow-ups are on. Off, a follow-up goes to the
+ * agent that did the job and nowhere else.
+ */
+export function bringInEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return followUpEnabled(env) && (env.AGENT_BRINGIN ?? "off").trim().toLowerCase() === "on";
 }
 
 /** How many turns one conversation may have, the first hire included. */
@@ -49,9 +60,9 @@ export function earlierTurns(task: Pick<Task, "taskId" | "parentTaskId">): Task[
 /** Which turn of its conversation a job is. 1 for a hire that follows nothing. */
 export const turnOf = (task: Pick<Task, "taskId" | "parentTaskId">): number => earlierTurns(task).length + 1;
 
-export type FollowRefusal = "off" | "not_found" | "not_finished" | "other_agent" | "kind" | "too_long";
+export type FollowRefusal = "off" | "not_found" | "not_finished" | "other_agent" | "own_server" | "kind" | "too_long";
 export type FollowCheck =
-  | { ok: true; parent: Task; thread: string; turn: number }
+  | { ok: true; parent: Task; thread: string; turn: number; broughtIn: boolean }
   | { ok: false; refused: FollowRefusal; reason: string; status: 400 | 404 | 409 };
 
 /**
@@ -69,10 +80,16 @@ export function checkFollowUp(input: { parentId: string; from: string; to?: stri
   if (parent.fromAgent === "anonymous" && !input.tokenOk) return missing();
   if (parent.workflowId || parent.quorumId) return no("kind", "A follow-up continues a single hire. This job was one step of a larger piece of work.");
   if (parent.status !== "completed") return no("not_finished", "That job has not finished. A follow-up continues a finished job.", 409);
-  if (input.to && input.to !== parent.toAgent) return no("other_agent", `A follow-up goes to the agent that did the job (${parent.toAgent}).`);
+  const broughtIn = Boolean(input.to && input.to !== parent.toAgent);
+  if (broughtIn) {
+    if (!bringInEnabled(env)) return no("other_agent", `A follow-up goes to the agent that did the job (${parent.toAgent}).`);
+    // an agent on its own server is sent a job's words and nothing else: it would join without the conversation
+    const joining = getAgentById(input.to!);
+    if (joining?.endpoint && !joining.orchestrator) return no("own_server", `${joining.name} runs on its own server and cannot be brought into a conversation. Hire it with a job of its own.`);
+  }
   const turn = turnOf(parent) + 1, most = maxTurns(env);
   if (turn > most) return no("too_long", `This conversation has reached ${most} turns. Start a new hire to go on.`);
-  return { ok: true, parent, thread: parent.threadId ?? parent.taskId, turn };
+  return { ok: true, parent, thread: parent.threadId ?? parent.taskId, turn, broughtIn };
 }
 
 /**
@@ -89,11 +106,13 @@ export function carriedFiles(parent: Pick<Task, "taskId">, fresh: FileRow[], rea
 }
 
 /** What a follow-up's context says about itself. */
-export interface FollowNote { of: string; thread: string; turn: number; notCarried?: LeftBehind[] }
-export const followNote = (check: { parent: Task; thread: string; turn: number }, left: LeftBehind[]): FollowNote => ({
+export interface FollowNote { of: string; thread: string; turn: number; notCarried?: LeftBehind[]; broughtIn?: true; after?: string }
+export const followNote = (check: { parent: Task; thread: string; turn: number; broughtIn?: boolean }, left: LeftBehind[]): FollowNote => ({
   of: check.parent.taskId,
   thread: check.thread,
   turn: check.turn,
+  // another agent was brought in: the agent whose work it follows is named, so the job's commitment covers the hand-over
+  ...(check.broughtIn ? { broughtIn: true as const, after: check.parent.toAgent } : {}),
   ...(left.length ? { notCarried: left } : {}),
 });
 
@@ -104,14 +123,23 @@ const cut = (text: string, most: number): string => (text.length <= most ? text 
  * turns are kept whole first; when the conversation is longer than an agent is given, the oldest turns are left out
  * and that is said. Empty for a hire that follows nothing.
  */
-export function conversationBefore(task: Pick<Task, "taskId" | "parentTaskId" | "context">): string {
+export function conversationBefore(task: Pick<Task, "taskId" | "parentTaskId" | "context"> & { toAgent?: string }): string {
   const earlier = earlierTurns(task);
   if (!earlier.length) return "";
+  // More than one agent can have worked on a conversation. Each earlier answer is put down as the agent's own or as
+  // the named agent's that gave it, so an agent brought in knows whose work it is building on.
+  const me = task.toAgent ?? earlier.at(-1)!.toAgent;
+  const names = new Map<string, string>();
+  const nameOf = (agentId: string): string => {
+    if (!names.has(agentId)) names.set(agentId, getAgentById(agentId)?.name ?? agentId);
+    return names.get(agentId)!;
+  };
   const blocks: string[] = [];
   let room: number = HISTORY.total;
   for (let i = earlier.length - 1; i >= 0; i--) {
     const t = earlier[i];
-    const block = `[Turn ${i + 1}] The person asked:\n${cut(t.task, HISTORY.question)}\n\nYou answered:\n${cut(t.output ?? "", HISTORY.answer)}`;
+    const who = t.toAgent === me ? "You answered" : `${nameOf(t.toAgent)}, another agent, answered`;
+    const block = `[Turn ${i + 1}] The person asked:\n${cut(t.task, HISTORY.question)}\n\n${who}:\n${cut(t.output ?? "", HISTORY.answer)}`;
     if (block.length > room && blocks.length) break;
     blocks.unshift(block);
     room -= block.length;
@@ -121,8 +149,15 @@ export function conversationBefore(task: Pick<Task, "taskId" | "parentTaskId" | 
   const left = Array.isArray(note?.notCarried) && note.notCarried.length
     ? `\n\nNot carried over from before: ${note.notCarried.map((f) => `${f.name} (${f.why})`).join("; ")}.`
     : "";
+  const mine = earlier.filter((t) => t.toAgent === me).length;
+  const others = [...new Set(earlier.filter((t) => t.toAgent !== me).map((t) => nameOf(t.toAgent)))];
+  const intro = mine === earlier.length
+    ? "This is a follow-up. You did the earlier work in this conversation: carry on from it, do not start over. The files from before, the ones you were given and the ones you made, are attached again where they fit."
+    : mine === 0
+      ? `You are being brought into a job that ${others.join(" and ")} started. The person now asks you for something: build on the work that is there, do not start it over. The files from before, the ones the person gave and the ones made so far, are attached again where they fit.`
+      : `This is a follow-up in a conversation you have worked on together with ${others.join(" and ")}. Carry on from where it stands, do not start over. The files from before, the ones the person gave and the ones made so far, are attached again where they fit.`;
   return [
-    "This is a follow-up. You did the earlier work in this conversation: carry on from it, do not start over. The files from before, the ones you were given and the ones you made, are attached again where they fit.",
+    intro,
     `Conversation so far:${dropped ? `\n(${dropped} earlier ${dropped === 1 ? "turn is" : "turns are"} left out to keep this short.)` : ""}`,
     blocks.join("\n\n"),
   ].join("\n\n") + left + "\n\nThe person now says:\n";

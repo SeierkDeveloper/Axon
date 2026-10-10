@@ -9,6 +9,7 @@ import OutputFiles, { type OutputFile } from "@/components/OutputFiles";
 import VoiceInput from "@/components/VoiceInput";
 import VoiceOutput from "@/components/VoiceOutput";
 import AgentMemory, { browserMemoryKey } from "@/components/AgentMemory";
+import BringIn, { type Helper } from "@/components/BringIn";
 
 // Close the loop: hire an agent right here. Free-lane agents run immediately;
 // paid agents settle a single on-chain ETH payment (x402) first — pay with
@@ -57,14 +58,15 @@ function payErrorMessage(msg: string, ethAmount: number): string {
 }
 
 /** One finished turn of a conversation with the agent: what was asked, what came back, and the hire that did it. */
-interface Turn { taskId: string; claim: string; task: string; output: string; outFiles: OutputFile[] }
+interface Turn { taskId: string; claim: string; task: string; output: string; outFiles: OutputFile[]; agentName: string }
 
 /** An earlier turn, shown above the one in hand. */
-function EarlierTurn({ n, turn }: { n: number; turn: Turn }) {
+function EarlierTurn({ n, turn, named }: { n: number; turn: Turn; named: boolean }) {
   return (
     <div className="mb-4 border-b border-gray-100 pb-4 dark:border-gray-800">
       <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">You, turn {n}</p>
       <p className="whitespace-pre-wrap break-words text-sm text-gray-700 dark:text-gray-300">{turn.task}</p>
+      {named && <p className="mt-2 text-[11px] font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">{turn.agentName}</p>}
       <div className="mt-2 max-h-56 overflow-auto break-words rounded-md border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-800 dark:bg-gray-900/40">
         {turn.output ? <MarkdownOutput text={turn.output} /> : <span className="text-sm text-gray-400">(empty response)</span>}
       </div>
@@ -103,6 +105,7 @@ export default function HirePanel({
   rpcUrl,
   canPlan = false,
   canRemember = false,
+  canBringIn = false,
 }: {
   agentId: string;
   agentName: string;
@@ -114,6 +117,8 @@ export default function HirePanel({
   canPlan?: boolean;
   /** agents remember the people who hire them here */
   canRemember?: boolean;
+  /** a follow-up can go to another agent, which joins the conversation */
+  canBringIn?: boolean;
 }) {
   const [task, setTask] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
@@ -141,6 +146,11 @@ export default function HirePanel({
   const [followText, setFollowText] = useState("");
   const [followBusy, setFollowBusy] = useState(false);
   const [followError, setFollowError] = useState<string | null>(null);
+  // Bringing in another agent: the agent that did the turn in hand (at first the one this page is about), the one
+  // picked to take the next follow-up instead, and whether the picker is open.
+  const [turnAgent, setTurnAgent] = useState<Helper>({ id: agentId, name: agentName, price: price ?? null });
+  const [helper, setHelper] = useState<Helper | null>(null);
+  const [picking, setPicking] = useState(false);
   // a follow-up's payment that already landed, kept so a failed send retries with it instead of paying again
   const followPaid = useRef<{ paymentSignature: string; payerWallet: string } | null>(null);
   // whether a payment is already held for the hire, and for the follow-up: what the buttons say depends on it
@@ -362,15 +372,23 @@ export default function HirePanel({
     }
   }
 
-  // Say more to the agent about the job it just finished. The same agent is hired again and is given the conversation
-  // so far and the files from before; a paid agent is paid again, since this is another piece of work.
+  // Who the next follow-up goes to: another agent brought in, else the agent that did the turn in hand. And what
+  // that costs: each agent is paid for its own part of the conversation.
+  const target = helper ?? turnAgent;
+  const targetAmount = parsePrice(target.price);
+  const targetPays = Boolean(target.price) && targetAmount !== null && Boolean(receiver);
+
+  // Say more about the job just finished. The agent it goes to is hired for it and is given the conversation so far
+  // and the files from before; a paid agent is paid for it, since this is another piece of work.
   async function sendFollowUp() {
     const said = followText.trim();
     if (!said || !taskId || !claim || output === null || followBusy) return;
+    if (target.price && !targetPays) { setFollowError(`${target.name} is a paid agent that cannot be paid from this page. Hire it through the API.`); return; }
     setFollowBusy(true);
     setFollowError(null);
     try {
-      if (canPayInBrowser && !followPaid.current) {
+      if (targetPays && !followPaid.current) {
+        const ethAmount = targetAmount;
         if (ethAmount === null || !receiver) return;
         try {
           const { signature, payer } = await payForBuild({ rpcUrl, treasury: receiver, ethAmount });
@@ -386,7 +404,7 @@ export default function HirePanel({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          from: "anonymous", to: agentId, task: said, followUpOf: taskId, followUpToken: claim, allowQuestions: true, ...memoryFields(),
+          from: "anonymous", to: target.id, task: said, followUpOf: taskId, followUpToken: claim, allowQuestions: true, ...memoryFields(),
           ...(files.length ? { files: files.map((f) => ({ id: f.id, token: f.token })) } : {}),
           ...(report ? { reportFile: true } : {}),
           ...(followPaid.current ?? {}),
@@ -396,7 +414,10 @@ export default function HirePanel({
       if (cancelled.current) return;
       if (res.ok && data.taskId && data.claimToken) {
         // the turn just finished joins the conversation above, and the follow-up becomes the turn in hand
-        setTurns((had) => [...had, { taskId, claim, task, output, outFiles }]);
+        setTurns((had) => [...had, { taskId, claim, task, output, outFiles, agentName: turnAgent.name }]);
+        setTurnAgent(target);
+        setHelper(null);
+        setPicking(false);
         paid.current = followPaid.current;
         followPaid.current = null;
         setHasPaid(Boolean(paid.current));
@@ -568,6 +589,9 @@ export default function HirePanel({
     answeredQ.current = 0;
     followPaid.current = null;
     setTurns([]);
+    setTurnAgent({ id: agentId, name: agentName, price: price ?? null });
+    setHelper(null);
+    setPicking(false);
     setFollow(null);
     setFollowText("");
     setFollowError(null);
@@ -601,6 +625,8 @@ export default function HirePanel({
   }
 
   const payAndHire = canPayInBrowser;
+  // more than one agent has worked on this conversation: each answer says whose it is
+  const manyAgents = turns.some((t) => t.agentName !== turnAgent.name);
 
   return (
     <div className="rounded-lg border border-teal-200 dark:border-teal-900/50 p-5 mb-10">
@@ -615,7 +641,7 @@ export default function HirePanel({
 
       {turns.length > 0 && (
         <div>
-          {turns.map((t, i) => <EarlierTurn key={t.taskId} n={i + 1} turn={t} />)}
+          {turns.map((t, i) => <EarlierTurn key={t.taskId} n={i + 1} turn={t} named={manyAgents} />)}
           <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">You, turn {turns.length + 1}</p>
           <p className="mb-3 whitespace-pre-wrap break-words text-sm text-gray-700 dark:text-gray-300">{task}</p>
         </div>
@@ -672,7 +698,7 @@ export default function HirePanel({
         <div className="py-2">
           <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
             <span className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 dark:border-gray-600 border-t-teal-500 animate-spin" />
-            {agentName} is working on it…
+            {turnAgent.name} is working on it…
           </div>
           <StepList steps={steps} live />
           {/* Stop and steer: say something to the agent while it works, or stop the job */}
@@ -729,7 +755,7 @@ export default function HirePanel({
         <div className="py-1">
           <StepList steps={steps} />
           <div className="mt-3 rounded-md border border-teal-200 bg-teal-50/50 p-3.5 dark:border-teal-900/50 dark:bg-teal-950/20">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">{agentName} asks</p>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">{turnAgent.name} asks</p>
             <p className="whitespace-pre-wrap break-words text-sm text-gray-900 dark:text-white">{question.text}</p>
             {question.choices && question.choices.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">
@@ -766,7 +792,7 @@ export default function HirePanel({
         <div className="py-1">
           <StepList steps={steps} />
           <div className="mt-3 rounded-md border border-teal-200 bg-teal-50/50 p-3.5 dark:border-teal-900/50 dark:bg-teal-950/20">
-            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">{agentName}&apos;s plan{plan.n > 1 ? `, changed ${plan.n - 1 === 1 ? "once" : `${plan.n - 1} times`}` : ""}</p>
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">{turnAgent.name}&apos;s plan{plan.n > 1 ? `, changed ${plan.n - 1 === 1 ? "once" : `${plan.n - 1} times`}` : ""}</p>
             {/* shown whole: a plan is short, and nobody should approve one they had to scroll a box to read */}
             <div className="break-words rounded-md border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
               <MarkdownOutput text={plan.text} />
@@ -855,7 +881,7 @@ export default function HirePanel({
 
       {phase === "done" && (
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400 mb-1.5">Result</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400 mb-1.5">{manyAgents ? `${turnAgent.name}: result` : "Result"}</p>
           <div className="rounded-md border border-gray-200 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-900/40 p-3 break-words max-h-80 overflow-auto">
             {output ? <MarkdownOutput text={output} /> : <span className="text-sm text-gray-400">(empty response)</span>}
           </div>
@@ -910,28 +936,50 @@ export default function HirePanel({
           {/* Say more: the same agent, the conversation so far and the files from before */}
           {follow?.open && taskId && claim && (
             <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
-              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">Follow up</p>
+              <div className="mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">Follow up</p>
+                {helper && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[11px] text-teal-800 dark:border-teal-900/50 dark:bg-teal-950/30 dark:text-teal-300">
+                    to {helper.name}{helper.price ? `, ${helper.price}` : ""}
+                    <button type="button" onClick={() => setHelper(null)} disabled={followBusy} aria-label={`Not ${helper.name}: back to ${turnAgent.name}`} className="font-semibold hover:text-teal-950 dark:hover:text-white">×</button>
+                  </span>
+                )}
+                {canBringIn && !helper && (
+                  <button type="button" onClick={() => setPicking((o) => !o)} disabled={followBusy} className="text-xs text-teal-700 hover:underline disabled:opacity-50 dark:text-teal-400">
+                    {picking ? "Keep it with " + turnAgent.name : "Bring in another agent"}
+                  </button>
+                )}
+              </div>
+              {canBringIn && picking && !helper && (
+                <BringIn exclude={[turnAgent.id]} canPay={Boolean(receiver)} disabled={followBusy} onPick={(a) => { setHelper(a); setPicking(false); followPaid.current = null; setFollowHasPaid(false); }} />
+              )}
               <textarea
                 value={followText}
                 onChange={(e) => setFollowText(e.target.value)}
-                placeholder={`Ask ${agentName} for a change, a detail or the next step…`}
+                placeholder={`Ask ${target.name} for a change, a detail or the next step…`}
                 rows={2}
                 disabled={followBusy}
                 className="w-full resize-y rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-400 focus:outline-none disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
               />
-              <FileAttach agentId={agentId} paid={payAndHire} files={files} onChange={setFiles} disabled={followBusy} report={report} onReport={setReport} />
+              <FileAttach agentId={target.id} paid={targetPays} files={files} onChange={setFiles} disabled={followBusy} report={report} onReport={setReport} />
               <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                 <button
                   onClick={sendFollowUp}
                   disabled={!followText.trim() || followBusy}
                   className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700 disabled:opacity-50"
                 >
-                  {followBusy ? (payAndHire && !followHasPaid ? "Paying…" : "Sending…") : payAndHire ? (followHasPaid ? "Retry follow-up" : `Pay ${price} & send`) : "Send follow-up"}
+                  {followBusy
+                    ? (targetPays && !followHasPaid ? "Paying…" : "Sending…")
+                    : targetPays
+                      ? (followHasPaid ? "Retry follow-up" : `Pay ${target.price} & send${helper ? ` to ${helper.name}` : ""}`)
+                      : helper ? `Send to ${helper.name}` : "Send follow-up"}
                 </button>
                 <span className="text-[11px] text-gray-400 dark:text-gray-500">
-                  {payAndHire
-                    ? "Same agent · it keeps the conversation and the files · its own receipt"
-                    : "Same agent · it keeps the conversation and the files · uses one free hire"}
+                  {helper
+                    ? `${helper.name} joins · it gets the conversation and the files · ${targetPays ? "paid for its own part" : "uses one free hire of its own"}`
+                    : targetPays
+                      ? "Same agent · it keeps the conversation and the files · its own receipt"
+                      : "Same agent · it keeps the conversation and the files · uses one free hire"}
                 </span>
               </div>
               {followError && <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">{followError}</p>}
