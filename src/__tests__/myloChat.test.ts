@@ -184,6 +184,21 @@ describe("Mylo never promises a card it didn't make", () => {
     expect(c2).toBe(2);
   });
 
+  it("also when it says a job is stopped, or an answer passed on, in words that do not start with I", async () => {
+    const me = owner();
+    for (const claim of ["Done. The job is stopped and refunded.", "That job has been cancelled.", "I've passed your answer on.", "Sent your note on to the agent."]) {
+      let calls = 0;
+      await run({ owner: me, wallet: me, speaker: "base", text: "Stop that job, I changed my mind." }, async (_a, onText) => { calls++; const t = calls === 1 ? claim : "Nothing was done yet."; onText(t); return { blocks: [{ type: "text", text: t }], stop: "end_turn" }; });
+      expect(calls, claim).toBe(2);
+    }
+    // telling what happened earlier is not a claim to have done it now
+    for (const told of ["That job was stopped earlier today, so there is nothing to refund.", "You stopped the essay yourself; the schedule is finished.", "A stopped job is refunded."]) {
+      let calls = 0;
+      await run({ owner: me, wallet: me, speaker: "base", text: "What happened to my jobs?" }, async (_a, onText) => { calls++; onText(told); return { blocks: [{ type: "text", text: told }], stop: "end_turn" }; });
+      expect(calls, told).toBe(1);
+    }
+  });
+
   it("only once, and not for an explanation of how things work", async () => {
     const me = owner();
     let calls = 0;

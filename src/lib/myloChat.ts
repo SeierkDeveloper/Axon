@@ -357,7 +357,7 @@ export function noteOf(a: Action): string {
 /** Words that say Mylo set something up. Said with no proposal made, they would promise a card that isn't there. */
 const CLAIMS = /\bI(?:'ve| have)? (?:just )?(?:proposed|set (?:it|this|that) up|set up|prepared|queued)\b|\bpage now shows\b/i;
 /** Words that say Mylo did something. Said with no tool run at all, nothing was done. */
-const DONE_CLAIMS = /\bI(?:'ve| have) (?:just |now )?(?:cleared|forgotten|forgot|removed|deleted|saved|remembered|noted|stored|sent|withdrawn|applied|changed|published|built|hired|started|stopped|paused|resumed|cancell?ed|scheduled|launched|turned (?:it |that )?off)\b|\b(?:cleared|removed|deleted) (?:it |that |this )?from (?:my |your )?memory\b/i;
+const DONE_CLAIMS = /\bI(?:'ve| have) (?:just |now )?(?:cleared|forgotten|forgot|removed|deleted|saved|remembered|noted|stored|sent|withdrawn|applied|changed|published|built|hired|started|stopped|paused|resumed|cancell?ed|scheduled|launched|turned (?:it |that )?off)\b|\b(?:cleared|removed|deleted) (?:it |that |this )?from (?:my |your )?memory\b|\b(?:job|hire|agent|it|that) (?:is|has been) (?:now )?(?:stopped|cancell?ed|called off)\b|\bstopped and refunded\b|\b(?:passed|sent) (?:it|that|this|your (?:answer|note|decision|message)) on\b|\bI(?:'ve| have) (?:just |now )?(?:passed|approved|told|answered)\b/i;
 
 /**
  * Takes em dashes out of Mylo's words as they stream. A dash can arrive with its spaces split across pieces, so the
