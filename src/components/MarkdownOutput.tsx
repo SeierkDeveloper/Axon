@@ -100,7 +100,8 @@ export default function MarkdownOutput({ text, links = false }: { text: string; 
       while (i < lines.length && isRow(lines[i]) && !isDivider(lines[i])) { rows.push(cellsOf(lines[i])); i++; }
       elements.push(
         <div key={`table-${start}`} className="my-3 overflow-x-auto rounded-md border border-gray-200 dark:border-gray-700">
-          <table className="w-full border-collapse text-left text-sm">
+          {/* room for each column, so on a phone a table of several columns scrolls sideways instead of being squeezed */}
+          <table className="w-full border-collapse text-left text-sm" style={head.length > 2 ? { minWidth: `${head.length * 7.5}rem` } : undefined}>
             <thead className="bg-gray-50 dark:bg-gray-800/60">
               <tr>{head.map((c, n) => <th key={n} className="whitespace-nowrap px-3 py-2 text-xs font-semibold text-gray-900 dark:text-white">{renderInline(c, links)}</th>)}</tr>
             </thead>
