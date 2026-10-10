@@ -3,6 +3,7 @@ import { liveLogEnabled, stepsOf } from "@/lib/liveLog";
 import { followUpView } from "@/lib/followUp";
 import { questionsView } from "@/lib/ask";
 import { planView } from "@/lib/planFirst";
+import { steerView } from "@/lib/steer";
 import type { Task } from "@/lib/tasks";
 import { NextRequest, NextResponse } from "next/server";
 import { getTaskById } from "@/lib/tasks";
@@ -21,13 +22,13 @@ function paidByKey(taskId: string, keyId: string): boolean {
  * The task as its reader gets it. While files are on, it also lists what the agent handed back, each with the token
  * that downloads it: whoever may read a job's output may read the files that are part of it.
  */
-function withFiles<T extends Task>(task: T): T | (T & { outputFiles?: unknown[]; steps?: unknown[]; followUp?: unknown; question?: unknown; questions?: unknown[]; plan?: unknown; plans?: unknown[] }) {
+function withFiles<T extends Task>(task: T): T | (T & { outputFiles?: unknown[]; steps?: unknown[]; followUp?: unknown; question?: unknown; questions?: unknown[]; plan?: unknown; plans?: unknown[]; steer?: unknown; notes?: unknown[] }) {
   // Watch it work: the steps so far, for whoever may read the job. Read on every poll while it runs.
   const steps = liveLogEnabled() ? stepsOf(task.taskId) : [];
   // Work with your agent: which turn of its conversation this is, and whether it can be followed up.
   const follow = followUpView(task);
   // The agent asks: the question the job is waiting on, and every question it has asked with what came back.
-  const seen = { ...task, ...(steps.length ? { steps } : {}), ...(follow ? { followUp: follow } : {}), ...questionsView(task), ...planView(task) };
+  const seen = { ...task, ...(steps.length ? { steps } : {}), ...(follow ? { followUp: follow } : {}), ...questionsView(task), ...planView(task), ...steerView(task) };
   if (!filesEnabled()) return seen;
   const out = filesOfTask(task.taskId, "out");
   if (!out.length) return seen;

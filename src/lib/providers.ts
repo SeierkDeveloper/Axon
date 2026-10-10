@@ -244,6 +244,12 @@ export interface ToolRunOptions {
   /** PDFs and pictures handed over with the hire. Given to the model as themselves, ahead of the message. */
   attachments?: ModelAttachment[];
   /**
+   * Something the person said while the job runs. Asked between rounds: what it returns goes to the model with the
+   * results of the tools it just used. And asked when the model would finish: if there is something, the model gets
+   * it and one more round, so a note that arrives late still changes the answer. Returns null for nothing.
+   */
+  notes?: () => string | null;
+  /**
    * For an agent that may run code: the hire's files, which are put into its sandbox, and where anything it writes
    * there for the person is handed once the job is done. Only used when the tools include the sandbox.
    */
@@ -401,6 +407,16 @@ function reportServerToolCalls(content: Anthropic.ContentBlock[], sink?: ToolCal
 }
 
 // Execute one model-requested local (MCP) tool call and shape the result block.
+/** What the person said while the job runs, if anything. A reader that fails says nothing: the job goes on. */
+function readNotes(notes: (() => string | null) | undefined): string | null {
+  if (!notes) return null;
+  try {
+    return notes()?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 // A tool that throws comes back as an is_error result rather than a thrown
 // exception: the model can read the message and try something else, which is a
 // far better outcome for a paid task than failing the whole job.
@@ -592,7 +608,7 @@ class AnthropicProvider implements ProviderClient {
     message: string,
     maxTokens: number,
     tools: ResolvedTools,
-    { onToolCall, onLive, signal, maxSteps: maxStepsOpt, maxToolResultChars, attachments }: ToolRunOptions,
+    { onToolCall, onLive, signal, maxSteps: maxStepsOpt, maxToolResultChars, attachments, notes }: ToolRunOptions,
     box: { uploads: string[]; produced: Set<string> } | null,
   ): Promise<{ text: string; refused: boolean }> {
     const timeoutMs = Math.max(120_000, maxTokens * 30);
@@ -679,7 +695,14 @@ class AnthropicProvider implements ProviderClient {
       }
 
       const toolUses = msg.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-      if (toolUses.length === 0) return { text: requireText(lastText), refused: false };
+      if (toolUses.length === 0) {
+        // About to finish. A note that came in while it worked still counts: the model gets it and one more round.
+        const late = exhausted || (msg.stop_reason as string) === "max_tokens" ? null : readNotes(notes);
+        if (!late) return { text: requireText(lastText), refused: false };
+        messages.push({ role: "assistant", content: msg.content as Anthropic.ContentBlockParam[] });
+        messages.push({ role: "user", content: late });
+        continue;
+      }
 
       // Truncation can cut a tool call off mid-arguments. Running it would call
       // the tool with the wrong input, so stop here and deliver what we have.
@@ -700,7 +723,9 @@ class AnthropicProvider implements ProviderClient {
       const results = await Promise.all(
         toolUses.map((use) => runLocalTool(use, byName, onToolCall, maxResultChars)),
       );
-      messages.push({ role: "user", content: results });
+      // a note from the person goes back with the results, after them
+      const said = readNotes(notes);
+      messages.push({ role: "user", content: said ? [...results, { type: "text" as const, text: said }] : results });
     }
 
     return { text: requireText(lastText), refused: false };

@@ -110,7 +110,7 @@ const SPEC = {
           fromAgent: { type: "string" },
           toAgent: { type: "string" },
           task: { type: "string" },
-          status: { type: "string", enum: ["queued", "running", "waiting", "completed", "failed", "cancelled", "payment_pending"], description: "waiting: the job is paused on whoever hired it, for an answer to the agent's question (allowQuestions) or a decision on its plan (planFirst). cancelled: they called it off at the plan, before any work" },
+          status: { type: "string", enum: ["queued", "running", "waiting", "completed", "failed", "cancelled", "payment_pending"], description: "waiting: the job is paused on whoever hired it, for an answer to the agent's question (allowQuestions) or a decision on its plan (planFirst). cancelled: they called it off, at the plan or by stopping it while it ran; nothing was delivered and what was paid is refunded" },
           result: { type: "string", nullable: true },
           payment: { type: "string", nullable: true },
           createdAt: { type: "string", format: "date-time" },
@@ -2273,6 +2273,26 @@ const SPEC = {
       post: {
         summary: "Decide on the plan a job is waiting on. Body: { action: approve | change | cancel, change? }. Approve starts the work, held to the plan. Change has the agent write the plan again (up to three times). Cancel ends the job before any work and refunds what was paid. Only whoever hired the job may decide: its claimToken in X-Claim-Token, or the hirer's API key",
         operationId: "decideTaskPlan",
+        tags: ["Tasks"],
+        security: [{}, { bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
+
+    "/tasks/{taskId}/steer": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      post: {
+        summary: "Send the agent a note while its job runs. Body: { note }. The agent reads it between two of its steps, or before it finishes; GET /tasks/{taskId} lists each note under notes, with deliveredAt once the agent has it. A job that is a single model call may finish before the note arrives: send it as a follow-up then. Up to five notes a job. Only whoever hired the job: its claimToken in X-Claim-Token, or the hirer's API key",
+        operationId: "steerTask",
+        tags: ["Tasks"],
+        security: [{}, { bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
+
+    "/tasks/{taskId}/stop": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      post: {
+        summary: "Stop a job that has not finished (queued, running or waiting). It ends with status cancelled: nothing is delivered, whatever was paid is refunded, and it counts neither for nor against the agent. Only whoever hired the job: its claimToken in X-Claim-Token, or the hirer's API key",
+        operationId: "stopTask",
         tags: ["Tasks"],
         security: [{}, { bearerAuth: [] }, { apiKey: [] }],
       },

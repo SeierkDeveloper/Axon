@@ -16,6 +16,7 @@ import { attachmentsForTask, codeEnabled, filesEnabled, keepOutput, readBytes, R
 import { conversationBefore, earlierTurns, followUpEnabled, FOLLOW_KEY } from "../lib/followUp";
 import { markRevision, REVISE_NOTE } from "../lib/revisions";
 import { askEnabled, askedSoFar, askTool, closeStrays, mayAsk, parkForAnswer, resumeOverdue, withAsk, ASK_KEY, type Question } from "../lib/ask";
+import { notesAtStart, notesMidway, recordDelivered, steerEnabled, takeNotes, wasStopped } from "../lib/steer";
 import { approvedNote, approveOverdue, keepPlan, parkForPlan, planEnabled, planNote, planStage, plansOf, PLAN_KEY, PLAN_MAX_TOKENS } from "../lib/planFirst";
 import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
@@ -159,6 +160,9 @@ async function fetchLivePrices(): Promise<string> {
   }
 }
 
+/** How often a running job looks whether the person who hired it has stopped it. */
+const STOP_CHECK_MS = 1_200;
+
 async function processTasks() {
   // Reset worker-claimed tasks stuck in running longer than the task timeout.
   // HTTP streaming/gateway/manual tasks can legitimately run outside this worker.
@@ -287,6 +291,9 @@ async function processTasks() {
 
       launch(task.taskId, () => runWithTraceId(task.traceId ?? task.taskId, async () => {
         let timeoutTimer: NodeJS.Timeout | undefined;
+        // Stop and steer: the watch that notices the person stopped the job, and whether they did
+        let stopWatch: NodeJS.Timeout | undefined;
+        let stoppedByPerson = false;
         // set when this run stops to ask the person a question (see the ask tool below)
         let asked: Question | null = null;
         try {
@@ -319,11 +326,16 @@ async function processTasks() {
             if (parkForPlan(task.taskId)) return;
           }
           const approved = stage === "work" ? approvedNote(task.taskId) : "";
+          // Stop and steer: notes the person sent before this run began go in with the job's own words. Those sent
+          // while it works are read between its steps (see the loop's `notes` below).
+          const steering = steerEnabled();
+          const early = steering ? takeNotes(task.taskId) : [];
+          if (early.length) recordDelivered(task, early);
           // Running code: an agent Axon runs on Claude may, for a hire that carries files (see below). An agent that can
           // change the files it holds is told how a change is kept: under the same name, as a new version.
           const mayCode = codeEnabled() && !mcpHandler && !agent.orchestrator && (agent.provider ?? "anthropic") === "anthropic";
           const mayRevise = followUpEnabled() && mayCode && handed.files.length > 0;
-          const fullMessage = before + task.task + formatContext(said) + answered + handed.text + prices + approved + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "");
+          const fullMessage = before + task.task + formatContext(said) + answered + notesAtStart(early) + handed.text + prices + approved + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "");
           // a file handed back that changes one the job was given is its next version; said in the log as it is kept
           const madeLine = (file: { id: string; name: string }): string => {
             const rev = markRevision(task.taskId, file.id);
@@ -358,15 +370,28 @@ async function processTasks() {
           });
           // the race's loser is never awaited; keep a timeout that fires after a failure from surfacing as unhandled
           taskTimeout.catch(() => {});
+          // The person can stop the job while it runs. The job is called off where they did it; this run looks for
+          // that every second or so, stops paying for more rounds, and ends at once.
+          const stopped = new Promise<never>((_, reject) => {
+            if (!steering) return;
+            stopWatch = setInterval(() => {
+              if (!wasStopped(task.taskId)) return;
+              stoppedByPerson = true;
+              abort.abort();
+              reject(new Error("Stopped by the person who hired it"));
+            }, STOP_CHECK_MS);
+            stopWatch.unref();
+          });
+          stopped.catch(() => {});
 
           // Plan first: this run writes the plan and nothing else. One call, no tools; the job then waits for the
           // person to approve it, change it or cancel.
           if (stage === "plan") {
             const had = plansOf(task.taskId);
             if (!had.length) live.say("Writing a plan for you to approve");
-            const planMessage = before + task.task + formatContext(said) + answered + handed.text + planNote(had);
+            const planMessage = before + task.task + formatContext(said) + answered + notesAtStart(early) + handed.text + planNote(had);
             const planned = await captureModelStep(() =>
-              Promise.race([runWithProvider(agent, planMessage, PLAN_MAX_TOKENS, undefined, handed.attachments), taskTimeout]),
+              Promise.race([runWithProvider(agent, planMessage, PLAN_MAX_TOKENS, undefined, handed.attachments), taskTimeout, stopped]),
             );
             if (!planned.result.trim()) throw new Error("The agent wrote no plan");
             safeAppendTraceEvent({
@@ -474,11 +499,26 @@ async function processTasks() {
                       maxToolResultChars: depth.toolResultChars,
                       attachments: handed.attachments,
                       sandbox,
+                      // a note the person sends while it works reaches the agent between two of its steps
+                      ...(steering
+                        ? {
+                            notes: () => {
+                              const got = takeNotes(task.taskId);
+                              if (!got.length) return null;
+                              recordDelivered(task, got);
+                              live.say("Got your note. Taking it into account");
+                              return notesMidway(got);
+                            },
+                          }
+                        : {}),
                     })
                   : runWithProvider(agent, fullMessage, getAgentMaxTokens(agent.agentId), undefined, handed.attachments),
               taskTimeout,
+              stopped,
             ]),
           );
+          // stopped just as it finished: the job is already called off, and nothing more is kept or delivered
+          if (steering && wasStopped(task.taskId)) return;
           // it asked and still came back with words: the question stands, and the job waits for its answer
           if (asked && parkForAnswer(task.taskId)) return;
           const output = step.result;
@@ -521,6 +561,11 @@ async function processTasks() {
             taskId: task.taskId,
           });
         } catch (err) {
+          // The person stopped the job. It is already called off and refunded; this is not a failure of the agent.
+          if (stoppedByPerson || (steerEnabled() && wasStopped(task.taskId))) {
+            logger.info("worker.task_stopped", "A job was stopped by its hirer while it ran", { agentId: agent.agentId, taskId: task.taskId });
+            return;
+          }
           // The run stopped because the agent asked a question: that is not a failure. The job waits.
           if (asked && parkForAnswer(task.taskId)) {
             logger.info("worker.task_waiting", "A job stopped to ask its hirer a question", { agentId: agent.agentId, taskId: task.taskId });
@@ -539,6 +584,7 @@ async function processTasks() {
           });
         } finally {
           if (timeoutTimer) clearTimeout(timeoutTimer);
+          if (stopWatch) clearInterval(stopWatch);
         }
       }));
     }

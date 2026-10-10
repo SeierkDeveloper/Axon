@@ -21,6 +21,9 @@ import VoiceOutput from "@/components/VoiceOutput";
 
 type Phase = "idle" | "hiring" | "running" | "asking" | "planning" | "cancelled" | "done" | "error";
 
+/** A note sent to the agent while it works, and whether it has read it. */
+interface SentNote { n: number; text: string; deliveredAt?: string }
+
 /** The plan a job is waiting on: what the agent will do, the price it does it for, and until when it waits. */
 interface OpenPlan { n: number; text: string; answerBy: string; price: string | null; changesLeft: number }
 
@@ -155,6 +158,16 @@ export default function HirePanel({
   const [changing, setChanging] = useState(false);
   const [change, setChange] = useState("");
   const decidedPlan = useRef(0);
+  // Stop and steer: whether a note or a stop is possible now, the notes sent, the one being written, and whether
+  // the job was stopped here.
+  const [steer, setSteer] = useState<{ open: boolean; stoppable: boolean; notesLeft: number } | null>(null);
+  const [notes, setNotes] = useState<SentNote[]>([]);
+  const [noteText, setNoteText] = useState("");
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [stopAsk, setStopAsk] = useState(false);
+  const [stopBusy, setStopBusy] = useState(false);
+  const [stoppedHere, setStoppedHere] = useState(false);
 
   // Stop the poll loop if the user navigates away mid-hire — no setState on an
   // unmounted component, no orphaned timers.
@@ -188,10 +201,12 @@ export default function HirePanel({
         setPhase("error");
         return;
       }
-      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: { n: number; text: string }[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[]; plan?: OpenPlan };
+      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: { n: number; text: string }[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[]; plan?: OpenPlan; steer?: { open?: boolean; stoppable?: boolean; notesLeft?: number }; notes?: SentNote[] };
       if (cancelled.current) return;
       if (Array.isArray(t.steps)) setSteps((had) => (t.steps!.length >= had.length ? t.steps! : had));
       if (Array.isArray(t.questions)) setAsked(t.questions.filter((q) => q.answeredAt));
+      setSteer(t.steer ? { open: Boolean(t.steer.open), stoppable: Boolean(t.steer.stoppable), notesLeft: Number(t.steer.notesLeft) || 0 } : null);
+      if (Array.isArray(t.notes)) setNotes(t.notes);
       // The agent stopped to ask: show the question and keep looking, slowly and without a time limit, for the job to
       // go on (answered here, or its time ran out).
       if (t.status === "waiting" && t.question) {
@@ -378,6 +393,8 @@ export default function HirePanel({
         setFollow(null);
         setAsked([]);
         setQuestion(null);
+        setNotes([]);
+        setSteer(null);
         answeredQ.current = 0;
         setPhase("running");
         poll(data.taskId, data.claimToken, 0);
@@ -452,9 +469,69 @@ export default function HirePanel({
     }
   }
 
+  // Tell the agent something while it works. It reads the note at its next step, or before it finishes.
+  async function sendNoteNow() {
+    const said = noteText.trim();
+    if (!said || !taskId || !claim || noteBusy) return;
+    setNoteBusy(true);
+    setNoteError(null);
+    try {
+      const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/steer`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-claim-token": claim },
+        body: JSON.stringify({ note: said }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; notes?: SentNote[]; steer?: { open?: boolean; stoppable?: boolean; notesLeft?: number } };
+      if (cancelled.current) return;
+      if (res.ok) {
+        setNoteText("");
+        if (Array.isArray(data.notes)) setNotes(data.notes);
+        if (data.steer) setSteer({ open: Boolean(data.steer.open), stoppable: Boolean(data.steer.stoppable), notesLeft: Number(data.steer.notesLeft) || 0 });
+        return;
+      }
+      setNoteError(data.error ?? "Couldn't send the note. Try again.");
+    } catch {
+      setNoteError("Network error sending the note. Try again.");
+    } finally {
+      setNoteBusy(false);
+    }
+  }
+
+  // Stop the job. Nothing is delivered, and a paid job is refunded.
+  async function stopNow() {
+    if (!taskId || !claim || stopBusy) return;
+    setStopBusy(true);
+    setNoteError(null);
+    try {
+      const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/stop`, { method: "POST", headers: { "x-claim-token": claim } });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (cancelled.current) return;
+      if (res.ok) {
+        setStoppedHere(true);
+        setQuestion(null);
+        setPlan(null);
+        setPhase("cancelled");
+        return;
+      }
+      // it finished in the same moment: the next read shows the result
+      setNoteError(data.error ?? "Couldn't stop it. Try again.");
+    } catch {
+      setNoteError("Network error. Try again.");
+    } finally {
+      setStopBusy(false);
+      setStopAsk(false);
+    }
+  }
+
   function reset() {
     cancelled.current = true;
     paid.current = null; // a fresh hire pays anew
+    setSteer(null);
+    setNotes([]);
+    setNoteText("");
+    setNoteError(null);
+    setStopAsk(false);
+    setStoppedHere(false);
     setPlan(null);
     setPlanError(null);
     setChanging(false);
@@ -574,6 +651,52 @@ export default function HirePanel({
             {agentName} is working on it…
           </div>
           <StepList steps={steps} live />
+          {/* Stop and steer: say something to the agent while it works, or stop the job */}
+          {steer && (steer.open || steer.stoppable || notes.length > 0) && (
+            <div className="mt-3.5 border-t border-gray-100 pt-3 dark:border-gray-800">
+              {notes.length > 0 && (
+                <ul className="mb-2.5 space-y-1">
+                  {notes.map((nt) => (
+                    <li key={nt.n} className="flex items-baseline gap-2 text-xs">
+                      <span className="min-w-0 break-words text-gray-700 dark:text-gray-300">{nt.text}</span>
+                      <span className={`shrink-0 text-[11px] ${nt.deliveredAt ? "text-teal-600 dark:text-teal-400" : "text-gray-400 dark:text-gray-500"}`}>{nt.deliveredAt ? "read" : "sent"}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                {steer.open && (
+                  <>
+                    <input
+                      value={noteText}
+                      onChange={(e) => setNoteText(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") void sendNoteNow(); }}
+                      placeholder="Tell it something while it works…"
+                      maxLength={1000}
+                      disabled={noteBusy}
+                      className="min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-400 focus:outline-none disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    />
+                    <button onClick={() => void sendNoteNow()} disabled={!noteText.trim() || noteBusy} className="shrink-0 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 transition-colors hover:border-teal-500 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100">
+                      {noteBusy ? "Sending…" : "Send"}
+                    </button>
+                  </>
+                )}
+                {steer.stoppable && !stopAsk && (
+                  <button onClick={() => setStopAsk(true)} className="shrink-0 px-1 py-1.5 text-sm text-gray-500 hover:text-gray-900 hover:underline dark:text-gray-400 dark:hover:text-white">
+                    Stop
+                  </button>
+                )}
+              </div>
+              {stopAsk && (
+                <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
+                  Stop the job? Nothing is delivered{hasPaid ? ", and your payment is refunded" : ""}.
+                  <button onClick={() => void stopNow()} disabled={stopBusy} className="font-medium text-gray-900 underline disabled:opacity-50 dark:text-white">{stopBusy ? "Stopping…" : "Yes, stop it"}</button>
+                  <button onClick={() => setStopAsk(false)} disabled={stopBusy} className="text-gray-500 hover:underline dark:text-gray-400">Keep going</button>
+                </p>
+              )}
+              {noteError && <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">{noteError}</p>}
+            </div>
+          )}
         </div>
       )}
 
@@ -675,7 +798,7 @@ export default function HirePanel({
       {/* Called off at the plan: nothing was done. */}
       {phase === "cancelled" && (
         <div>
-          <p className="text-sm text-gray-700 dark:text-gray-300">Cancelled. No work was done{hasPaid ? ", and your payment is refunded" : ""}.</p>
+          <p className="text-sm text-gray-700 dark:text-gray-300">{stoppedHere ? "Stopped. Nothing was delivered" : "Cancelled. No work was done"}{hasPaid ? ", and your payment is refunded" : ""}.</p>
           <div className="mt-3 flex items-center gap-4">
             {taskId && (
               <a href={`/r/${encodeURIComponent(taskId)}`} target="_blank" rel="noopener noreferrer" className="text-xs text-teal-600 hover:underline dark:text-teal-400">
@@ -742,6 +865,18 @@ export default function HirePanel({
             </button>
             {taskId && claim && output && <VoiceOutput taskId={taskId} claimToken={claim} />}
           </div>
+
+          {/* A note that did not reach the agent before it finished: it can go as a follow-up instead */}
+          {notes.some((nt) => !nt.deliveredAt) && (
+            <p className="mt-3 text-xs text-gray-600 dark:text-gray-300">
+              It finished before it read your note{notes.filter((nt) => !nt.deliveredAt).length === 1 ? "" : "s"}.{" "}
+              {follow?.open && (
+                <button onClick={() => setFollowText(notes.filter((nt) => !nt.deliveredAt).map((nt) => nt.text).join("\n"))} className="font-medium text-teal-700 underline dark:text-teal-400">
+                  Put it in a follow-up
+                </button>
+              )}
+            </p>
+          )}
 
           {/* Say more: the same agent, the conversation so far and the files from before */}
           {follow?.open && taskId && claim && (
