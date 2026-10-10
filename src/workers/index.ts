@@ -17,7 +17,7 @@ import { conversationBefore, earlierTurns, followUpEnabled, FOLLOW_KEY } from ".
 import { markRevision, REVISE_NOTE } from "../lib/revisions";
 import { askEnabled, askedSoFar, askTool, closeStrays, mayAsk, parkForAnswer, resumeOverdue, withAsk, ASK_KEY, type Question } from "../lib/ask";
 import { notesAtStart, notesMidway, recordDelivered, steerEnabled, takeNotes, wasStopped } from "../lib/steer";
-import { officeEnabled, wantsOffice, OFFICE_NOTE } from "../lib/officeFiles";
+import { officeEnabled, wantsOffice, OFFICE_MAX_TOKENS, OFFICE_NOTE } from "../lib/officeFiles";
 import { canNote, memoryEnabled, memoryNote, memoryOwnerOf, rememberTool, withRemember } from "../lib/agentMemory";
 import { approvedNote, approveOverdue, keepPlan, parkForPlan, planEnabled, planNote, planStage, plansOf, PLAN_KEY, PLAN_MAX_TOKENS } from "../lib/planFirst";
 import { hasCode, withCode } from "../lib/agentTools";
@@ -508,7 +508,7 @@ async function processTasks() {
               mcpHandler
                 ? mcpHandler(fullMessage)
                 : hasTools(tools)
-                  ? runWithProviderTools(agent, fullMessage, getAgentMaxTokens(agent.agentId), tools, {
+                  ? runWithProviderTools(agent, fullMessage, office ? Math.max(getAgentMaxTokens(agent.agentId), OFFICE_MAX_TOKENS) : getAgentMaxTokens(agent.agentId), tools, {
                       onToolCall,
                       ...(live.on ? { onLive: live.onLive } : {}),
                       signal: abort.signal,

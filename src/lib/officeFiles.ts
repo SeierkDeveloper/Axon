@@ -205,5 +205,12 @@ const ASKS = /\b(?:word (?:doc(?:ument)?|file)|\.?docx|\.?xlsx|spreadsheet|workb
 const EXCEL = /\bExcel\b|\b(?:in|into|an|as an?) excel\b|\bexcel (?:sheet|file|workbook|table|spreadsheet)\b/;
 export const wantsOffice = (job: string): boolean => ASKS.test(job) || EXCEL.test(job) || EXCEL.test(job.toLowerCase());
 
+/**
+ * How much an agent may write in one turn on an Office job. The code that builds a document, a workbook or a deck is
+ * far longer than an answer in words: at an agent's usual ceiling it is cut off half way through, and the job fails
+ * with nothing made. A ceiling, not a spend: a turn costs what it writes.
+ */
+export const OFFICE_MAX_TOKENS = 8_000;
+
 /** What an agent with a sandbox is told when Office files are in play. */
 export const OFFICE_NOTE = "\n\nWord, Excel and PowerPoint files are real files in your sandbox. Open and save them there with python-docx, openpyxl and python-pptx. When the person wants a document, a workbook or a deck, make that file, keep its formatting where you change an existing one, and save it in the output directory.";
