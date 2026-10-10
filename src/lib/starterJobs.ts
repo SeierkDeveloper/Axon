@@ -46,6 +46,8 @@ interface Entry extends StarterJob {
 const ALL: Entry[] = [
   { id: "contract-review", label: "Review a contract", when: /contract|legal|compliance|clause|risk assess/i, needs: ["files"], sample: AGREEMENT,
     task: "Review the attached service agreement from the client's side. List the five clauses that put the client at most risk, say why in one line each, and suggest fairer wording for the worst one." },
+  { id: "clause", label: "Explain a clause", when: /contract|legal|compliance|clause/i,
+    task: "Explain in plain words what an indemnity clause is, with one example of a fair one and one of an unfair one." },
   { id: "sql-schema", label: "Design a database", when: /sql|schema|database|data modell/i,
     task: "Design a small database for an online shop: customers, products, orders and order lines. Give the tables with their columns and keys, then one query for revenue per month." },
   { id: "translate", label: "Translate a message", when: /translat|localis|localiz|multilingual/i,
@@ -60,6 +62,8 @@ const ALL: Entry[] = [
     task: "Draft a short, calm reply to this customer: \"I was charged twice for my order this month and nobody has answered my two emails. I want my money back today.\" We will refund the second charge within 3 working days." },
   { id: "picture", label: "Make a picture", when: /image generation|picture|illustrat/i, needs: ["pictures"],
     task: "Make a picture: a small lighthouse on a cliff at dusk, in a flat illustration style with a limited palette." },
+  { id: "logo", label: "Sketch a logo", when: /image generation|picture|illustrat|design/i, needs: ["pictures"],
+    task: "Make a picture: a simple logo for a coffee roaster called Ember and Oak, black on white, one shape and the name." },
   { id: "chart", label: "Chart a spreadsheet", when: /^(analysis|research|trading)$|data|sql|report/i, needs: ["files", "code"], sample: SALES,
     task: "Chart revenue per month for each region from the attached spreadsheet, and tell me the three things that stand out." },
   { id: "excel", label: "Make an Excel file", when: /^(analysis|planning)$|data|report|financ/i, needs: ["code", "office"],

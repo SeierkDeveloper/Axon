@@ -274,12 +274,13 @@ describe("starter jobs", () => {
 
   it("offers a job on a file, a chart or a picture only where the agent can do it", () => {
     expect(ids(["contract review"])).not.toContain("contract-review");
+    expect(ids(["contract review"])).toEqual(["clause"]);
     expect(ids(["contract review"], { files: true })).toContain("contract-review");
     expect(ids(["analysis"], { files: true })).not.toContain("chart");
     expect(ids(["analysis"], { files: true, code: true })[0]).toBe("chart");
     expect(ids(["analysis"], { files: true, code: true, office: true })).toContain("excel");
     expect(ids(["image generation"])).not.toContain("picture");
-    expect(ids(["image generation"], { pictures: true })).toEqual(["picture"]);
+    expect(ids(["image generation"], { pictures: true })).toEqual(["picture", "logo"]);
   });
 
   it("never more than a few, always something, and nothing while off", () => {
