@@ -16,7 +16,9 @@ import { syncToTurso } from "./db-turso";
 import { resolveTraceId, runWithTraceId } from "./tracing";
 import { safeAppendTraceEvent, hashContent } from "./traceEvents";
 
-export type TaskStatus = "payment_pending" | "queued" | "running" | "waiting" | "completed" | "failed";
+// "waiting": paused on the person who hired it (a question, or a plan to approve). "cancelled": that person called it
+// off before the work started; neither a success nor a failure of the agent, so nothing that scores agents counts it.
+export type TaskStatus = "payment_pending" | "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
 
 export interface Task {
   taskId: string;

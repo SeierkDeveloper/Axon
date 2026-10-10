@@ -29,6 +29,7 @@ import { agentAvailability } from "@/lib/availability";
 import { agentReads, filesEnabled } from "@/lib/agentFiles";
 import { mayDraw } from "@/lib/agentPictures";
 import { getMcpServerByAgentId } from "@/lib/mcp";
+import { planEnabled, plannable } from "@/lib/planFirst";
 
 export const dynamic = "force-dynamic";
 
@@ -211,7 +212,15 @@ export default async function AgentProfilePage({
         {proofScore && <ProofScoreCard proof={proofScore} agentId={agent.agentId} />}
 
         {/* Hire, close the loop: discover by proof, then hire right here */}
-        <HirePanel agentId={agent.agentId} agentName={agent.name} isPaid={isPaid} price={agent.price} receiver={receiver} rpcUrl={rpcUrl} />
+        <HirePanel
+          agentId={agent.agentId}
+          agentName={agent.name}
+          isPaid={isPaid}
+          price={agent.price}
+          receiver={receiver}
+          rpcUrl={rpcUrl}
+          canPlan={planEnabled() && plannable(agent, { viaMcp: Boolean(getMcpServerByAgentId(agent.agentId)) })}
+        />
 
         {/* Retain: the same hire on a schedule, paid from the allowance. Paid agents only. */}
         {isPaid && (

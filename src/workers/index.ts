@@ -16,6 +16,7 @@ import { attachmentsForTask, codeEnabled, filesEnabled, keepOutput, readBytes, R
 import { conversationBefore, earlierTurns, followUpEnabled, FOLLOW_KEY } from "../lib/followUp";
 import { markRevision, REVISE_NOTE } from "../lib/revisions";
 import { askEnabled, askedSoFar, askTool, closeStrays, mayAsk, parkForAnswer, resumeOverdue, withAsk, ASK_KEY, type Question } from "../lib/ask";
+import { approvedNote, approveOverdue, keepPlan, parkForPlan, planEnabled, planNote, planStage, plansOf, PLAN_KEY, PLAN_MAX_TOKENS } from "../lib/planFirst";
 import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
@@ -306,14 +307,23 @@ async function processTasks() {
           // the mark that says the agent may ask is for the record and stays out of what the agent reads.
           if (askEnabled()) closeStrays(task.taskId);
           const answered = askEnabled() ? askedSoFar(task.taskId) : "";
-          const { [FOLLOW_KEY]: _followNote, [ASK_KEY]: _mayAsk, ...said } = task.context ?? {};
+          const { [FOLLOW_KEY]: _followNote, [ASK_KEY]: _mayAsk, [PLAN_KEY]: _planFirst, ...said } = task.context ?? {};
           void _followNote;
           void _mayAsk;
+          void _planFirst;
+          // Plan first: where a job that asked for a plan stands. "plan": this run writes the plan (or writes it again)
+          // and the job waits. "work": the plan is approved, and the agent is held to it.
+          const stage = planStage(task, agent, { viaMcp: Boolean(mcpHandler) });
+          if (stage === "wait") {
+            // a plan is already out and unanswered: the job should be waiting, not running
+            if (parkForPlan(task.taskId)) return;
+          }
+          const approved = stage === "work" ? approvedNote(task.taskId) : "";
           // Running code: an agent Axon runs on Claude may, for a hire that carries files (see below). An agent that can
           // change the files it holds is told how a change is kept: under the same name, as a new version.
           const mayCode = codeEnabled() && !mcpHandler && !agent.orchestrator && (agent.provider ?? "anthropic") === "anthropic";
           const mayRevise = followUpEnabled() && mayCode && handed.files.length > 0;
-          const fullMessage = before + task.task + formatContext(said) + answered + handed.text + prices + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "");
+          const fullMessage = before + task.task + formatContext(said) + answered + handed.text + prices + approved + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "");
           // a file handed back that changes one the job was given is its next version; said in the log as it is kept
           const madeLine = (file: { id: string; name: string }): string => {
             const rev = markRevision(task.taskId, file.id);
@@ -322,9 +332,13 @@ async function processTasks() {
 
           // Watch it work: a line for each step, written as it happens, for whoever hired the agent to follow.
           const live = liveLog(task.taskId);
-          if (answered) {
+          if (stage === "plan" && plansOf(task.taskId).length) {
+            live.say("Changing the plan");
+          } else if (answered) {
             // the job is going on after a question: say what came back, not that it was picked up again
             live.say(/The person answered:/.test(answered.slice(answered.lastIndexOf("You asked:"))) ? "Got your answer. Going on" : "No answer came in time. Going on with a best guess");
+          } else if (approved) {
+            live.say(/person approved/.test(approved) ? "Plan approved. Starting the work" : "No answer came in time. Going on with the plan as written");
           } else {
             live.say(`Picked up by ${agent.name}`);
             if (before) live.say("Continuing from the earlier job");
@@ -344,6 +358,38 @@ async function processTasks() {
           });
           // the race's loser is never awaited; keep a timeout that fires after a failure from surfacing as unhandled
           taskTimeout.catch(() => {});
+
+          // Plan first: this run writes the plan and nothing else. One call, no tools; the job then waits for the
+          // person to approve it, change it or cancel.
+          if (stage === "plan") {
+            const had = plansOf(task.taskId);
+            if (!had.length) live.say("Writing a plan for you to approve");
+            const planMessage = before + task.task + formatContext(said) + answered + handed.text + planNote(had);
+            const planned = await captureModelStep(() =>
+              Promise.race([runWithProvider(agent, planMessage, PLAN_MAX_TOKENS, undefined, handed.attachments), taskTimeout]),
+            );
+            if (!planned.result.trim()) throw new Error("The agent wrote no plan");
+            safeAppendTraceEvent({
+              traceId: task.traceId ?? task.taskId,
+              taskId: task.taskId,
+              kind: "step.model",
+              fromAgent: task.fromAgent,
+              toAgent: task.toAgent,
+              workflowId: task.workflowId ?? null,
+              stepIndex: task.stepIndex ?? null,
+              inputHash: hashContent(planMessage),
+              outputHash: hashContent(planned.result),
+              model: planned.model ?? null,
+              inputTokens: planned.inputTokens || null,
+              outputTokens: planned.outputTokens || null,
+              costUsd: estimateCostUsd(planned.model, planned.inputTokens, planned.outputTokens),
+              latencyMs: planned.latencyMs,
+            });
+            keepPlan(task.taskId, planned.result);
+            if (parkForPlan(task.taskId)) live.say("Waiting for you to approve the plan");
+            recordCircuitSuccess(agent.agentId);
+            return;
+          }
 
           // Granted tools: this agent may search, fetch, and call MCP tools before
           // it answers. Resolved per task so a newly synced MCP server is picked up
@@ -514,9 +560,10 @@ async function poll() {
       .prepare("INSERT OR REPLACE INTO worker_state (key, value, updated_at) VALUES ('last_seen', 'ok', ?)")
       .run(new Date().toISOString());
 
-    // Questions nobody answered in time: those jobs go on with a best guess.
+    // Questions nobody answered in time: those jobs go on with a best guess. Plans nobody answered: with the plan.
     try {
       if (askEnabled()) resumeOverdue();
+      if (planEnabled()) approveOverdue();
     } catch (err) {
       logger.error("worker.ask_resume_failed", "Could not resume jobs waiting on an answer", { err });
     }

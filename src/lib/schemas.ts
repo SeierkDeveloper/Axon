@@ -124,6 +124,9 @@ export const createTaskSchema = z.object({
   // "waiting") until POST /api/tasks/{taskId}/answer, or goes on with a best guess when the time runs out. Leave it
   // out for a job nobody is watching.
   allowQuestions: z.boolean().optional(),
+  // Plan first: the agent writes its plan and the job waits (status "waiting") until it is approved, changed or
+  // cancelled with POST /api/tasks/{taskId}/plan. Unanswered, the job goes on with the plan as written.
+  planFirst: z.boolean().optional(),
   followUpOf: z.string().min(1).max(64).optional(),
   followUpToken: z.string().max(128).optional(),
 }).refine(

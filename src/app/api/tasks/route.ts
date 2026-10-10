@@ -17,6 +17,7 @@ import { claimTokenFor, claimTokenValid } from "@/lib/mcpServer";
 import { agentReads, attachFiles, checkTaskFiles, CONTEXT_KEY, filesEnabled, listFiles, passFiles, REPORT_KEY, type FileRow } from "@/lib/agentFiles";
 import { carriedFiles, checkFollowUp, followNote, followUpEnabled, FOLLOW_KEY, type FollowCheck } from "@/lib/followUp";
 import { askEnabled, ASK_KEY } from "@/lib/ask";
+import { planEnabled, PLAN_KEY } from "@/lib/planFirst";
 import { getMcpServerByAgentId } from "@/lib/mcp";
 import { getDb } from "@/lib/db";
 import { createTaskSchema, parseBody } from "@/lib/schemas";
@@ -234,6 +235,11 @@ async function handlePost(req: NextRequest) {
     return apiError("VALIDATION_ERROR", `context.${ASK_KEY} is filled in by Axon. Send "allowQuestions": true instead.`, 400);
   }
   if (body.allowQuestions && askEnabled()) body.context = { ...(body.context ?? {}), [ASK_KEY]: true };
+  // Plan first: the same way. Where it is off, or the agent cannot write a plan, the job simply runs.
+  if (planEnabled() && body.context && PLAN_KEY in body.context) {
+    return apiError("VALIDATION_ERROR", `context.${PLAN_KEY} is filled in by Axon. Send "planFirst": true instead.`, 400);
+  }
+  if (body.planFirst && planEnabled()) body.context = { ...(body.context ?? {}), [PLAN_KEY]: true };
 
   // "balance" funds a paid hire from the paying agent's earned ledger balance
   // instead of a fresh on-chain transfer — so an agent can reinvest what it earns.

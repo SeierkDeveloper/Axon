@@ -19,7 +19,10 @@ import VoiceOutput from "@/components/VoiceOutput";
 // In-browser payment covers ETH-priced agents. A SOL price (or missing wallet
 // config) falls back to the API/MCP, which pay per task.
 
-type Phase = "idle" | "hiring" | "running" | "asking" | "done" | "error";
+type Phase = "idle" | "hiring" | "running" | "asking" | "planning" | "cancelled" | "done" | "error";
+
+/** The plan a job is waiting on: what the agent will do, the price it does it for, and until when it waits. */
+interface OpenPlan { n: number; text: string; answerBy: string; price: string | null; changesLeft: number }
 
 /** A question the agent asked along the way, and what came back. */
 interface Asked { n: number; text: string; choices?: string[]; answerBy: string; answer?: string; answeredAt?: string; answeredHow?: "person" | "timeout" }
@@ -94,6 +97,7 @@ export default function HirePanel({
   price,
   receiver,
   rpcUrl,
+  canPlan = false,
 }: {
   agentId: string;
   agentName: string;
@@ -101,6 +105,8 @@ export default function HirePanel({
   price?: string | null;
   receiver?: string;
   rpcUrl?: string;
+  /** this agent can write a plan for the person to approve before it starts */
+  canPlan?: boolean;
 }) {
   const [task, setTask] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
@@ -141,6 +147,14 @@ export default function HirePanel({
   const [asked, setAsked] = useState<Asked[]>([]);
   // the question just answered here, so a read that was already on its way does not show it again
   const answeredQ = useRef(0);
+  // Plan first: whether it was asked for, the plan the job is waiting on, and what is being decided about it.
+  const [planFirst, setPlanFirst] = useState(false);
+  const [plan, setPlan] = useState<OpenPlan | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [changing, setChanging] = useState(false);
+  const [change, setChange] = useState("");
+  const decidedPlan = useRef(0);
 
   // Stop the poll loop if the user navigates away mid-hire — no setState on an
   // unmounted component, no orphaned timers.
@@ -174,7 +188,7 @@ export default function HirePanel({
         setPhase("error");
         return;
       }
-      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: { n: number; text: string }[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[] };
+      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: { n: number; text: string }[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[]; plan?: OpenPlan };
       if (cancelled.current) return;
       if (Array.isArray(t.steps)) setSteps((had) => (t.steps!.length >= had.length ? t.steps! : had));
       if (Array.isArray(t.questions)) setAsked(t.questions.filter((q) => q.answeredAt));
@@ -189,9 +203,25 @@ export default function HirePanel({
         setTimeout(() => poll(id, claimToken, 0), stale ? POLL_MS : WAIT_POLL_MS);
         return;
       }
+      // Plan first: the plan is out. Show it and keep looking, slowly, for the job to go on.
+      if (t.status === "waiting" && t.plan) {
+        const stale = t.plan.n === decidedPlan.current;
+        if (!stale) {
+          setPlan(t.plan);
+          setPhase("planning");
+        }
+        setTimeout(() => poll(id, claimToken, 0), stale ? POLL_MS : WAIT_POLL_MS);
+        return;
+      }
+      if (t.status === "cancelled") {
+        setPlan(null);
+        setPhase("cancelled");
+        return;
+      }
       if (t.status === "queued" || t.status === "running") {
         setQuestion(null);
-        setPhase((p) => (p === "asking" ? "running" : p));
+        setPlan(null);
+        setPhase((p) => (p === "asking" || p === "planning" ? "running" : p));
       }
       if (t.status === "completed") {
         setOutput(t.output ?? "");
@@ -224,7 +254,7 @@ export default function HirePanel({
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ from: "anonymous", to: agentId, task: task.trim(), allowQuestions: true, ...(files.length ? { files: files.map((f) => ({ id: f.id, token: f.token })) } : {}), ...(report ? { reportFile: true } : {}), ...(payment ?? {}) }),
+        body: JSON.stringify({ from: "anonymous", to: agentId, task: task.trim(), allowQuestions: true, ...(planFirst && canPlan ? { planFirst: true } : {}), ...(files.length ? { files: files.map((f) => ({ id: f.id, token: f.token })) } : {}), ...(report ? { reportFile: true } : {}), ...(payment ?? {}) }),
       });
       const data = (await res.json()) as { taskId?: string; claimToken?: string; error?: string };
       if (cancelled.current) return;
@@ -391,9 +421,46 @@ export default function HirePanel({
     }
   }
 
+  // Decide on the plan: approve it and the work starts, ask for a change and it is written again, or cancel.
+  async function decide(action: "approve" | "change" | "cancel") {
+    if (!taskId || !claim || !plan || planBusy) return;
+    if (action === "change" && !change.trim()) return;
+    setPlanBusy(true);
+    setPlanError(null);
+    try {
+      const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/plan`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-claim-token": claim },
+        body: JSON.stringify({ action, ...(action === "change" ? { change: change.trim() } : {}) }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; details?: { refused?: string } };
+      if (cancelled.current) return;
+      // decided, or the job already went on by itself: either way this plan is no longer waiting
+      if (res.ok || data.details?.refused === "not_waiting") {
+        decidedPlan.current = plan.n;
+        setPlan(null);
+        setChange("");
+        setChanging(false);
+        setPhase(action === "cancel" && res.ok ? "cancelled" : "running");
+        return;
+      }
+      setPlanError(data.error ?? "That did not go through. Try again.");
+    } catch {
+      setPlanError("Network error. Try again.");
+    } finally {
+      setPlanBusy(false);
+    }
+  }
+
   function reset() {
     cancelled.current = true;
     paid.current = null; // a fresh hire pays anew
+    setPlan(null);
+    setPlanError(null);
+    setChanging(false);
+    setChange("");
+    setPlanFirst(false);
+    decidedPlan.current = 0;
     setHasPaid(false);
     setFollowHasPaid(false);
     setQuestion(null);
@@ -467,6 +534,15 @@ export default function HirePanel({
             className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-teal-400 disabled:opacity-60 resize-y"
           />
           <FileAttach agentId={agentId} paid={payAndHire} files={files} onChange={setFiles} disabled={phase === "hiring"} report={report} onReport={setReport} />
+          {canPlan && (
+            <label className="mt-2.5 flex cursor-pointer items-start gap-2 text-xs text-gray-600 dark:text-gray-300">
+              <input type="checkbox" checked={planFirst} onChange={(e) => setPlanFirst(e.target.checked)} disabled={phase === "hiring"} className="mt-0.5 h-3.5 w-3.5 accent-teal-600" />
+              <span>
+                Show me the plan first
+                <span className="block text-[11px] text-gray-400 dark:text-gray-500">{agentName} says what it will do, and starts only when you approve.{payAndHire ? " Cancel at the plan and your payment is refunded." : ""}</span>
+              </span>
+            </label>
+          )}
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
             <button
               onClick={payAndHire ? hirePaid : hireFree}
@@ -534,6 +610,80 @@ export default function HirePanel({
               </span>
             </div>
             {answerError && <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">{answerError}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* Plan first. The job waits here until the plan is approved, changed or cancelled. */}
+      {phase === "planning" && plan && (
+        <div className="py-1">
+          <StepList steps={steps} />
+          <div className="mt-3 rounded-md border border-teal-200 bg-teal-50/50 p-3.5 dark:border-teal-900/50 dark:bg-teal-950/20">
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">{agentName}&apos;s plan{plan.n > 1 ? `, changed ${plan.n - 1 === 1 ? "once" : `${plan.n - 1} times`}` : ""}</p>
+            <div className="max-h-80 overflow-auto break-words rounded-md border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
+              <MarkdownOutput text={plan.text} />
+            </div>
+            <p className="mt-2.5 text-xs text-gray-600 dark:text-gray-300">
+              <span className="font-semibold text-gray-900 dark:text-white">Price: {plan.price ?? "free"}.</span>{" "}
+              {plan.price ? "It is held until you approve. Cancel and it is refunded." : "Nothing to pay."}
+            </p>
+            {changing && (
+              <textarea
+                value={change}
+                onChange={(e) => setChange(e.target.value)}
+                placeholder="What should be different?"
+                rows={2}
+                disabled={planBusy}
+                className="mt-3 w-full resize-y rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-400 focus:outline-none disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              />
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {changing ? (
+                <>
+                  <button onClick={() => void decide("change")} disabled={!change.trim() || planBusy} className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700 disabled:opacity-50">
+                    {planBusy ? "Sending…" : "Send the change"}
+                  </button>
+                  <button onClick={() => { setChanging(false); setChange(""); }} disabled={planBusy} className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:border-gray-400 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200">
+                    Back
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => void decide("approve")} disabled={planBusy} className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700 disabled:opacity-50">
+                    {planBusy ? "Sending…" : "Approve and start"}
+                  </button>
+                  {plan.changesLeft > 0 && (
+                    <button onClick={() => setChanging(true)} disabled={planBusy} className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 transition-colors hover:border-teal-500 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100">
+                      Ask for a change
+                    </button>
+                  )}
+                  <button onClick={() => void decide("cancel")} disabled={planBusy} className="px-2 py-2 text-sm text-gray-500 hover:underline disabled:opacity-50 dark:text-gray-400">
+                    Cancel
+                  </button>
+                </>
+              )}
+            </div>
+            <p className="mt-2.5 text-[11px] text-gray-500 dark:text-gray-400">
+              With no answer by {new Date(plan.answerBy).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} it goes on with this plan.
+            </p>
+            {planError && <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">{planError}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* Called off at the plan: nothing was done. */}
+      {phase === "cancelled" && (
+        <div>
+          <p className="text-sm text-gray-700 dark:text-gray-300">Cancelled. No work was done{hasPaid ? ", and your payment is refunded" : ""}.</p>
+          <div className="mt-3 flex items-center gap-4">
+            {taskId && (
+              <a href={`/r/${encodeURIComponent(taskId)}`} target="_blank" rel="noopener noreferrer" className="text-xs text-teal-600 hover:underline dark:text-teal-400">
+                View the receipt →
+              </a>
+            )}
+            <button onClick={reset} className="text-xs text-gray-500 hover:underline dark:text-gray-400">
+              Hire again
+            </button>
           </div>
         </div>
       )}

@@ -58,7 +58,7 @@ const view = (r: Row): Question => {
 
 /** Every question a job has asked, in order. */
 export function questionsOf(taskId: string): Question[] {
-  return (getDb().prepare("SELECT n, question, choices, asked_at, answer_by, answer, answered_at, answered_how FROM task_questions WHERE task_id = ? ORDER BY n ASC").all(taskId) as Row[]).map(view);
+  return (getDb().prepare("SELECT n, question, choices, asked_at, answer_by, answer, answered_at, answered_how FROM task_questions WHERE task_id = ? AND kind = 'question' ORDER BY n ASC").all(taskId) as Row[]).map(view);
 }
 
 /** The question a job is waiting on, if it is waiting on one. */
@@ -110,7 +110,7 @@ export function askTool(ctx: { taskId: string; onAsked: (q: Question) => void; e
       const now = ctx.now?.() ?? Date.now();
       const askedAt = new Date(now).toISOString(), answerBy = new Date(now + waitMinutes(env) * 60_000).toISOString();
       const n = had.length + 1;
-      getDb().prepare("INSERT INTO task_questions (task_id, n, question, choices, asked_at, answer_by) VALUES (?,?,?,?,?,?)")
+      getDb().prepare("INSERT INTO task_questions (task_id, kind, n, question, choices, asked_at, answer_by) VALUES (?,'question',?,?,?,?,?)")
         .run(ctx.taskId, n, text, choices.length >= 2 ? JSON.stringify(choices) : null, askedAt, answerBy);
       asked = true;
       ctx.onAsked({ n, text, ...(choices.length >= 2 ? { choices } : {}), askedAt, answerBy });
@@ -153,12 +153,12 @@ export function answerQuestion(taskId: string, answer: string | null, how: "pers
   if (text.length > ANSWER_CHARS) return { ok: false, refused: "too_long", reason: `Keep the answer under ${ANSWER_CHARS.toLocaleString("en-US")} characters.` };
   const db = getDb(), at = new Date(now).toISOString();
   const done = db.transaction((): number | null => {
-    const open = db.prepare("SELECT n FROM task_questions WHERE task_id = ? AND answered_at IS NULL ORDER BY n ASC LIMIT 1").get(taskId) as { n: number } | undefined;
+    const open = db.prepare("SELECT n FROM task_questions WHERE task_id = ? AND kind = 'question' AND answered_at IS NULL ORDER BY n ASC LIMIT 1").get(taskId) as { n: number } | undefined;
     if (!open) return null;
     // back into the queue, its wait counted from now: the time spent waiting on a person is not the queue's
     const queued = db.prepare("UPDATE tasks SET status = 'queued', started_at = NULL, started_by = NULL, requeued_at = ? WHERE task_id = ? AND status = 'waiting'").run(at, taskId).changes;
     if (!queued) return null;
-    db.prepare("UPDATE task_questions SET answer = ?, answered_at = ?, answered_how = ? WHERE task_id = ? AND n = ?").run(how === "person" ? text : null, at, how, taskId, open.n);
+    db.prepare("UPDATE task_questions SET answer = ?, answered_at = ?, answered_how = ? WHERE task_id = ? AND kind = 'question' AND n = ?").run(how === "person" ? text : null, at, how, taskId, open.n);
     return open.n;
   })();
   if (done === null) return { ok: false, refused: "not_waiting", reason: "This job is not waiting for an answer." };
@@ -179,7 +179,7 @@ export function answerQuestion(taskId: string, answer: string | null, how: "pers
 export function resumeOverdue(now = Date.now()): number {
   const due = getDb().prepare(
     `SELECT DISTINCT q.task_id FROM task_questions q JOIN tasks t ON t.task_id = q.task_id
-     WHERE q.answered_at IS NULL AND q.answer_by <= ? AND t.status = 'waiting'`,
+     WHERE q.kind = 'question' AND q.answered_at IS NULL AND q.answer_by <= ? AND t.status = 'waiting'`,
   ).all(new Date(now).toISOString()) as { task_id: string }[];
   let resumed = 0;
   for (const { task_id } of due) if (answerQuestion(task_id, null, "timeout", now).ok) resumed++;
@@ -192,7 +192,7 @@ export function resumeOverdue(now = Date.now()): number {
  * being asked: it is closed as unanswered rather than left looking like something to answer.
  */
 export function closeStrays(taskId: string, now = Date.now()): number {
-  return getDb().prepare("UPDATE task_questions SET answered_at = ?, answered_how = 'timeout' WHERE task_id = ? AND answered_at IS NULL").run(new Date(now).toISOString(), taskId).changes;
+  return getDb().prepare("UPDATE task_questions SET answered_at = ?, answered_how = 'timeout' WHERE task_id = ? AND kind = 'question' AND answered_at IS NULL").run(new Date(now).toISOString(), taskId).changes;
 }
 
 /** What an agent is told, after the job itself, about what it asked and what came back. Empty when it asked nothing. */
