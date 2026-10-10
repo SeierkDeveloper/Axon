@@ -11,7 +11,7 @@
 import { getDb } from "./db";
 import { getTaskById, type Task } from "./tasks";
 import { isWalletAddress } from "./address";
-import { filesOfTask, fitForHire, type FileRow, type LeftBehind, type Reads } from "./agentFiles";
+import { filesOfTask, fitForHire, latestOnly, type FileRow, type LeftBehind, type Reads } from "./agentFiles";
 
 export function followUpEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return (env.AGENT_FOLLOWUP ?? "off").trim().toLowerCase() === "on";
@@ -78,11 +78,12 @@ export function checkFollowUp(input: { parentId: string; from: string; to?: stri
 /**
  * The files a follow-up carries from the job before: what the agent handed back first (that is what a follow-up is
  * most often about), then what it was given. Files uploaded with the follow-up itself (`fresh`) come before both.
- * Together they stay inside what one hire may carry; what does not fit is left behind and named.
+ * Together they stay inside what one hire may carry; what does not fit is left behind and named. Of a file that has
+ * been revised only the latest version goes along: the earlier ones stay with the jobs that made them.
  */
 export function carriedFiles(parent: Pick<Task, "taskId">, fresh: FileRow[], reads: Reads, paid: boolean): { carried: FileRow[]; left: LeftBehind[] } {
   const made = filesOfTask(parent.taskId, "out").reverse(), given = filesOfTask(parent.taskId, "in");
-  const fit = fitForHire([...fresh, ...made, ...given], reads, paid);
+  const fit = fitForHire(latestOnly([...fresh, ...made, ...given]), reads, paid);
   const isFresh = new Set(fresh.map((f) => f.id));
   return { carried: fit.rows.filter((r) => !isFresh.has(r.id)), left: fit.left };
 }

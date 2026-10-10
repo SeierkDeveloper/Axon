@@ -147,7 +147,19 @@ export interface FileRow {
   owner_wallet: string | null; task_id: string | null; created_at: string; expires_at: string; deleted_at: string | null;
   /** the job this file first belonged to, when it was handed on from another job; null for an upload */
   source_task_id?: string | null;
+  /** a revision: its number (2 and up), the content it replaces, the first version's content, and the job that made that */
+  version?: number | null;
+  revises_sha256?: string | null;
+  first_sha256?: string | null;
+  first_task_id?: string | null;
 }
+
+/** What a listing says about a file that is a revision. Nothing for a file that is not one. */
+export interface VersionInfo { version: number; revises: string; first: { sha256: string; taskId: string | null } }
+export const versionInfo = (r: FileRow): { version?: number; revises?: string; first?: VersionInfo["first"] } =>
+  r.version && r.version > 1 && r.revises_sha256 && r.first_sha256
+    ? { version: r.version, revises: r.revises_sha256, first: { sha256: r.first_sha256, taskId: r.first_task_id ?? null } }
+    : {};
 export interface FileView {
   /** `type` and `mime` are the same thing: `type` is what every other listing of a file calls it */
   id: string; name: string; type: string; mime: string; kind: FileKind; size: number; sha256: string; direction: "in" | "out";
@@ -157,6 +169,19 @@ export const toView = (r: FileRow): FileView => ({
   id: r.id, name: r.name, type: r.mime, mime: r.mime, kind: r.kind, size: r.size, sha256: r.sha256, direction: r.direction,
   taskId: r.task_id, createdAt: r.created_at, expiresAt: r.expires_at,
 });
+
+/** The line a file belongs to: the content of its first version. A file that revises nothing is its own line. */
+export const lineOf = (r: Pick<FileRow, "sha256" | "first_sha256">): string => r.first_sha256 ?? r.sha256;
+
+/** Of these files, each line's latest version only, in the order given. An older version of a file is not carried on. */
+export function latestOnly(rows: FileRow[]): FileRow[] {
+  const best = new Map<string, FileRow>();
+  for (const r of rows) {
+    const had = best.get(lineOf(r));
+    if (!had || (r.version ?? 1) > (had.version ?? 1)) best.set(lineOf(r), r);
+  }
+  return rows.filter((r) => best.get(lineOf(r)) === r);
+}
 
 /** A file that is still there: not deleted and not past its time. */
 export function getFile(id: string, now = Date.now()): FileRow | null {
@@ -468,8 +493,9 @@ function copyRow(r: FileRow, to: { taskId: string | null; direction: "in" | "out
   // The job that MADE it: a file handed on twice still names where it was made. A file somebody uploaded was made
   // by no job, however far it travels.
   const source = r.source_task_id ?? (r.direction === "out" ? r.task_id : null);
-  getDb().prepare("INSERT INTO task_files (id, sha256, name, mime, kind, size, direction, owner_wallet, task_id, created_at, expires_at, source_task_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
-    .run(id, r.sha256, r.name, r.mime, r.kind, r.size, to.direction, wallet, to.taskId, createdAt, expiresAt, source);
+  // a file handed on is still the version it was: the next change to it is the version after
+  getDb().prepare("INSERT INTO task_files (id, sha256, name, mime, kind, size, direction, owner_wallet, task_id, created_at, expires_at, source_task_id, version, revises_sha256, first_sha256, first_task_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+    .run(id, r.sha256, r.name, r.mime, r.kind, r.size, to.direction, wallet, to.taskId, createdAt, expiresAt, source, r.version ?? null, r.revises_sha256 ?? null, r.first_sha256 ?? null, r.first_task_id ?? null);
   return getDb().prepare("SELECT * FROM task_files WHERE id = ?").get(id) as FileRow;
 }
 
@@ -512,12 +538,12 @@ export function madeBy(row: { source_task_id?: string | null; task_id?: string |
 // names it by its hash, so the file somebody holds can be checked against what the job committed to.
 
 /** A file as a receipt lists it. `stored` is false once its bytes have been cleared; the hash stays. */
-export interface ReceiptFile { id: string; name: string; type: string; size: number; sha256: string; stored: boolean; madeBy?: { agentId: string; name: string; taskId: string } }
+export interface ReceiptFile { id: string; name: string; type: string; size: number; sha256: string; stored: boolean; madeBy?: { agentId: string; name: string; taskId: string }; version?: number; revises?: string; first?: VersionInfo["first"] }
 
 /** The files a job handed back, for its receipt: every one it ever had, in order, cleared or not. */
 export function receiptFiles(taskId: string, direction: "in" | "out" = "out"): ReceiptFile[] {
   const rows = getDb().prepare("SELECT * FROM task_files WHERE task_id = ? AND direction = ? ORDER BY created_at ASC, id ASC").all(taskId, direction) as FileRow[];
-  return rows.map((r) => { const by = madeBy(r); return { id: r.id, name: r.name, type: r.mime, size: r.size, sha256: r.sha256, stored: !r.deleted_at, ...(by ? { madeBy: by } : {}) }; });
+  return rows.map((r) => { const by = madeBy(r); return { id: r.id, name: r.name, type: r.mime, size: r.size, sha256: r.sha256, stored: !r.deleted_at, ...(by ? { madeBy: by } : {}), ...versionInfo(r) }; });
 }
 
 /**
@@ -541,10 +567,10 @@ export function keepOutput(input: { taskId: string; bytes: Buffer; name: string;
 }
 
 /** A returned file as the job's reader gets it: what it is, its hash, and the token and path that download it. */
-export interface OutputFile { id: string; name: string; type: string; kind: FileKind; size: number; sha256: string; token: string; path: string; madeBy?: { agentId: string; name: string; taskId: string } }
+export interface OutputFile { id: string; name: string; type: string; kind: FileKind; size: number; sha256: string; token: string; path: string; madeBy?: { agentId: string; name: string; taskId: string }; version?: number; revises?: string; first?: VersionInfo["first"] }
 export const outputFileFor = (f: FileRow): OutputFile => {
   const by = madeBy(f);
-  return { id: f.id, name: f.name, type: f.mime, kind: f.kind, size: f.size, sha256: f.sha256, token: fileTokenFor(f.id), path: `/api/files/${f.id}/content`, ...(by ? { madeBy: by } : {}) };
+  return { id: f.id, name: f.name, type: f.mime, kind: f.kind, size: f.size, sha256: f.sha256, token: fileTokenFor(f.id), path: `/api/files/${f.id}/content`, ...(by ? { madeBy: by } : {}), ...versionInfo(f) };
 };
 
 /** The key in a hire's context that asks for the answer as a file as well. Set by `reportFile` on a hire, never directly. */

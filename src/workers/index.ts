@@ -13,7 +13,8 @@ import { recordTaskLatency } from "../lib/metrics";
 import { formatContext } from "../lib/formatContext";
 import { isWalletAddress } from "../lib/address";
 import { attachmentsForTask, codeEnabled, filesEnabled, keepOutput, readBytes, REPORT_KEY, REPORT_NOTE, storeReport } from "../lib/agentFiles";
-import { conversationBefore, followUpEnabled, FOLLOW_KEY } from "../lib/followUp";
+import { conversationBefore, earlierTurns, followUpEnabled, FOLLOW_KEY } from "../lib/followUp";
+import { markRevision, REVISE_NOTE } from "../lib/revisions";
 import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
@@ -299,7 +300,16 @@ async function processTasks() {
           const before = followUpEnabled() ? conversationBefore(task) : "";
           const { [FOLLOW_KEY]: _followNote, ...said } = task.context ?? {};
           void _followNote;
-          const fullMessage = before + task.task + formatContext(before ? said : task.context) + handed.text + prices + (wantsReport ? REPORT_NOTE : "");
+          // Running code: an agent Axon runs on Claude may, for a hire that carries files (see below). An agent that can
+          // change the files it holds is told how a change is kept: under the same name, as a new version.
+          const mayCode = codeEnabled() && !mcpHandler && !agent.orchestrator && (agent.provider ?? "anthropic") === "anthropic";
+          const mayRevise = followUpEnabled() && mayCode && handed.files.length > 0;
+          const fullMessage = before + task.task + formatContext(before ? said : task.context) + handed.text + prices + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "");
+          // a file handed back that changes one the job was given is its next version; said in the log as it is kept
+          const madeLine = (file: { id: string; name: string }): string => {
+            const rev = markRevision(task.taskId, file.id);
+            return rev ? `Made ${file.name}, version ${rev.version}` : `Made ${file.name}`;
+          };
 
           // Watch it work: a line for each step, written as it happens, for whoever hired the agent to follow.
           const live = liveLog(task.taskId);
@@ -330,7 +340,6 @@ async function processTasks() {
           // Running code. An agent Axon runs on Claude gets a sandbox for a hire that carries files, so what it says
           // about them is calculated rather than guessed; an agent whose owner granted "code_execution" has one
           // anyway. The hire's files are put into it, and whatever it writes there for the person is kept with the job.
-          const mayCode = codeEnabled() && !mcpHandler && !agent.orchestrator && (agent.provider ?? "anthropic") === "anthropic";
           if (mayCode && handed.files.length && !hasCode(tools)) tools = withCode(tools);
           const sandbox = mayCode && hasCode(tools)
             ? {
@@ -338,14 +347,16 @@ async function processTasks() {
                 onFile: (f: SandboxFile) => {
                   const kept = keepOutput({ taskId: task.taskId, bytes: f.bytes, name: f.name, wallet: hirerWallet });
                   if (kept && !kept.ok) logger.info("worker.output_file_refused", "A file the agent wrote was not kept", { taskId: task.taskId, name: f.name, refused: kept.refused });
-                  if (kept?.ok) live.say(`Made ${kept.file.name}`);
+                  if (kept?.ok) live.say(madeLine(kept.file));
                 },
               }
             : undefined;
           // Making pictures. A hire that is about a picture gives the agent one more tool: it describes the picture, a
           // picture model draws it, and the file is kept with the job like any other the agent hands back.
-          if (mayDraw(agent, task.task, { viaMcp: Boolean(mcpHandler) })) {
-            tools = withPictures(tools, pictureTool({ taskId: task.taskId, wallet: hirerWallet, paid: task.payment != null, onMade: (f) => live.say(`Made ${f.name}`) }));
+          // A follow-up to a job that was about a picture is about that picture too, whatever its own few words say.
+          const aboutPicture = (job: string) => mayDraw(agent, job, { viaMcp: Boolean(mcpHandler) });
+          if (aboutPicture(task.task) || (before && earlierTurns(task).some((t) => aboutPicture(t.task)))) {
+            tools = withPictures(tools, pictureTool({ taskId: task.taskId, wallet: hirerWallet, paid: task.payment != null, onMade: (f) => live.say(madeLine(f)) }));
           }
           // Every call the agent makes goes into the flight recorder as it happens,
           // so the receipt shows what it did, not just what it said.
@@ -420,7 +431,10 @@ async function processTasks() {
           // The answer as a file, kept before the job completes so its commitment covers the file too.
           if (wantsReport) {
             const kept = storeReport({ taskId: task.taskId, output, agentName: agent.name, wallet: hirerWallet });
-            if (kept?.ok) live.say(`Saved the answer as ${kept.file.name}`);
+            if (kept?.ok) {
+              const rev = markRevision(task.taskId, kept.file.id);
+              live.say(rev ? `Saved the answer as ${kept.file.name}, version ${rev.version}` : `Saved the answer as ${kept.file.name}`);
+            }
             if (kept && !kept.ok) logger.info("worker.report_file_refused", "The answer was not kept as a file", { taskId: task.taskId, refused: kept.refused });
           }
 

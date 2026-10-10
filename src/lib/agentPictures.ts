@@ -120,7 +120,7 @@ export function pictureTool(ctx: { taskId: string; wallet: string | null; paid: 
       properties: {
         prompt: { type: "string", description: "The complete description of the picture" },
         shape: { type: "string", enum: ["square", "wide", "tall"], description: "square (default), wide for banners and headers, tall for posters and phone screens" },
-        name: { type: "string", description: "A short file name without an extension, for example launch-poster" },
+        name: { type: "string", description: "A short file name without an extension, for example launch-poster. To redo a picture from earlier in the conversation, give it the earlier picture's name: it is kept as the new version of that picture" },
       },
       required: ["prompt"],
     },

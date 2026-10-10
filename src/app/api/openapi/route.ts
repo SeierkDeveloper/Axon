@@ -1428,6 +1428,15 @@ const SPEC = {
         security: [{}, { bearerAuth: [] }, { apiKey: [] }],
       },
     },
+    "/files/{fileId}/versions": {
+      parameters: [{ name: "fileId", in: "path", required: true, schema: { type: "string" } }],
+      get: {
+        summary: "Every version of a file that is still stored, oldest first. When a follow-up asks for a change and the agent hands the file back under the same name, that is the next version; the earlier one stays with the job that made it. Each version has its own SHA-256, the job that made it, and the token and path that download it. Same permission as reading the file",
+        operationId: "listFileVersions",
+        tags: ["Files"],
+        security: [{}, { bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
     "/receipts/{taskId}/public": {
       parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
       get: {

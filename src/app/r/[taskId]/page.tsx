@@ -82,6 +82,17 @@ function ReturnedFiles({ files, filesHash }: { files: NonNullable<PublicReceipt[
               {!f.stored && <span className="text-gray-500">no longer stored</span>}
             </p>
             <p className="font-mono text-[13px] text-teal-300 break-all" title={f.sha256}>{f.sha256}</p>
+            {f.version && f.revises && f.first && (
+              <p className="mt-1 text-[11px] text-gray-400 break-all">
+                Version {f.version}. Replaces <span className="font-mono text-gray-300" title={f.revises}>{f.revises.slice(0, 16)}…</span>
+                {f.first.taskId ? (
+                  <>
+                    {" · "}
+                    <a href={`/r/${encodeURIComponent(f.first.taskId)}`} className="text-gray-300 underline decoration-white/20 hover:text-white">The job that made the first version →</a>
+                  </>
+                ) : " · the first version was uploaded with the job"}
+              </p>
+            )}
           </li>
         ))}
       </ul>
