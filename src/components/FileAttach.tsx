@@ -8,16 +8,20 @@ import { useEffect, useRef, useState } from "react";
  * while the feature is off.
  */
 
-export interface Attached { id: string; token: string; name: string; size: number; kind: "pdf" | "image" | "text" }
+export interface Attached { id: string; token: string; name: string; size: number; kind: "pdf" | "image" | "text" | "office" }
 interface Limits {
   maxBytes: number;
   imageMaxBytes: number;
   perHire: { free: { files: number; bytes: number; pdfPages: number }; paid: { files: number; bytes: number; pdfPages: number } };
   reads?: { text: boolean; pdf: boolean; image: boolean; why: string | null };
+  /** Word, Excel and PowerPoint files are taken */
+  office?: boolean;
 }
 
 const size = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
 const ACCEPT = ".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.md,.csv,.tsv,.json,application/pdf,image/png,image/jpeg,image/gif,image/webp,text/plain,text/markdown,text/csv,application/json";
+/** Word, Excel and PowerPoint, offered where the server takes them. */
+const OFFICE_ACCEPT = ".docx,.xlsx,.pptx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 export default function FileAttach({ agentId, paid, files, onChange, disabled, apiKey, report, onReport }: {
   agentId: string;
@@ -97,7 +101,7 @@ export default function FileAttach({ agentId, paid, files, onChange, disabled, a
         <ul className="mb-2 flex flex-wrap gap-2">
           {files.map((f) => (
             <li key={f.id} className="flex max-w-full items-center gap-2 rounded-md border border-gray-200 bg-gray-50 py-1 pl-2.5 pr-1 text-xs dark:border-gray-700 dark:bg-gray-800">
-              <span className="font-mono text-[10px] uppercase text-gray-400">{f.kind === "image" ? "img" : f.kind}</span>
+              <span className="font-mono text-[10px] uppercase text-gray-400">{f.kind === "image" ? "img" : f.kind === "office" ? (/\.([a-z]{3,4})$/i.exec(f.name)?.[1] ?? "doc") : f.kind}</span>
               <span className="truncate text-gray-900 dark:text-white">{f.name}</span>
               <span className="shrink-0 tabular-nums text-gray-400">{size(f.size)}</span>
               <button type="button" onClick={() => remove(f)} disabled={disabled} aria-label={`Remove ${f.name}`} className="shrink-0 rounded px-1.5 py-0.5 text-gray-400 hover:bg-gray-200 hover:text-gray-900 disabled:opacity-50 dark:hover:bg-gray-700 dark:hover:text-white">×</button>
@@ -106,12 +110,12 @@ export default function FileAttach({ agentId, paid, files, onChange, disabled, a
         </ul>
       )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <input ref={input} type="file" multiple accept={ACCEPT} className="hidden" onChange={(e) => { const el = e.target; if (el.files?.length) void add(el.files).finally(() => { el.value = ""; }); }} />
+        <input ref={input} type="file" multiple accept={limits.office ? `${ACCEPT},${OFFICE_ACCEPT}` : ACCEPT} className="hidden" onChange={(e) => { const el = e.target; if (el.files?.length) void add(el.files).finally(() => { el.value = ""; }); }} />
         <button type="button" onClick={() => input.current?.click()} disabled={disabled || full || busy > 0} className="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 transition-colors hover:border-gray-400 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:border-gray-500">
           {busy > 0 ? "Uploading…" : files.length ? "Add another file" : "Attach a file"}
         </button>
         <span className="text-[11px] text-gray-400 dark:text-gray-500">
-          {reads.pdf && reads.image ? "PDF, picture or text file" : reads.image ? "Picture or text file" : "Text files (text, Markdown, CSV, JSON)"}, up to {cap.files} and {size(cap.bytes)} together. Or drop it here.
+          {reads.pdf && reads.image ? "PDF, picture or text file" : reads.image ? "Picture or text file" : "Text files (text, Markdown, CSV, JSON)"}{limits.office ? ", Word, Excel or PowerPoint" : ""}, up to {cap.files} and {size(cap.bytes)} together. Or drop it here.
         </span>
       </div>
       {onReport && (

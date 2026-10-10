@@ -1395,7 +1395,7 @@ const SPEC = {
         parameters: [{ name: "agent", in: "query", required: false, schema: { type: "string" } }],
       },
       post: {
-        summary: "Hand over one file an agent will work on: a PDF, an image (PNG, JPEG, GIF, WebP) or a plain text file (text, Markdown, CSV, JSON), 10 MB at most. Send the file as the body with its name in X-File-Name, or as a multipart form with one \"file\" field. Anyone may upload within a visitor's daily allowance; send a key and the file belongs to your wallet. Returns the file and its token: the token is the only way a visitor reads the file again",
+        summary: "Hand over one file an agent will work on: a PDF, an image (PNG, JPEG, GIF, WebP) or a plain text file (text, Markdown, CSV, JSON), 10 MB at most. Where Office files are switched on, also a Word, Excel or PowerPoint file (.docx, .xlsx, .pptx; not the old binary formats, and not one with macros): every agent is given what it says, and an agent that runs code works on the file itself and can hand a real one back. Send the file as the body with its name in X-File-Name, or as a multipart form with one \"file\" field. Anyone may upload within a visitor's daily allowance; send a key and the file belongs to your wallet. Returns the file and its token: the token is the only way a visitor reads the file again",
         operationId: "uploadFile",
         tags: ["Files"],
         security: [{}, { bearerAuth: [] }, { apiKey: [] }],

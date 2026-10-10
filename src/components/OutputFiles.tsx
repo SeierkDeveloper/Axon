@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
  * file's token goes in a header, never in the address, so it does not end up in a log or in browser history.
  */
 
-export interface OutputFile { id: string; name: string; type: string; kind: "pdf" | "image" | "text"; size: number; sha256: string; token: string; path: string; madeBy?: { agentId: string; name: string; taskId: string }; version?: number; revises?: string; first?: { sha256: string; taskId: string | null } }
+export interface OutputFile { id: string; name: string; type: string; kind: "pdf" | "image" | "text" | "office"; size: number; sha256: string; token: string; path: string; madeBy?: { agentId: string; name: string; taskId: string }; version?: number; revises?: string; first?: { sha256: string; taskId: string | null } }
 
 /** One version of a file, as GET /api/files/{id}/versions lists it. */
 interface Version { version: number; id: string; name: string; size: number; sha256: string; taskId: string | null; uploaded?: boolean; token: string; path: string; current: boolean }
@@ -115,7 +115,7 @@ export default function OutputFiles({ files }: { files: OutputFile[] }) {
         {files.map((f) => (
           <li key={f.id} className="rounded-md border border-gray-200 bg-gray-50/60 p-2.5 dark:border-gray-800 dark:bg-gray-900/40">
             <div className="flex items-center gap-2 text-xs">
-              <span className="shrink-0 font-mono text-[10px] uppercase text-gray-400">{f.kind === "image" ? "img" : f.kind}</span>
+              <span className="shrink-0 font-mono text-[10px] uppercase text-gray-400">{f.kind === "image" ? "img" : f.kind === "office" ? (/\.([a-z]{3,4})$/i.exec(f.name)?.[1] ?? "doc") : f.kind}</span>
               <span className="min-w-0 truncate font-medium text-gray-900 dark:text-white">{f.name}</span>
               {f.version && f.version > 1 && (
                 <span className="shrink-0 rounded border border-teal-200 bg-teal-50 px-1.5 font-mono text-[10px] text-teal-700 dark:border-teal-900/50 dark:bg-teal-950/30 dark:text-teal-400" title={`Version ${f.version} of this file`}>v{f.version}</span>

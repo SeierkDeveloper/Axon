@@ -8,6 +8,7 @@ import { normalizeAddress } from "@/lib/address";
 import { agentReads, DAILY, filesEnabled, guestBytesAllowed, guestBytesRefund, IMAGE_MAX_BYTES, maxFileBytes, readCapped, storeFile, TASK_FILES } from "@/lib/agentFiles";
 import { getAgentById } from "@/lib/agents";
 import { getMcpServerByAgentId } from "@/lib/mcp";
+import { officeEnabled, OFFICE } from "@/lib/officeFiles";
 
 export const runtime = "nodejs";
 
@@ -38,7 +39,9 @@ export async function GET(req: NextRequest) {
       {
         maxBytes: maxFileBytes(),
         imageMaxBytes: IMAGE_MAX_BYTES,
-        types: ["application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp", "text/plain", "text/markdown", "text/csv", "application/json"],
+        types: ["application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp", "text/plain", "text/markdown", "text/csv", "application/json", ...(officeEnabled() ? Object.values(OFFICE).map((o) => o.mime) : [])],
+        // Word, Excel and PowerPoint are taken here: a page offers them only when this says so
+        ...(officeEnabled() ? { office: true } : {}),
         perHire: TASK_FILES,
         ...(agent ? { reads: agentReads(agent, { runsThroughMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }) } : {}),
       },

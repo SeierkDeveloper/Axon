@@ -59,7 +59,12 @@ function HashRow({ label, hash, hint }: { label: string; hash: string | null; hi
 }
 
 const fileSize = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
-const fileKind = (type: string) => (type === "application/pdf" ? "PDF" : type.startsWith("image/") ? type.slice(6).toUpperCase() : (type.split("/")[1] ?? "text").replace("plain", "text").toUpperCase());
+const OFFICE_KINDS: Record<string, string> = { wordprocessingml: "WORD", spreadsheetml: "EXCEL", presentationml: "POWERPOINT" };
+const fileKind = (type: string) => {
+  const office = Object.keys(OFFICE_KINDS).find((k) => type.includes(k));
+  if (office) return OFFICE_KINDS[office];
+  return type === "application/pdf" ? "PDF" : type.startsWith("image/") ? type.slice(6).toUpperCase() : (type.split("/")[1] ?? "text").replace("plain", "text").toUpperCase();
+};
 
 /** The files the job handed back: what each is and its hash. Never a name; the work stays private. */
 function ReturnedFiles({ files, filesHash }: { files: NonNullable<PublicReceipt["outputFiles"]>; filesHash?: string }) {

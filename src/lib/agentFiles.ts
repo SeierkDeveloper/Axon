@@ -29,6 +29,8 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 import { getDb, getDbPath } from "./db";
 import { logger } from "./logger";
 import { forModel } from "./agentImages";
+import { looksZip } from "./zip";
+import { officeEnabled, officeText, officeType, officeTypeOf, OFFICE } from "./officeFiles";
 
 export function filesEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return (env.AGENT_FILES ?? "off").trim().toLowerCase() === "on";
@@ -71,7 +73,7 @@ export const KEEP_MS = { guest: 7 * DAY_MS, wallet: 30 * DAY_MS } as const;
 /** An upload nobody attached to a hire is cleared after this long. */
 export const UNATTACHED_MS = DAY_MS;
 
-export type FileKind = "pdf" | "image" | "text";
+export type FileKind = "pdf" | "image" | "text" | "office";
 export interface Sniffed { mime: string; kind: FileKind; ext: string }
 
 const starts = (b: Buffer, sig: number[], at = 0) => b.length >= at + sig.length && sig.every((v, i) => b[at + i] === v);
@@ -92,6 +94,12 @@ export function sniff(bytes: Buffer, name = ""): Sniffed | null {
   if (starts(bytes, [0xff, 0xd8, 0xff])) return { mime: "image/jpeg", kind: "image", ext: "jpg" };
   if (starts(bytes, [0x47, 0x49, 0x46, 0x38]) && (bytes[4] === 0x37 || bytes[4] === 0x39) && bytes[5] === 0x61) return { mime: "image/gif", kind: "image", ext: "gif" };
   if (starts(bytes, [0x52, 0x49, 0x46, 0x46]) && starts(bytes, [0x57, 0x45, 0x42, 0x50], 8)) return { mime: "image/webp", kind: "image", ext: "webp" };
+  // Word, Excel and PowerPoint: a ZIP archive that is one of the three, and only where they are switched on. Any
+  // other archive is nothing an agent is handed.
+  if (looksZip(bytes)) {
+    const office = officeEnabled() ? officeType(bytes) : null;
+    return office ? { mime: OFFICE[office].mime, kind: "office", ext: office } : null;
+  }
   // text: it must decode as UTF-8 and hold no control characters but tab, newline and carriage return
   let text: string;
   try {
@@ -612,6 +620,14 @@ export async function attachmentsForTask(taskId: string): Promise<{ text: string
       room -= shown.length;
       const cut = shown.length < all.length ? `\n[The file is longer: ${all.length - shown.length} more characters were left out.]` : "";
       parts.push(`Attached file: ${f.name} (${f.mime}, ${f.size} bytes)\n<<<\n${shown}\n>>>${cut}`);
+    } else if (f.kind === "office") {
+      // every agent reads what a document, a workbook or a deck says; one with a sandbox has the file itself too
+      const type = officeTypeOf(f.mime), read = type ? officeText(bytes, type) : null;
+      if (!type || read === null) { parts.push(`[Attached file ${f.name} could not be read: it is damaged.]`); continue; }
+      const shown = read.slice(0, Math.max(0, room));
+      room -= shown.length;
+      const cut = shown.length < read.length ? `\n[The file says more: ${read.length - shown.length} more characters were left out.]` : "";
+      parts.push(`Attached file: ${f.name} (${OFFICE[type].label}, ${f.size} bytes). What it says:\n<<<\n${shown}\n>>>${cut}`);
     } else if (f.kind === "image") {
       const ready = await forModel(bytes, f.mime);
       if (ready.data.length > IMAGE_MAX_BYTES) { parts.push(`[Attached picture ${f.name} is too large to look at (${mb(ready.data.length)}) and was left out.]`); continue; }

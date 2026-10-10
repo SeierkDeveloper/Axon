@@ -17,6 +17,7 @@ import { conversationBefore, earlierTurns, followUpEnabled, FOLLOW_KEY } from ".
 import { markRevision, REVISE_NOTE } from "../lib/revisions";
 import { askEnabled, askedSoFar, askTool, closeStrays, mayAsk, parkForAnswer, resumeOverdue, withAsk, ASK_KEY, type Question } from "../lib/ask";
 import { notesAtStart, notesMidway, recordDelivered, steerEnabled, takeNotes, wasStopped } from "../lib/steer";
+import { officeEnabled, wantsOffice, OFFICE_NOTE } from "../lib/officeFiles";
 import { canNote, memoryEnabled, memoryNote, memoryOwnerOf, rememberTool, withRemember } from "../lib/agentMemory";
 import { approvedNote, approveOverdue, keepPlan, parkForPlan, planEnabled, planNote, planStage, plansOf, PLAN_KEY, PLAN_MAX_TOKENS } from "../lib/planFirst";
 import { hasCode, withCode } from "../lib/agentTools";
@@ -340,7 +341,10 @@ async function processTasks() {
           // change the files it holds is told how a change is kept: under the same name, as a new version.
           const mayCode = codeEnabled() && !mcpHandler && !agent.orchestrator && (agent.provider ?? "anthropic") === "anthropic";
           const mayRevise = followUpEnabled() && mayCode && handed.files.length > 0;
-          const fullMessage = before + task.task + formatContext(said) + remembered + answered + notesAtStart(early) + handed.text + prices + approved + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "");
+          // Word, Excel and PowerPoint: a job that is handed one, or asks for one, is done on the real file in the
+          // sandbox, so what comes back is a real document, workbook or deck.
+          const office = officeEnabled() && mayCode && (handed.files.some((f) => f.kind === "office") || wantsOffice(task.task));
+          const fullMessage = before + task.task + formatContext(said) + remembered + answered + notesAtStart(early) + handed.text + prices + approved + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "") + (office ? OFFICE_NOTE : "");
           // a file handed back that changes one the job was given is its next version; said in the log as it is kept
           const madeLine = (file: { id: string; name: string }): string => {
             const rev = markRevision(task.taskId, file.id);
@@ -435,7 +439,7 @@ async function processTasks() {
           // Running code. An agent Axon runs on Claude gets a sandbox for a hire that carries files, so what it says
           // about them is calculated rather than guessed; an agent whose owner granted "code_execution" has one
           // anyway. The hire's files are put into it, and whatever it writes there for the person is kept with the job.
-          if (mayCode && handed.files.length && !hasCode(tools)) tools = withCode(tools);
+          if (mayCode && (handed.files.length || office) && !hasCode(tools)) tools = withCode(tools);
           const sandbox = mayCode && hasCode(tools)
             ? {
                 files: handed.files.flatMap((f) => { const bytes = readBytes(f); return bytes ? [{ name: f.name, mime: f.mime, bytes }] : []; }),
