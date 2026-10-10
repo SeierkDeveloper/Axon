@@ -17,6 +17,7 @@ import { conversationBefore, earlierTurns, followUpEnabled, FOLLOW_KEY } from ".
 import { markRevision, REVISE_NOTE } from "../lib/revisions";
 import { askEnabled, askedSoFar, askTool, closeStrays, mayAsk, parkForAnswer, resumeOverdue, withAsk, ASK_KEY, type Question } from "../lib/ask";
 import { notesAtStart, notesMidway, recordDelivered, steerEnabled, takeNotes, wasStopped } from "../lib/steer";
+import { canNote, memoryEnabled, memoryNote, memoryOwnerOf, rememberTool, withRemember } from "../lib/agentMemory";
 import { approvedNote, approveOverdue, keepPlan, parkForPlan, planEnabled, planNote, planStage, plansOf, PLAN_KEY, PLAN_MAX_TOKENS } from "../lib/planFirst";
 import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
@@ -326,6 +327,10 @@ async function processTasks() {
             if (parkForPlan(task.taskId)) return;
           }
           const approved = stage === "work" ? approvedNote(task.taskId) : "";
+          // It remembers you: what the agent noted about this person on earlier jobs, and, on a hire that is not a
+          // follow-up, the work it did for them before.
+          const memoryOf = memoryEnabled() ? memoryOwnerOf(task.taskId) : null;
+          const remembered = memoryOf ? memoryNote(memoryOf, agent.agentId, { taskId: task.taskId, withWork: !before }) : "";
           // Stop and steer: notes the person sent before this run began go in with the job's own words. Those sent
           // while it works are read between its steps (see the loop's `notes` below).
           const steering = steerEnabled();
@@ -335,7 +340,7 @@ async function processTasks() {
           // change the files it holds is told how a change is kept: under the same name, as a new version.
           const mayCode = codeEnabled() && !mcpHandler && !agent.orchestrator && (agent.provider ?? "anthropic") === "anthropic";
           const mayRevise = followUpEnabled() && mayCode && handed.files.length > 0;
-          const fullMessage = before + task.task + formatContext(said) + answered + notesAtStart(early) + handed.text + prices + approved + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "");
+          const fullMessage = before + task.task + formatContext(said) + remembered + answered + notesAtStart(early) + handed.text + prices + approved + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "");
           // a file handed back that changes one the job was given is its next version; said in the log as it is kept
           const madeLine = (file: { id: string; name: string }): string => {
             const rev = markRevision(task.taskId, file.id);
@@ -389,7 +394,7 @@ async function processTasks() {
           if (stage === "plan") {
             const had = plansOf(task.taskId);
             if (!had.length) live.say("Writing a plan for you to approve");
-            const planMessage = before + task.task + formatContext(said) + answered + notesAtStart(early) + handed.text + planNote(had);
+            const planMessage = before + task.task + formatContext(said) + remembered + answered + notesAtStart(early) + handed.text + planNote(had);
             const planned = await captureModelStep(() =>
               Promise.race([runWithProvider(agent, planMessage, PLAN_MAX_TOKENS, undefined, handed.attachments), taskTimeout, stopped]),
             );
@@ -442,6 +447,10 @@ async function processTasks() {
           const aboutPicture = (job: string) => mayDraw(agent, job, { viaMcp: Boolean(mcpHandler) });
           if (aboutPicture(task.task) || (before && earlierTurns(task).some((t) => aboutPicture(t.task)))) {
             tools = withPictures(tools, pictureTool({ taskId: task.taskId, wallet: hirerWallet, paid: task.payment != null, onMade: (f) => live.say(madeLine(f)) }));
+          }
+          // It remembers you: the agent may note something about the person for the next time they hire it.
+          if (memoryOf && canNote(agent, { viaMcp: Boolean(mcpHandler) })) {
+            tools = withRemember(tools, rememberTool({ owner: memoryOf, agentId: agent.agentId, taskId: task.taskId, onNoted: (line) => live.say(`Noted for next time: ${line.text}`) }));
           }
           // Asking: on a hire that allowed it, the agent may stop to ask the person a question. Using the tool ends
           // this run at the next round, and the job waits for the answer instead of finishing.

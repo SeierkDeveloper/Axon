@@ -18,6 +18,7 @@ import { agentReads, attachFiles, checkTaskFiles, CONTEXT_KEY, filesEnabled, lis
 import { carriedFiles, checkFollowUp, followNote, followUpEnabled, FOLLOW_KEY, type FollowCheck } from "@/lib/followUp";
 import { askEnabled, ASK_KEY } from "@/lib/ask";
 import { planEnabled, PLAN_KEY } from "@/lib/planFirst";
+import { memoryEnabled, memoryOwnerFor, memoryOwnerOf, setMemoryOwner } from "@/lib/agentMemory";
 import { getMcpServerByAgentId } from "@/lib/mcp";
 import { getDb } from "@/lib/db";
 import { createTaskSchema, parseBody } from "@/lib/schemas";
@@ -241,6 +242,14 @@ async function handlePost(req: NextRequest) {
   }
   if (body.planFirst && planEnabled()) body.context = { ...(body.context ?? {}), [PLAN_KEY]: true };
 
+  // It remembers you: whose memory this job reads and adds to. Only when the hire asks for it; a follow-up keeps
+  // the memory of the job it follows. Written on the job once it exists, never into its context.
+  let memoryOwner: string | null = null;
+  if (memoryEnabled() && body.memory !== false) {
+    if (body.memory === true || body.memoryKey) memoryOwner = memoryOwnerFor({ wallet: authWallet, key: body.memoryKey });
+    if (!memoryOwner && follow) memoryOwner = memoryOwnerOf(follow.parent.taskId);
+  }
+
   // "balance" funds a paid hire from the paying agent's earned ledger balance
   // instead of a fresh on-chain transfer — so an agent can reinvest what it earns.
   // It belongs to an identity, so it requires an authenticated registered agent
@@ -379,6 +388,8 @@ async function handlePost(req: NextRequest) {
     }
     throw err;
   }
+
+  setMemoryOwner(task.taskId, memoryOwner);
 
   if (amountEth !== null && (body.paymentSignature || useBalance || useAllowance)) {
     try {

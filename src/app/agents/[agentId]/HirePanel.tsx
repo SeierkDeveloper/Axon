@@ -8,6 +8,7 @@ import FileAttach, { type Attached } from "@/components/FileAttach";
 import OutputFiles, { type OutputFile } from "@/components/OutputFiles";
 import VoiceInput from "@/components/VoiceInput";
 import VoiceOutput from "@/components/VoiceOutput";
+import AgentMemory, { browserMemoryKey } from "@/components/AgentMemory";
 
 // Close the loop: hire an agent right here. Free-lane agents run immediately;
 // paid agents settle a single on-chain ETH payment (x402) first — pay with
@@ -101,6 +102,7 @@ export default function HirePanel({
   receiver,
   rpcUrl,
   canPlan = false,
+  canRemember = false,
 }: {
   agentId: string;
   agentName: string;
@@ -110,6 +112,8 @@ export default function HirePanel({
   rpcUrl?: string;
   /** this agent can write a plan for the person to approve before it starts */
   canPlan?: boolean;
+  /** agents remember the people who hire them here */
+  canRemember?: boolean;
 }) {
   const [task, setTask] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
@@ -158,6 +162,19 @@ export default function HirePanel({
   const [changing, setChanging] = useState(false);
   const [change, setChange] = useState("");
   const decidedPlan = useRef(0);
+  // It remembers you: the key this browser keeps for its memory with agents, whether memory is left out of the next
+  // hire, what the job in hand noted, and a count that has the memory read again after a job.
+  const [memoryKey, setMemoryKey] = useState<string | null>(null);
+  const [memoryOff, setMemoryOff] = useState(false);
+  const [noted, setNoted] = useState<{ id: string; text: string }[]>([]);
+  const [memoryRead, setMemoryRead] = useState(0);
+  useEffect(() => {
+    // the key lives in this browser's storage, which cannot be read while the page is made on the server
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- read once after mount, from storage the server has no access to
+    if (canRemember) setMemoryKey(browserMemoryKey());
+  }, [canRemember]);
+  /** What a hire says about memory: use this browser's, or leave it out. Nothing where memory is not offered. */
+  const memoryFields = () => (memoryKey ? (memoryOff ? { memory: false } : { memory: true, memoryKey }) : {});
   // Stop and steer: whether a note or a stop is possible now, the notes sent, the one being written, and whether
   // the job was stopped here.
   const [steer, setSteer] = useState<{ open: boolean; stoppable: boolean; notesLeft: number } | null>(null);
@@ -201,7 +218,7 @@ export default function HirePanel({
         setPhase("error");
         return;
       }
-      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: { n: number; text: string }[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[]; plan?: OpenPlan; steer?: { open?: boolean; stoppable?: boolean; notesLeft?: number }; notes?: SentNote[] };
+      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: { n: number; text: string }[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[]; plan?: OpenPlan; steer?: { open?: boolean; stoppable?: boolean; notesLeft?: number }; notes?: SentNote[]; remembered?: { id: string; text: string }[] };
       if (cancelled.current) return;
       if (Array.isArray(t.steps)) setSteps((had) => (t.steps!.length >= had.length ? t.steps! : had));
       if (Array.isArray(t.questions)) setAsked(t.questions.filter((q) => q.answeredAt));
@@ -242,6 +259,8 @@ export default function HirePanel({
         setOutput(t.output ?? "");
         setOutFiles(Array.isArray(t.outputFiles) ? t.outputFiles : []);
         setFollow(t.followUp ? { open: Boolean(t.followUp.open), turnsLeft: Number(t.followUp.turnsLeft) || 0 } : null);
+        setNoted(Array.isArray(t.remembered) ? t.remembered : []);
+        setMemoryRead((n) => n + 1);
         setPhase("done");
         return;
       }
@@ -269,7 +288,7 @@ export default function HirePanel({
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ from: "anonymous", to: agentId, task: task.trim(), allowQuestions: true, ...(planFirst && canPlan ? { planFirst: true } : {}), ...(files.length ? { files: files.map((f) => ({ id: f.id, token: f.token })) } : {}), ...(report ? { reportFile: true } : {}), ...(payment ?? {}) }),
+        body: JSON.stringify({ from: "anonymous", to: agentId, task: task.trim(), allowQuestions: true, ...memoryFields(), ...(planFirst && canPlan ? { planFirst: true } : {}), ...(files.length ? { files: files.map((f) => ({ id: f.id, token: f.token })) } : {}), ...(report ? { reportFile: true } : {}), ...(payment ?? {}) }),
       });
       const data = (await res.json()) as { taskId?: string; claimToken?: string; error?: string };
       if (cancelled.current) return;
@@ -367,7 +386,7 @@ export default function HirePanel({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          from: "anonymous", to: agentId, task: said, followUpOf: taskId, followUpToken: claim, allowQuestions: true,
+          from: "anonymous", to: agentId, task: said, followUpOf: taskId, followUpToken: claim, allowQuestions: true, ...memoryFields(),
           ...(files.length ? { files: files.map((f) => ({ id: f.id, token: f.token })) } : {}),
           ...(report ? { reportFile: true } : {}),
           ...(followPaid.current ?? {}),
@@ -395,6 +414,7 @@ export default function HirePanel({
         setQuestion(null);
         setNotes([]);
         setSteer(null);
+        setNoted([]);
         answeredQ.current = 0;
         setPhase("running");
         poll(data.taskId, data.claimToken, 0);
@@ -532,6 +552,7 @@ export default function HirePanel({
     setNoteError(null);
     setStopAsk(false);
     setStoppedHere(false);
+    setNoted([]);
     setPlan(null);
     setPlanError(null);
     setChanging(false);
@@ -611,6 +632,9 @@ export default function HirePanel({
             className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-teal-400 disabled:opacity-60 resize-y"
           />
           <FileAttach agentId={agentId} paid={payAndHire} files={files} onChange={setFiles} disabled={phase === "hiring"} report={report} onReport={setReport} />
+          {canRemember && memoryKey && (
+            <AgentMemory agentId={agentId} agentName={agentName} memoryKey={memoryKey} off={memoryOff} onOff={setMemoryOff} refresh={memoryRead} disabled={phase === "hiring"} />
+          )}
           {canPlan && (
             <label className="mt-2.5 flex cursor-pointer items-start gap-2 text-xs text-gray-600 dark:text-gray-300">
               <input type="checkbox" checked={planFirst} onChange={(e) => setPlanFirst(e.target.checked)} disabled={phase === "hiring"} className="mt-0.5 h-3.5 w-3.5 accent-teal-600" />
@@ -836,6 +860,11 @@ export default function HirePanel({
             {output ? <MarkdownOutput text={output} /> : <span className="text-sm text-gray-400">(empty response)</span>}
           </div>
           <OutputFiles files={outFiles} />
+          {noted.length > 0 && (
+            <p className="mt-3 break-words text-xs text-gray-500 dark:text-gray-400">
+              <span className="text-gray-700 dark:text-gray-300">Noted for next time:</span> {noted.map((m) => m.text).join(" · ")}
+            </p>
+          )}
           {asked.length > 0 && (
             <div className="mt-3 space-y-1.5 text-xs text-gray-500 dark:text-gray-400">
               {asked.map((q) => (

@@ -127,6 +127,12 @@ export const createTaskSchema = z.object({
   // Plan first: the agent writes its plan and the job waits (status "waiting") until it is approved, changed or
   // cancelled with POST /api/tasks/{taskId}/plan. Unanswered, the job goes on with the plan as written.
   planFirst: z.boolean().optional(),
+  // It remembers you: the agent is told what it noted about you on earlier jobs and what it did for you before, and
+  // may note more. Used when `memory` is true or a `memoryKey` is sent. The memory is the wallet's the API key
+  // belongs to; without a key it is the `memoryKey`'s, a long random string your own client keeps (only its hash is
+  // stored). `memory: false` neither reads nor adds.
+  memory: z.boolean().optional(),
+  memoryKey: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/, "memoryKey must be 32 to 128 letters, digits, - or _").optional(),
   followUpOf: z.string().min(1).max(64).optional(),
   followUpToken: z.string().max(128).optional(),
 }).refine(

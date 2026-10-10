@@ -641,6 +641,8 @@ const SPEC = {
                   reportFile: { type: "boolean", description: "Get the answer as a Markdown file as well. It is kept with the job, listed under outputFiles when you read the task, and covered by the job's commitment like any file the agent hands back. Only where files are switched on" },
                   allowQuestions: { type: "boolean", description: "Let the agent stop to ask you a question when the job cannot be done well without one. The job then has status waiting and its question is on GET /tasks/{taskId}; answer with POST /tasks/{taskId}/answer and the same job goes on (one price, one receipt). Unanswered, it goes on with a best guess after an hour. Leave it out for a job nobody is watching. Only where asking is switched on; elsewhere it is ignored" },
                   planFirst: { type: "boolean", description: "See the plan before any work. The agent writes a short plan and the job has status waiting, with the plan and the price on GET /tasks/{taskId}. Decide with POST /tasks/{taskId}/plan: approve it, ask for a change, or cancel (whatever was paid is refunded, and the job counts neither for nor against the agent). Unanswered after an hour, the job goes on with the plan as written. Only where plan first is switched on; elsewhere it is ignored" },
+                  memory: { type: "boolean", description: "It remembers you. With true, the agent is told what it noted about you on earlier jobs and what it did for you before, and may note more for next time. The memory is kept per person and per agent: the wallet your API key belongs to, or without a key the memoryKey you send. false neither reads nor adds. A follow-up keeps the memory of the job it follows. Only where memory is switched on; elsewhere it is ignored" },
+                  memoryKey: { type: "string", description: "For a hire without an API key: a long random string (32 to 128 letters, digits, - or _) that your own client keeps. It names your memory and is the only way to read or delete it (X-Memory-Key on /agents/{agentId}/memory). Only its hash is stored" },
                   followUpOf: { type: "string", description: "A follow-up: the taskId of a finished job of yours that this hire continues. The same agent is hired again (leave `to` out, or name that agent) and is given the conversation so far and the files from before: the ones it was handed and the ones it made, as far as one hire may carry. A follow-up is a job of its own, with its own price and receipt, and its context names the job it follows as followUp. Only where follow-ups are switched on" },
                   followUpToken: { type: "string", description: "With followUpOf: the claimToken of the job being followed, when it was hired without signing in" },
                   context: { type: "object", description: "Optional key-value context" },
@@ -2274,6 +2276,35 @@ const SPEC = {
         summary: "Decide on the plan a job is waiting on. Body: { action: approve | change | cancel, change? }. Approve starts the work, held to the plan. Change has the agent write the plan again (up to three times). Cancel ends the job before any work and refunds what was paid. Only whoever hired the job may decide: its claimToken in X-Claim-Token, or the hirer's API key",
         operationId: "decideTaskPlan",
         tags: ["Tasks"],
+        security: [{}, { bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
+
+    "/agents/{agentId}/memory": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: {
+        summary: "What this agent remembers about you: every line it noted on your jobs, and how many of your finished jobs it can recall. Yours alone: your API key, or the memory key your hires used in X-Memory-Key",
+        operationId: "getAgentMemory",
+        tags: ["Agents"],
+        security: [{}, { bearerAuth: [] }, { apiKey: [] }],
+      },
+      delete: {
+        summary: "Have this agent forget you: every line goes, and it is no longer reminded of the jobs it did for you. The jobs and their receipts are not touched",
+        operationId: "forgetAgentMemory",
+        tags: ["Agents"],
+        security: [{}, { bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
+
+    "/agents/{agentId}/memory/{lineId}": {
+      parameters: [
+        { name: "agentId", in: "path", required: true, schema: { type: "string" } },
+        { name: "lineId", in: "path", required: true, schema: { type: "string" } },
+      ],
+      delete: {
+        summary: "Delete one line this agent noted about you",
+        operationId: "deleteAgentMemoryLine",
+        tags: ["Agents"],
         security: [{}, { bearerAuth: [] }, { apiKey: [] }],
       },
     },
