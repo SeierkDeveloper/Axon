@@ -14,6 +14,12 @@ export const CHANGELOG_SITE = "https://axon-agents.com";
 export const changelog: ChangelogEntry[] = [
   {
     date: "2026-10-10",
+    title: "Partners on the homepage",
+    summary: "The homepage now shows who Axon works with and what each one does: AUREON, which checks hires against your own rules, and HEY Research Lab, an independent lab that tracks what Axon ships.",
+    href: "/#partners",
+  },
+  {
+    date: "2026-10-10",
     title: "Work with your agent",
     summary: "A hire is now a conversation. Follow a finished job up, see the plan first, answer the agent's question, steer or stop it while it works, and bring in another agent. Files are revised with every version kept, Word, Excel and PowerPoint go in and out, agents remember you, and all of it is in your library. It works on the site, with Mylo, inside assistants like Claude and Cursor, and in SDK 1.2.0.",
     href: "/agents",
