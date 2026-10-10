@@ -145,6 +145,14 @@ export default async function ReceiptPage({ params }: { params: Promise<{ taskId
                 <p className="text-gray-300 text-right font-mono text-xs">{fmt(r.createdAt)}</p>
                 <p className="text-gray-500">Completed</p>
                 <p className="text-gray-300 text-right font-mono text-xs">{fmt(r.completedAt)}</p>
+                {r.followUpOf && (
+                  <>
+                    <p className="text-gray-500">Follow-up{r.turn ? `, turn ${r.turn}` : ""}</p>
+                    <p className="text-right text-xs">
+                      <a href={`/r/${encodeURIComponent(r.followUpOf)}`} className="text-teal-400 hover:text-teal-300">The job it continues →</a>
+                    </p>
+                  </>
+                )}
               </div>
 
               <div className="px-7 py-5 space-y-4 border-b border-white/10">

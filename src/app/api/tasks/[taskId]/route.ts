@@ -1,5 +1,7 @@
 import { filesEnabled, filesOfTask, outputFileFor } from "@/lib/agentFiles";
 import { liveLogEnabled, stepsOf } from "@/lib/liveLog";
+import { followUpView } from "@/lib/followUp";
+import type { Task } from "@/lib/tasks";
 import { NextRequest, NextResponse } from "next/server";
 import { getTaskById } from "@/lib/tasks";
 import { canAccessIdentity, requireApiKey } from "@/lib/apiAuth";
@@ -17,10 +19,12 @@ function paidByKey(taskId: string, keyId: string): boolean {
  * The task as its reader gets it. While files are on, it also lists what the agent handed back, each with the token
  * that downloads it: whoever may read a job's output may read the files that are part of it.
  */
-function withFiles<T extends { taskId: string }>(task: T): T | (T & { outputFiles?: unknown[]; steps?: unknown[] }) {
+function withFiles<T extends Task>(task: T): T | (T & { outputFiles?: unknown[]; steps?: unknown[]; followUp?: unknown }) {
   // Watch it work: the steps so far, for whoever may read the job. Read on every poll while it runs.
   const steps = liveLogEnabled() ? stepsOf(task.taskId) : [];
-  const seen = steps.length ? { ...task, steps } : task;
+  // Work with your agent: which turn of its conversation this is, and whether it can be followed up.
+  const follow = followUpView(task);
+  const seen = { ...task, ...(steps.length ? { steps } : {}), ...(follow ? { followUp: follow } : {}) };
   if (!filesEnabled()) return seen;
   const out = filesOfTask(task.taskId, "out");
   if (!out.length) return seen;

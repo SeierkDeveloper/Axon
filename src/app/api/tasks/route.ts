@@ -13,8 +13,9 @@ import { apiError } from "@/lib/apiError";
 import { checkFreeAllowance, freeLimitMessage } from "@/lib/freeAllowance";
 import { getTier } from "@/lib/holderTier";
 import { hashIdempotencyPayload, normalizeIdempotencyKey, validateIdempotencyKey } from "@/lib/idempotency";
-import { claimTokenFor } from "@/lib/mcpServer";
-import { agentReads, attachFiles, checkTaskFiles, CONTEXT_KEY, filesEnabled, REPORT_KEY } from "@/lib/agentFiles";
+import { claimTokenFor, claimTokenValid } from "@/lib/mcpServer";
+import { agentReads, attachFiles, checkTaskFiles, CONTEXT_KEY, filesEnabled, listFiles, passFiles, REPORT_KEY, type FileRow } from "@/lib/agentFiles";
+import { carriedFiles, checkFollowUp, followNote, followUpEnabled, FOLLOW_KEY, type FollowCheck } from "@/lib/followUp";
 import { getMcpServerByAgentId } from "@/lib/mcp";
 import { getDb } from "@/lib/db";
 import { createTaskSchema, parseBody } from "@/lib/schemas";
@@ -79,6 +80,16 @@ async function handlePost(req: NextRequest) {
   // specHash below — all of which key on the concrete agent id.
   let toAgentId = body.to;
   let routing: RouteResult | undefined;
+  // A follow-up goes to the agent that did the job it follows, so the job names the agent when the caller does not.
+  // Whether this caller may follow it is decided further down, once we know who they are.
+  if (body.followUpOf) {
+    if (!followUpEnabled()) return apiError("VALIDATION_ERROR", "Follow-ups are not switched on here.", 400, { refused: "off" });
+    if (!toAgentId) {
+      const followed = getTaskById(body.followUpOf);
+      if (!followed) return apiError("NOT_FOUND", "That job was not found, or it is not yours to follow up.", 404, { refused: "not_found" });
+      toAgentId = followed.toAgent;
+    }
+  }
   if (!toAgentId) {
     routing = selectAgent({
       capability: body.capability,
@@ -134,7 +145,25 @@ async function handlePost(req: NextRequest) {
         403
       );
     }
-  } else if (!process.env.VITEST && parsePriceToEth(agent.price) === null) {
+  }
+
+  // A follow-up: the job it continues must be the caller's own, finished, and this agent's.
+  let follow: Extract<FollowCheck, { ok: true }> | null = null;
+  if (body.followUpOf) {
+    const check = checkFollowUp({
+      parentId: body.followUpOf,
+      from: body.from,
+      to: toAgentId,
+      tokenOk: Boolean(body.followUpToken) && claimTokenValid(body.followUpOf, body.followUpToken!),
+    });
+    if (!check.ok) return apiError(check.refused === "not_found" ? "NOT_FOUND" : check.status === 409 ? "CONFLICT" : "VALIDATION_ERROR", check.reason, check.status, { refused: check.refused });
+    follow = check;
+  }
+  if (followUpEnabled() && body.context && FOLLOW_KEY in body.context) {
+    return apiError("VALIDATION_ERROR", `context.${FOLLOW_KEY} is filled in by Axon. Send "followUpOf" instead.`, 400);
+  }
+
+  if (body.from === "anonymous" && !process.env.VITEST && parsePriceToEth(agent.price) === null) {
     // Free calls per agent, three for everyone and more for a wallet holding $AXON. A 1 year
     // window, so refreshing the page doesn't reset it. Gates ONLY the actual free lane: an
     // anonymous request to a PAID
@@ -154,6 +183,7 @@ async function handlePost(req: NextRequest) {
   // caller may read, not yet on another hire, of a kind this agent reads, and inside what one hire may carry. What
   // they are (name, type, size, hash) goes into the hire's context, so the job's commitment covers them.
   let fileIds: string[] = [];
+  let fresh: FileRow[] = [];
   if (body.context && CONTEXT_KEY in body.context) {
     return apiError("VALIDATION_ERROR", `context.${CONTEXT_KEY} is filled in by Axon from the files you attach. Send files in "files" instead.`, 400);
   }
@@ -168,7 +198,23 @@ async function handlePost(req: NextRequest) {
       return apiError(checked.refused === "not_found" ? "NOT_FOUND" : "VALIDATION_ERROR", checked.reason, checked.refused === "not_found" ? 404 : 400, { refused: checked.refused });
     }
     fileIds = checked.rows.map((r) => r.id);
+    fresh = checked.rows;
     body.context = { ...(body.context ?? {}), [CONTEXT_KEY]: checked.listed };
+  }
+
+  // A follow-up carries the files from the job before, the ones the agent made first, as far as one hire may carry.
+  // They are listed with the hire's own files, so its commitment covers them, and what was left behind is named.
+  let carry: FileRow[] = [];
+  if (follow) {
+    const { carried, left } = filesEnabled()
+      ? carriedFiles(follow.parent, fresh, agentReads(agent, { runsThroughMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }), amountEth !== null)
+      : { carried: [], left: [] };
+    carry = carried;
+    body.context = {
+      ...(body.context ?? {}),
+      ...(carry.length ? { [CONTEXT_KEY]: listFiles([...fresh, ...carry]) } : {}),
+      [FOLLOW_KEY]: followNote(follow, left),
+    };
   }
 
   // The answer as a file as well. Asked for with `reportFile`; it is written into the job's context so the job's
@@ -289,13 +335,16 @@ async function handlePost(req: NextRequest) {
       idempotencyKey: idempotencyKey ?? undefined,
       idempotencyHash,
       priority: hirerTier.rank,
+      ...(follow ? { parentTaskId: follow.parent.taskId, threadId: follow.thread } : {}),
     });
-    if (fileIds.length) {
+    if (fileIds.length || carry.length) {
       // The hire and its files are written as one step, so a worker can never pick the hire up without them, and
       // two hires racing for the same file cannot both be created with it.
       task = getDb().transaction(() => {
         const created = create();
         if (attachFiles(created.taskId, fileIds) !== fileIds.length) throw new FileTaken();
+        // what a follow-up carries: new rows on the same stored content, nothing is uploaded or copied
+        passFiles(carry, created.taskId, { wallet: authWallet });
         return created;
       })();
     } else {

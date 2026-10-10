@@ -10,6 +10,7 @@ import { getPaymentNotes, type PaymentNote } from "./paymentNotes";
 import { getSplitsForTask, type TaskSplit } from "./escrowSplits";
 import { getSlaForTask, type TaskSla } from "./sla";
 import { receiptFiles, type ReceiptFile } from "./agentFiles";
+import { turnOf } from "./followUp";
 
 export interface Receipt {
   taskId: string;
@@ -62,6 +63,9 @@ export interface PublicReceipt {
   outputFilesHash?: string;
   /** The transaction the output hash and the files hash were posted in, once it is on chain. */
   commitmentTx?: string;
+  /** A follow-up: the job this one continues, and which turn of that conversation it is. Only on a follow-up. */
+  followUpOf?: string;
+  turn?: number;
 }
 
 /** The files a job handed back, as its receipts list them. Empty (never an error) when there are none. */
@@ -78,7 +82,7 @@ export function getPublicReceipt(taskId: string): PublicReceipt | null {
   const row = db
     .prepare(
       `SELECT task_id, from_agent, to_agent, status, created_at, started_at, completed_at, spec_hash, output_hash, payment,
-              output_commitment, output_files_hash
+              output_commitment, output_files_hash, parent_task_id
        FROM tasks WHERE task_id = ?`,
     )
     .get(taskId) as
@@ -95,6 +99,7 @@ export function getPublicReceipt(taskId: string): PublicReceipt | null {
         payment: string | null;
         output_commitment: string | null;
         output_files_hash: string | null;
+        parent_task_id: string | null;
       }
     | undefined;
   if (!row) return null;
@@ -139,6 +144,8 @@ export function getPublicReceipt(taskId: string): PublicReceipt | null {
           settledAt: pay.settled_at,
         }
       : null,
+    // a follow-up names the job it continues; that both jobs exist is public, what was said in them is not
+    ...(row.parent_task_id ? { followUpOf: row.parent_task_id, turn: turnOf({ taskId: row.task_id, parentTaskId: row.parent_task_id }) } : {}),
     // only a job that handed back files gains anything here: every other receipt reads exactly as it did
     ...(handedBack.length
       ? {

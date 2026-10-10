@@ -45,6 +45,26 @@ function payErrorMessage(msg: string, ethAmount: number): string {
   return "Couldn't complete the payment. Try again.";
 }
 
+/** One finished turn of a conversation with the agent: what was asked, what came back, and the hire that did it. */
+interface Turn { taskId: string; claim: string; task: string; output: string; outFiles: OutputFile[] }
+
+/** An earlier turn, shown above the one in hand. */
+function EarlierTurn({ n, turn }: { n: number; turn: Turn }) {
+  return (
+    <div className="mb-4 border-b border-gray-100 pb-4 dark:border-gray-800">
+      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">You, turn {n}</p>
+      <p className="whitespace-pre-wrap break-words text-sm text-gray-700 dark:text-gray-300">{turn.task}</p>
+      <div className="mt-2 max-h-56 overflow-auto break-words rounded-md border border-gray-200 bg-gray-50/60 p-3 dark:border-gray-800 dark:bg-gray-900/40">
+        {turn.output ? <MarkdownOutput text={turn.output} /> : <span className="text-sm text-gray-400">(empty response)</span>}
+      </div>
+      <OutputFiles files={turn.outFiles} />
+      <a href={`/r/${encodeURIComponent(turn.taskId)}`} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-teal-600 hover:underline dark:text-teal-400">
+        Receipt →
+      </a>
+    </div>
+  );
+}
+
 /** The steps of a hire, oldest first. While it runs the last one is the one happening now. */
 function StepList({ steps, live }: { steps: { n: number; text: string }[]; live?: boolean }) {
   if (!steps.length) return null;
@@ -97,6 +117,15 @@ export default function HirePanel({
   // A payment that already landed on-chain — kept so a failed submit retries with
   // the SAME signature instead of charging the wallet a second time.
   const paid = useRef<{ paymentSignature: string; payerWallet: string } | null>(null);
+  // Work with your agent: the finished turns before the one in hand, whether this one can be followed up, and the
+  // follow-up being written. A follow-up is a hire of its own that continues the one shown.
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [follow, setFollow] = useState<{ open: boolean; turnsLeft: number } | null>(null);
+  const [followText, setFollowText] = useState("");
+  const [followBusy, setFollowBusy] = useState(false);
+  const [followError, setFollowError] = useState<string | null>(null);
+  // a follow-up's payment that already landed, kept so a failed send retries with it instead of paying again
+  const followPaid = useRef<{ paymentSignature: string; payerWallet: string } | null>(null);
 
   // Stop the poll loop if the user navigates away mid-hire — no setState on an
   // unmounted component, no orphaned timers.
@@ -130,12 +159,13 @@ export default function HirePanel({
         setPhase("error");
         return;
       }
-      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: { n: number; text: string }[] };
+      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: { n: number; text: string }[]; followUp?: { open?: boolean; turnsLeft?: number } };
       if (cancelled.current) return;
       if (Array.isArray(t.steps)) setSteps((had) => (t.steps!.length >= had.length ? t.steps! : had));
       if (t.status === "completed") {
         setOutput(t.output ?? "");
         setOutFiles(Array.isArray(t.outputFiles) ? t.outputFiles : []);
+        setFollow(t.followUp ? { open: Boolean(t.followUp.open), turnsLeft: Number(t.followUp.turnsLeft) || 0 } : null);
         setPhase("done");
         return;
       }
@@ -236,9 +266,71 @@ export default function HirePanel({
     }
   }
 
+  // Say more to the agent about the job it just finished. The same agent is hired again and is given the conversation
+  // so far and the files from before; a paid agent is paid again, since this is another piece of work.
+  async function sendFollowUp() {
+    const said = followText.trim();
+    if (!said || !taskId || !claim || output === null || followBusy) return;
+    setFollowBusy(true);
+    setFollowError(null);
+    try {
+      if (canPayInBrowser && !followPaid.current) {
+        if (ethAmount === null || !receiver) return;
+        try {
+          const { signature, payer } = await payForBuild({ rpcUrl, treasury: receiver, ethAmount });
+          if (cancelled.current) return;
+          followPaid.current = { paymentSignature: signature, payerWallet: payer };
+        } catch (e) {
+          setFollowError(payErrorMessage(e instanceof Error ? e.message : "", ethAmount));
+          return;
+        }
+      }
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          from: "anonymous", to: agentId, task: said, followUpOf: taskId, followUpToken: claim,
+          ...(files.length ? { files: files.map((f) => ({ id: f.id, token: f.token })) } : {}),
+          ...(report ? { reportFile: true } : {}),
+          ...(followPaid.current ?? {}),
+        }),
+      });
+      const data = (await res.json()) as { taskId?: string; claimToken?: string; error?: string };
+      if (cancelled.current) return;
+      if (res.ok && data.taskId && data.claimToken) {
+        // the turn just finished joins the conversation above, and the follow-up becomes the turn in hand
+        setTurns((had) => [...had, { taskId, claim, task, output, outFiles }]);
+        paid.current = followPaid.current;
+        followPaid.current = null;
+        setTask(said);
+        setFollowText("");
+        setTaskId(data.taskId);
+        setClaim(data.claimToken);
+        setOutput(null);
+        setOutFiles([]);
+        setSteps([]);
+        setFiles([]);
+        setFollow(null);
+        setPhase("running");
+        poll(data.taskId, data.claimToken, 0);
+        return;
+      }
+      setFollowError(data.error ?? "Couldn't send the follow-up. Try again.");
+    } catch {
+      setFollowError("Network error sending the follow-up. Try again.");
+    } finally {
+      setFollowBusy(false);
+    }
+  }
+
   function reset() {
     cancelled.current = true;
     paid.current = null; // a fresh hire pays anew
+    followPaid.current = null;
+    setTurns([]);
+    setFollow(null);
+    setFollowText("");
+    setFollowError(null);
     setPhase("idle");
     setOutput(null);
     setError(null);
@@ -280,6 +372,14 @@ export default function HirePanel({
           <span className="text-xs font-medium text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-900/50 px-2 py-0.5 rounded-full">Free lane</span>
         )}
       </div>
+
+      {turns.length > 0 && (
+        <div>
+          {turns.map((t, i) => <EarlierTurn key={t.taskId} n={i + 1} turn={t} />)}
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">You, turn {turns.length + 1}</p>
+          <p className="mb-3 whitespace-pre-wrap break-words text-sm text-gray-700 dark:text-gray-300">{task}</p>
+        </div>
+      )}
 
       {(phase === "idle" || phase === "hiring" || (phase === "error" && !taskId)) && (
         <>
@@ -369,6 +469,37 @@ export default function HirePanel({
             </button>
             {taskId && claim && output && <VoiceOutput taskId={taskId} claimToken={claim} />}
           </div>
+
+          {/* Say more: the same agent, the conversation so far and the files from before */}
+          {follow?.open && taskId && claim && (
+            <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">Follow up</p>
+              <textarea
+                value={followText}
+                onChange={(e) => setFollowText(e.target.value)}
+                placeholder={`Ask ${agentName} for a change, a detail or the next step…`}
+                rows={2}
+                disabled={followBusy}
+                className="w-full resize-y rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-400 focus:outline-none disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              />
+              <FileAttach agentId={agentId} paid={payAndHire} files={files} onChange={setFiles} disabled={followBusy} report={report} onReport={setReport} />
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+                <button
+                  onClick={sendFollowUp}
+                  disabled={!followText.trim() || followBusy}
+                  className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700 disabled:opacity-50"
+                >
+                  {followBusy ? (payAndHire && !followPaid.current ? "Paying…" : "Sending…") : payAndHire ? (followPaid.current ? "Retry follow-up" : `Pay ${price} & send`) : "Send follow-up"}
+                </button>
+                <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                  {payAndHire
+                    ? "Same agent · it keeps the conversation and the files · its own receipt"
+                    : "Same agent · it keeps the conversation and the files · uses one free hire"}
+                </span>
+              </div>
+              {followError && <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">{followError}</p>}
+            </div>
+          )}
         </div>
       )}
     </div>

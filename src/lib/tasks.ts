@@ -41,6 +41,9 @@ export interface Task {
   outputCommitment?: string;
   traceId?: string;
   stuckCount: number;
+  /** The job this one follows up, and the first job of that conversation. Unset for a hire that follows nothing. */
+  parentTaskId?: string;
+  threadId?: string;
 }
 
 interface TaskRow {
@@ -69,6 +72,8 @@ interface TaskRow {
   output_commitment: string | null;
   trace_id: string | null;
   stuck_count: number;
+  parent_task_id?: string | null;
+  thread_id?: string | null;
 }
 
 function rowToTask(row: TaskRow): Task {
@@ -95,6 +100,7 @@ function rowToTask(row: TaskRow): Task {
     outputCommitment: row.output_commitment ?? undefined,
     traceId: row.trace_id ?? undefined,
     stuckCount: row.stuck_count ?? 0,
+    ...(row.parent_task_id ? { parentTaskId: row.parent_task_id, threadId: row.thread_id ?? row.parent_task_id } : {}),
   };
 }
 
@@ -121,6 +127,9 @@ export interface CreateTaskOptions {
    * queue, because ordering happens in SQL and a tier is a balance on chain.
    */
   priority?: number;
+  /** A follow-up: the finished job this one continues, and the first job of that conversation. */
+  parentTaskId?: string;
+  threadId?: string;
 }
 
 function queueTaskQueuedWebhook(task: Task): void {
@@ -154,8 +163,8 @@ export function createTask(opts: CreateTaskOptions): Task {
   });
 
   db.prepare(`
-    INSERT INTO tasks (task_id, from_agent, to_agent, task, context, payment, status, created_at, started_at, started_by, signature, idempotency_scope, idempotency_key, idempotency_hash, workflow_id, step_index, quorum_id, trace_id, spec_hash, priority)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tasks (task_id, from_agent, to_agent, task, context, payment, status, created_at, started_at, started_by, signature, idempotency_scope, idempotency_key, idempotency_hash, workflow_id, step_index, quorum_id, trace_id, spec_hash, priority, parent_task_id, thread_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     taskId,
     opts.fromAgent,
@@ -178,6 +187,8 @@ export function createTask(opts: CreateTaskOptions): Task {
     specHash,
     // Clamped, so a caller that ever reaches this with nonsense cannot jump the whole queue.
     Math.max(0, Math.min(10, Math.floor(opts.priority ?? 0))),
+    opts.parentTaskId ?? null,
+    opts.parentTaskId ? (opts.threadId ?? opts.parentTaskId) : null,
   );
 
   const task = getTaskById(taskId)!;

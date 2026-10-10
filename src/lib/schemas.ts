@@ -118,8 +118,12 @@ export const createTaskSchema = z.object({
   // Ask for the answer as a file as well: a Markdown file kept with the job, listed with whatever else the agent
   // hands back and covered by the same commitment.
   reportFile: z.boolean().optional(),
+  // A follow-up: the finished job this hire continues. The same agent is hired again and is given the conversation so
+  // far and the files from before. `followUpToken` is that job's claimToken, needed when it was hired without signing in.
+  followUpOf: z.string().min(1).max(64).optional(),
+  followUpToken: z.string().max(128).optional(),
 }).refine(
-  (o) => !!o.to || !!o.capability || (o.capabilities?.length ?? 0) > 0,
+  (o) => !!o.to || !!o.followUpOf || !!o.capability || (o.capabilities?.length ?? 0) > 0,
   "provide `to`, or a `capability`/`capabilities` for the network to route the job",
 );
 

@@ -13,6 +13,7 @@ import { recordTaskLatency } from "../lib/metrics";
 import { formatContext } from "../lib/formatContext";
 import { isWalletAddress } from "../lib/address";
 import { attachmentsForTask, codeEnabled, filesEnabled, keepOutput, readBytes, REPORT_KEY, REPORT_NOTE, storeReport } from "../lib/agentFiles";
+import { conversationBefore, followUpEnabled, FOLLOW_KEY } from "../lib/followUp";
 import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
@@ -292,11 +293,18 @@ async function processTasks() {
           const wantsReport = filesEnabled() && task.context?.[REPORT_KEY] === true;
           // whoever hired it owns what it hands back; a visitor's files are read with the job's token instead
           const hirerWallet = isWalletAddress(task.fromAgent) ? task.fromAgent : null;
-          const fullMessage = task.task + formatContext(task.context) + handed.text + prices + (wantsReport ? REPORT_NOTE : "");
+          // A follow-up: the agent is told so, and given the conversation so far, before the person's new words. The
+          // note that says which job it follows is for the record, not for the agent, so it stays out of the context
+          // the agent reads.
+          const before = followUpEnabled() ? conversationBefore(task) : "";
+          const { [FOLLOW_KEY]: _followNote, ...said } = task.context ?? {};
+          void _followNote;
+          const fullMessage = before + task.task + formatContext(before ? said : task.context) + handed.text + prices + (wantsReport ? REPORT_NOTE : "");
 
           // Watch it work: a line for each step, written as it happens, for whoever hired the agent to follow.
           const live = liveLog(task.taskId);
           live.say(`Picked up by ${agent.name}`);
+          if (before) live.say("Continuing from the earlier job");
           for (const f of handed.files) live.say(`Reading ${f.name}`);
 
           // Promise.race abandons the loser, it doesn't stop it. For a single
