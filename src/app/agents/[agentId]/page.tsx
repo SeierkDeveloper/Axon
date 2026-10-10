@@ -22,11 +22,14 @@ import SiteNav from "@/components/SiteNav";
 import ReviewForm from "@/components/ReviewForm";
 import ProofScoreCard from "./ProofScoreCard";
 import HirePanel from "./HirePanel";
+import { libraryEnabled } from "@/lib/library";
+import { startersFor } from "@/lib/starterJobs";
+import { officeEnabled } from "@/lib/officeFiles";
 import HireLinkShare from "./HireLinkShare";
 import UseAnywhere from "@/components/UseAnywhere";
 import { ExtArrow } from "@/components/ExtArrow";
 import { agentAvailability } from "@/lib/availability";
-import { agentReads, filesEnabled } from "@/lib/agentFiles";
+import { agentReads, codeEnabled, filesEnabled } from "@/lib/agentFiles";
 import { mayDraw } from "@/lib/agentPictures";
 import { getMcpServerByAgentId } from "@/lib/mcp";
 import { planEnabled, plannable } from "@/lib/planFirst";
@@ -105,6 +108,8 @@ export default async function AgentProfilePage({
 
   // which kinds of file this agent can be handed, when files are on
   const reads = filesEnabled() ? agentReads(agent, { runsThroughMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }) : null;
+  // whether a hire that carries files is given a sandbox to work on them: an agent Axon runs on Claude
+  const runsCode = codeEnabled() && !agent.endpoint && !getMcpServerByAgentId(agent.agentId) && !agent.orchestrator && (agent.provider ?? "anthropic") === "anthropic";
   // whether a hire that asks for a picture would be given the picture tool
   const draws = mayDraw(agent, "a picture", { viaMcp: Boolean(getMcpServerByAgentId(agent.agentId)) });
 
@@ -224,6 +229,8 @@ export default async function AgentProfilePage({
           canPlan={planEnabled() && plannable(agent, { viaMcp: Boolean(getMcpServerByAgentId(agent.agentId)) })}
           canRemember={memoryEnabled()}
           canBringIn={bringInEnabled()}
+          canLibrary={libraryEnabled()}
+          starters={startersFor(agent, { files: Boolean(reads?.text), code: runsCode, pictures: draws, office: runsCode && officeEnabled() })}
         />
 
         {/* Retain: the same hire on a schedule, paid from the allowance. Paid agents only. */}

@@ -10,6 +10,8 @@ import VoiceInput from "@/components/VoiceInput";
 import VoiceOutput from "@/components/VoiceOutput";
 import AgentMemory, { browserMemoryKey } from "@/components/AgentMemory";
 import BringIn, { type Helper } from "@/components/BringIn";
+import { AgentWork, readConversation } from "@/components/Library";
+import type { StarterJob } from "@/lib/starterJobs";
 
 // Close the loop: hire an agent right here. Free-lane agents run immediately;
 // paid agents settle a single on-chain ETH payment (x402) first — pay with
@@ -106,6 +108,8 @@ export default function HirePanel({
   canPlan = false,
   canRemember = false,
   canBringIn = false,
+  canLibrary = false,
+  starters = [],
 }: {
   agentId: string;
   agentName: string;
@@ -119,6 +123,10 @@ export default function HirePanel({
   canRemember?: boolean;
   /** a follow-up can go to another agent, which joins the conversation */
   canBringIn?: boolean;
+  /** hires are kept in the person's library, and a conversation from it can be opened here again */
+  canLibrary?: boolean;
+  /** jobs this agent is good at, written out: one tap puts one in the box */
+  starters?: StarterJob[];
 }) {
   const [task, setTask] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
@@ -181,10 +189,18 @@ export default function HirePanel({
   useEffect(() => {
     // the key lives in this browser's storage, which cannot be read while the page is made on the server
     // eslint-disable-next-line react-hooks/set-state-in-effect -- read once after mount, from storage the server has no access to
-    if (canRemember) setMemoryKey(browserMemoryKey());
-  }, [canRemember]);
-  /** What a hire says about memory: use this browser's, or leave it out. Nothing where memory is not offered. */
-  const memoryFields = () => (memoryKey ? (memoryOff ? { memory: false } : { memory: true, memoryKey }) : {});
+    if (canRemember || canLibrary) setMemoryKey(browserMemoryKey());
+  }, [canRemember, canLibrary]);
+  /**
+   * What a hire says about who it is from: this browser's key, and whether the agent's memory of it is used. The key
+   * goes along even when memory is left out, since the library hangs on it too. Nothing where neither is offered.
+   */
+  const memoryFields = () => (memoryKey ? { memory: canRemember && !memoryOff, memoryKey } : {});
+  // Your library: a count that has the list of earlier work read again, and whether a conversation is being opened.
+  const [libraryRead, setLibraryRead] = useState(0);
+  const [opening, setOpening] = useState(false);
+  // Starter jobs: the one whose sample file is being fetched.
+  const [starting, setStarting] = useState<string | null>(null);
   // Stop and steer: whether a note or a stop is possible now, the notes sent, the one being written, and whether
   // the job was stopped here.
   const [steer, setSteer] = useState<{ open: boolean; stoppable: boolean; notesLeft: number } | null>(null);
@@ -271,6 +287,7 @@ export default function HirePanel({
         setFollow(t.followUp ? { open: Boolean(t.followUp.open), turnsLeft: Number(t.followUp.turnsLeft) || 0 } : null);
         setNoted(Array.isArray(t.remembered) ? t.remembered : []);
         setMemoryRead((n) => n + 1);
+        setLibraryRead((n) => n + 1);
         setPhase("done");
         return;
       }
@@ -607,6 +624,66 @@ export default function HirePanel({
     setClaim(null);
   }
 
+  // Open a conversation from the library here again: its finished turns above, its latest turn in hand, and from
+  // there everything a conversation can do (a follow-up, another agent, an answer the job is waiting on).
+  async function resume(thread: string) {
+    if (opening || phase === "hiring" || phase === "running") return;
+    setOpening(true);
+    const all = await readConversation(thread, memoryKey);
+    setOpening(false);
+    const live = (t: { status: string }) => t.status === "completed" || t.status === "queued" || t.status === "running" || t.status === "waiting";
+    const at = all ? all.findLastIndex(live) : -1;
+    if (!all || at < 0) { setError("That conversation could not be opened. Try again from your library."); return; }
+    const last = all[at];
+    reset();
+    cancelled.current = false;
+    setTurns(all.slice(0, at).filter((t) => t.status === "completed").map((t) => ({ taskId: t.taskId, claim: t.claimToken, task: t.task, output: t.output ?? "", outFiles: t.outputFiles, agentName: t.agent.name })));
+    setTurnAgent({ id: last.agent.id, name: last.agent.name, price: last.agent.price });
+    setTask(last.task);
+    setTaskId(last.taskId);
+    setClaim(last.claimToken);
+    setPhase("running");
+    poll(last.taskId, last.claimToken, 0);
+  }
+  // A conversation opened from the library on the dashboard arrives as ?continue=<thread>.
+  const arrived = useRef(false);
+  useEffect(() => {
+    if (!canLibrary || !memoryKey || arrived.current) return;
+    arrived.current = true;
+    const url = new URL(window.location.href), thread = url.searchParams.get("continue");
+    if (!thread) return;
+    url.searchParams.delete("continue");
+    window.history.replaceState(null, "", url.toString());
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- opened once after mount, from the address the person arrived with
+    void resume(thread);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when this browser's key is known
+  }, [canLibrary, memoryKey]);
+
+  // A starter job: its words go in the box, and its sample file is fetched and attached as if the person had
+  // picked it. Nothing is hired until the person presses the button.
+  async function pickStarter(s: StarterJob) {
+    if (starting || phase !== "idle") return;
+    setTask(s.task);
+    setError(null);
+    if (!s.sample || files.some((f) => f.name === s.sample!.name)) return;
+    setStarting(s.id);
+    try {
+      const got = await fetch(s.sample.path);
+      if (!got.ok) throw new Error("sample");
+      const body = new FormData();
+      body.append("file", new File([await got.blob()], s.sample.name, { type: s.sample.type }));
+      const r = await fetch("/api/files", { method: "POST", body });
+      const d = (await r.json().catch(() => ({}))) as { file?: { id: string; name: string; size: number; kind: Attached["kind"] }; fileToken?: string };
+      if (!r.ok || !d.file || !d.fileToken) throw new Error("upload");
+      const added = { id: d.file.id, token: d.fileToken, name: d.file.name, size: d.file.size, kind: d.file.kind };
+      setFiles((had) => [...had, added]);
+    } catch {
+      setError(`The sample file ${s.sample.name} could not be attached. Attach a file of your own, or hire without one.`);
+    } finally {
+      setStarting(null);
+    }
+  }
+
   // ── Paid agent we can't settle in-browser (SOL price, or wallet config unset):
   // point at the API/MCP, which pay per task.
   if (isPaid && !canPayInBrowser) {
@@ -649,6 +726,16 @@ export default function HirePanel({
 
       {(phase === "idle" || phase === "hiring" || (phase === "error" && !taskId)) && (
         <>
+          {starters.length > 0 && phase === "idle" && turns.length === 0 && (
+            <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
+              <span className="mr-0.5 text-[11px] text-gray-400 dark:text-gray-500">Try one</span>
+              {starters.map((s) => (
+                <button key={s.id} type="button" onClick={() => void pickStarter(s)} disabled={Boolean(starting)} title={s.sample ? `Fills the box and attaches ${s.sample.name}` : "Fills the box"} className={`rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-60 ${task === s.task ? "border-teal-400 bg-teal-50 text-teal-800 dark:border-teal-700 dark:bg-teal-950/30 dark:text-teal-300" : "border-gray-200 text-gray-700 hover:border-teal-400 hover:text-teal-700 dark:border-gray-700 dark:text-gray-200 dark:hover:border-teal-600 dark:hover:text-teal-400"}`}>
+                  {starting === s.id ? "Attaching…" : s.label}
+                </button>
+              ))}
+            </div>
+          )}
           <textarea
             value={task}
             onChange={(e) => setTask(e.target.value)}
@@ -691,6 +778,9 @@ export default function HirePanel({
           </div>
           {phase === "hiring" && hint && <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">{hint}</p>}
           {error && <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">{error}</p>}
+          {canLibrary && memoryKey && turns.length === 0 && (
+            <AgentWork agentId={agentId} agentName={agentName} memoryKey={memoryKey} onContinue={(thread) => void resume(thread)} refresh={libraryRead} disabled={opening || phase === "hiring"} />
+          )}
         </>
       )}
 

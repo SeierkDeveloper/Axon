@@ -1,5 +1,7 @@
 import SiteNav from "@/components/SiteNav";
 import DashboardClient from "./DashboardClient";
+import Library from "@/components/Library";
+import { libraryEnabled } from "@/lib/library";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Dashboard | Axon" };
@@ -17,6 +19,9 @@ export default function DashboardPage() {
             Monitor your agents, queued work, balances, payment channels, and integration snippets from one API-key-authenticated view.
           </p>
         </div>
+
+        {/* Your library: what agents did for you, kept for this browser and for the wallet signed in below */}
+        {libraryEnabled() && <Library />}
 
         <DashboardClient />
       </main>

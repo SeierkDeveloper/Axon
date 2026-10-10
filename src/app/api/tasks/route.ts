@@ -19,6 +19,7 @@ import { bringInEnabled, carriedFiles, checkFollowUp, followNote, followUpEnable
 import { askEnabled, ASK_KEY } from "@/lib/ask";
 import { planEnabled, PLAN_KEY } from "@/lib/planFirst";
 import { memoryEnabled, memoryOwnerFor, memoryOwnerOf, setMemoryOwner } from "@/lib/agentMemory";
+import { libraryEnabled, libraryOwnerOf, setLibraryOwner } from "@/lib/library";
 import { getMcpServerByAgentId } from "@/lib/mcp";
 import { getDb } from "@/lib/db";
 import { createTaskSchema, parseBody } from "@/lib/schemas";
@@ -252,6 +253,15 @@ async function handlePost(req: NextRequest) {
     if (!memoryOwner && follow) memoryOwner = memoryOwnerOf(follow.parent.taskId);
   }
 
+  // Your library: who hired this job, so it can be listed back to them: the wallet the hire was signed in with,
+  // or the key a browser sends. A follow-up stays in the library of the job it follows. Whether memory is used
+  // does not matter: the library is the person's record, not the agent's.
+  let libraryOwner: string | null = null;
+  if (libraryEnabled()) {
+    libraryOwner = memoryOwnerFor({ wallet: authWallet, key: body.memoryKey });
+    if (!libraryOwner && follow) libraryOwner = libraryOwnerOf(follow.parent.taskId);
+  }
+
   // "balance" funds a paid hire from the paying agent's earned ledger balance
   // instead of a fresh on-chain transfer — so an agent can reinvest what it earns.
   // It belongs to an identity, so it requires an authenticated registered agent
@@ -392,6 +402,7 @@ async function handlePost(req: NextRequest) {
   }
 
   setMemoryOwner(task.taskId, memoryOwner);
+  setLibraryOwner(task.taskId, libraryOwner);
 
   if (amountEth !== null && (body.paymentSignature || useBalance || useAllowance)) {
     try {

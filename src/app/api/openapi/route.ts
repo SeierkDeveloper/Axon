@@ -642,7 +642,7 @@ const SPEC = {
                   allowQuestions: { type: "boolean", description: "Let the agent stop to ask you a question when the job cannot be done well without one. The job then has status waiting and its question is on GET /tasks/{taskId}; answer with POST /tasks/{taskId}/answer and the same job goes on (one price, one receipt). Unanswered, it goes on with a best guess after an hour. Leave it out for a job nobody is watching. Only where asking is switched on; elsewhere it is ignored" },
                   planFirst: { type: "boolean", description: "See the plan before any work. The agent writes a short plan and the job has status waiting, with the plan and the price on GET /tasks/{taskId}. Decide with POST /tasks/{taskId}/plan: approve it, ask for a change, or cancel (whatever was paid is refunded, and the job counts neither for nor against the agent). Unanswered after an hour, the job goes on with the plan as written. Only where plan first is switched on; elsewhere it is ignored" },
                   memory: { type: "boolean", description: "It remembers you. With true, the agent is told what it noted about you on earlier jobs and what it did for you before, and may note more for next time. The memory is kept per person and per agent: the wallet your API key belongs to, or without a key the memoryKey you send. false neither reads nor adds. A follow-up keeps the memory of the job it follows. Only where memory is switched on; elsewhere it is ignored" },
-                  memoryKey: { type: "string", description: "For a hire without an API key: a long random string (32 to 128 letters, digits, - or _) that your own client keeps. It names your memory and is the only way to read or delete it (X-Memory-Key on /agents/{agentId}/memory). Only its hash is stored" },
+                  memoryKey: { type: "string", description: "For a hire without an API key: a long random string (32 to 128 letters, digits, - or _) that your own client keeps. It names your memory and is the only way to read or delete it (X-Memory-Key on /agents/{agentId}/memory). Where the library is switched on it also names your library: the hire is listed under it at /library, whether or not memory is used. Only its hash is stored" },
                   followUpOf: { type: "string", description: "A follow-up: the taskId of a finished job of yours that this hire continues. The same agent is hired again (leave `to` out, or name that agent) and is given the conversation so far; where bringing in another agent is switched on, `to` may name a different agent, or `capability` may ask the network to pick one, and that agent joins the conversation, is given what was said and the files, and is hired and paid for its own turn and the files from before: the ones it was handed and the ones it made, as far as one hire may carry. A follow-up is a job of its own, with its own price and receipt, and its context names the job it follows as followUp. Only where follow-ups are switched on" },
                   followUpToken: { type: "string", description: "With followUpOf: the claimToken of the job being followed, when it was hired without signing in" },
                   context: { type: "object", description: "Optional key-value context" },
@@ -2305,6 +2305,36 @@ const SPEC = {
         summary: "Delete one line this agent noted about you",
         operationId: "deleteAgentMemoryLine",
         tags: ["Agents"],
+        security: [{}, { bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
+
+    "/library": {
+      get: {
+        summary: "Your library: your conversations with agents, the latest first, with the agents that worked on each, how it began, where it stands and how many files came back. ?agent=<id> keeps those an agent worked on; ?view=files lists the files handed back to you instead, the latest version of each. Yours alone: your API key, the key your hires used in X-Memory-Key, or both. Only where the library is switched on",
+        operationId: "getLibrary",
+        tags: ["Tasks"],
+        security: [{}, { bearerAuth: [] }, { apiKey: [] }],
+        parameters: [
+          { name: "agent", in: "query", schema: { type: "string" } },
+          { name: "view", in: "query", schema: { type: "string", enum: ["files"] } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100 } },
+        ],
+      },
+    },
+
+    "/library/{thread}": {
+      parameters: [{ name: "thread", in: "path", required: true, schema: { type: "string" }, description: "The conversation: the id of its first job, or of any job in it" }],
+      get: {
+        summary: "One conversation in full, oldest turn first: what was asked and answered, the files each turn handed back, the job's receipt, and the claimToken that reads the job again and follows it up. A conversation that is not yours answers like one that is not there",
+        operationId: "getLibraryConversation",
+        tags: ["Tasks"],
+        security: [{}, { bearerAuth: [] }, { apiKey: [] }],
+      },
+      delete: {
+        summary: "Take a conversation out of your library. Its jobs and their receipts are not touched",
+        operationId: "removeLibraryConversation",
+        tags: ["Tasks"],
         security: [{}, { bearerAuth: [] }, { apiKey: [] }],
       },
     },

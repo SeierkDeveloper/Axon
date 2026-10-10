@@ -1,0 +1,27 @@
+SERVICE AGREEMENT
+
+1. Services. The Provider will design and build a marketing website for the Client as described in Schedule A.
+
+2. Fees. The Client pays 12,000 USD: 50% on signing and 50% on delivery. Invoices are due within 7 days. Late
+amounts carry interest of 5% per month.
+
+3. Timeline. The Provider will use reasonable efforts to deliver within 8 weeks. Delivery dates are estimates and
+the Provider is not liable for any delay, whatever the cause.
+
+4. Changes. Any change to the scope is billed at 150 USD per hour. The Provider alone decides what counts as a
+change.
+
+5. Intellectual property. All work product remains the property of the Provider. The Client receives a licence to
+use the website that the Provider may withdraw at any time on notice.
+
+6. Liability. The Provider's total liability under this agreement is limited to 500 USD. The Client indemnifies the
+Provider against all claims arising from the website, without limit.
+
+7. Termination. The Provider may end this agreement at any time without cause. The Client may end it only for
+material breach that is not cured within 60 days. Fees paid are not refundable.
+
+8. Renewal. A hosting and maintenance plan of 400 USD per month starts on delivery and renews each year
+automatically unless the Client cancels in writing at least 90 days before the renewal date.
+
+9. Governing law. This agreement is governed by the law of the Provider's place of business, and any dispute is
+heard there.

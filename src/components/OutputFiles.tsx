@@ -88,7 +88,8 @@ function EarlierVersions({ file, onDownload, busy }: { file: OutputFile; onDownl
   );
 }
 
-export default function OutputFiles({ files }: { files: OutputFile[] }) {
+/** `compact` is for a long list of files (the library): no heading, and a picture is not drawn until it is downloaded. */
+export default function OutputFiles({ files, compact = false }: { files: OutputFile[]; compact?: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   if (!files.length) return null;
@@ -109,8 +110,8 @@ export default function OutputFiles({ files }: { files: OutputFile[] }) {
   };
 
   return (
-    <div className="mt-3">
-      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">{files.length === 1 ? "File" : "Files"}</p>
+    <div className={compact ? "" : "mt-3"}>
+      {!compact && <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">{files.length === 1 ? "File" : "Files"}</p>}
       <ul className="space-y-2">
         {files.map((f) => (
           <li key={f.id} className="rounded-md border border-gray-200 bg-gray-50/60 p-2.5 dark:border-gray-800 dark:bg-gray-900/40">
@@ -130,7 +131,7 @@ export default function OutputFiles({ files }: { files: OutputFile[] }) {
                 {busy === f.id ? "Downloading…" : "Download"}
               </button>
             </div>
-            {f.kind === "image" && <Picture file={f} />}
+            {f.kind === "image" && !compact && <Picture file={f} />}
             {f.madeBy && <p className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400 sm:hidden">Made by {f.madeBy.name}</p>}
             <p className="mt-1.5 truncate font-mono text-[10px] text-gray-400" title={`SHA-256 ${f.sha256}`}>sha256 {f.sha256}</p>
             {f.version && f.version > 1 && <EarlierVersions file={f} onDownload={(v) => void download(v)} busy={busy} />}
@@ -138,7 +139,7 @@ export default function OutputFiles({ files }: { files: OutputFile[] }) {
         ))}
       </ul>
       {note && <p role="status" className="mt-2 text-xs text-amber-600 dark:text-amber-400">{note}</p>}
-      <p className="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">Each file&apos;s fingerprint is in the receipt.</p>
+      {!compact && <p className="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">Each file&apos;s fingerprint is in the receipt.</p>}
     </div>
   );
 }
