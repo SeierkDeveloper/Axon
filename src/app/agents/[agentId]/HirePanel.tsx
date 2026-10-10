@@ -19,10 +19,14 @@ import VoiceOutput from "@/components/VoiceOutput";
 // In-browser payment covers ETH-priced agents. A SOL price (or missing wallet
 // config) falls back to the API/MCP, which pay per task.
 
-type Phase = "idle" | "hiring" | "running" | "done" | "error";
+type Phase = "idle" | "hiring" | "running" | "asking" | "done" | "error";
+
+/** A question the agent asked along the way, and what came back. */
+interface Asked { n: number; text: string; choices?: string[]; answerBy: string; answer?: string; answeredAt?: string; answeredHow?: "person" | "timeout" }
 
 const MAX_POLLS = 45; // ~90s at 2s intervals
 const POLL_MS = 2000;
+const WAIT_POLL_MS = 4000; // while the job waits on the person, there is no hurry
 
 // Parse an ETH price like "0.25 ETH" → 0.25. null for SOL/unparseable prices.
 function parsePrice(price?: string | null): number | null {
@@ -126,6 +130,14 @@ export default function HirePanel({
   const [followError, setFollowError] = useState<string | null>(null);
   // a follow-up's payment that already landed, kept so a failed send retries with it instead of paying again
   const followPaid = useRef<{ paymentSignature: string; payerWallet: string } | null>(null);
+  // The agent asks: the question the job is waiting on, the answer being written, and what was asked along the way.
+  const [question, setQuestion] = useState<Asked | null>(null);
+  const [answer, setAnswer] = useState("");
+  const [answerBusy, setAnswerBusy] = useState(false);
+  const [answerError, setAnswerError] = useState<string | null>(null);
+  const [asked, setAsked] = useState<Asked[]>([]);
+  // the question just answered here, so a read that was already on its way does not show it again
+  const answeredQ = useRef(0);
 
   // Stop the poll loop if the user navigates away mid-hire — no setState on an
   // unmounted component, no orphaned timers.
@@ -159,9 +171,25 @@ export default function HirePanel({
         setPhase("error");
         return;
       }
-      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: { n: number; text: string }[]; followUp?: { open?: boolean; turnsLeft?: number } };
+      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: { n: number; text: string }[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[] };
       if (cancelled.current) return;
       if (Array.isArray(t.steps)) setSteps((had) => (t.steps!.length >= had.length ? t.steps! : had));
+      if (Array.isArray(t.questions)) setAsked(t.questions.filter((q) => q.answeredAt));
+      // The agent stopped to ask: show the question and keep looking, slowly and without a time limit, for the job to
+      // go on (answered here, or its time ran out).
+      if (t.status === "waiting" && t.question) {
+        const stale = t.question.n === answeredQ.current;
+        if (!stale) {
+          setQuestion(t.question);
+          setPhase("asking");
+        }
+        setTimeout(() => poll(id, claimToken, 0), stale ? POLL_MS : WAIT_POLL_MS);
+        return;
+      }
+      if (t.status === "queued" || t.status === "running") {
+        setQuestion(null);
+        setPhase((p) => (p === "asking" ? "running" : p));
+      }
       if (t.status === "completed") {
         setOutput(t.output ?? "");
         setOutFiles(Array.isArray(t.outputFiles) ? t.outputFiles : []);
@@ -193,7 +221,7 @@ export default function HirePanel({
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ from: "anonymous", to: agentId, task: task.trim(), ...(files.length ? { files: files.map((f) => ({ id: f.id, token: f.token })) } : {}), ...(report ? { reportFile: true } : {}), ...(payment ?? {}) }),
+        body: JSON.stringify({ from: "anonymous", to: agentId, task: task.trim(), allowQuestions: true, ...(files.length ? { files: files.map((f) => ({ id: f.id, token: f.token })) } : {}), ...(report ? { reportFile: true } : {}), ...(payment ?? {}) }),
       });
       const data = (await res.json()) as { taskId?: string; claimToken?: string; error?: string };
       if (cancelled.current) return;
@@ -289,7 +317,7 @@ export default function HirePanel({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          from: "anonymous", to: agentId, task: said, followUpOf: taskId, followUpToken: claim,
+          from: "anonymous", to: agentId, task: said, followUpOf: taskId, followUpToken: claim, allowQuestions: true,
           ...(files.length ? { files: files.map((f) => ({ id: f.id, token: f.token })) } : {}),
           ...(report ? { reportFile: true } : {}),
           ...(followPaid.current ?? {}),
@@ -311,6 +339,9 @@ export default function HirePanel({
         setSteps([]);
         setFiles([]);
         setFollow(null);
+        setAsked([]);
+        setQuestion(null);
+        answeredQ.current = 0;
         setPhase("running");
         poll(data.taskId, data.claimToken, 0);
         return;
@@ -323,9 +354,44 @@ export default function HirePanel({
     }
   }
 
+  // Answer the question the job is waiting on. It is the same job: it goes on from here, nothing is paid again.
+  async function sendAnswer(text: string) {
+    const said = text.trim();
+    if (!said || !taskId || !claim || answerBusy) return;
+    setAnswerBusy(true);
+    setAnswerError(null);
+    try {
+      const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/answer`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-claim-token": claim },
+        body: JSON.stringify({ answer: said }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; details?: { refused?: string } };
+      if (cancelled.current) return;
+      // answered, or the job already went on without one: either way it is working again
+      if (res.ok || data.details?.refused === "not_waiting") {
+        answeredQ.current = question?.n ?? 0;
+        setAnswer("");
+        setQuestion(null);
+        setPhase("running");
+        return;
+      }
+      setAnswerError(data.error ?? "Couldn't send the answer. Try again.");
+    } catch {
+      setAnswerError("Network error sending the answer. Try again.");
+    } finally {
+      setAnswerBusy(false);
+    }
+  }
+
   function reset() {
     cancelled.current = true;
     paid.current = null; // a fresh hire pays anew
+    setQuestion(null);
+    setAnswer("");
+    setAnswerError(null);
+    setAsked([]);
+    answeredQ.current = 0;
     followPaid.current = null;
     setTurns([]);
     setFollow(null);
@@ -426,6 +492,43 @@ export default function HirePanel({
         </div>
       )}
 
+      {/* The agent stopped to ask. The job waits here for the answer, and goes on with a best guess if none comes. */}
+      {phase === "asking" && question && (
+        <div className="py-1">
+          <StepList steps={steps} />
+          <div className="mt-3 rounded-md border border-teal-200 bg-teal-50/50 p-3.5 dark:border-teal-900/50 dark:bg-teal-950/20">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">{agentName} asks</p>
+            <p className="whitespace-pre-wrap break-words text-sm text-gray-900 dark:text-white">{question.text}</p>
+            {question.choices && question.choices.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {question.choices.map((c) => (
+                  <button key={c} type="button" onClick={() => void sendAnswer(c)} disabled={answerBusy} className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-left text-sm text-gray-800 transition-colors hover:border-teal-500 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100">
+                    {c}
+                  </button>
+                ))}
+              </div>
+            )}
+            <textarea
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              placeholder={question.choices?.length ? "Or write your own answer…" : "Your answer…"}
+              rows={2}
+              disabled={answerBusy}
+              className="mt-3 w-full resize-y rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-400 focus:outline-none disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+            />
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+              <button onClick={() => void sendAnswer(answer)} disabled={!answer.trim() || answerBusy} className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700 disabled:opacity-50">
+                {answerBusy ? "Sending…" : "Answer"}
+              </button>
+              <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                Same job, nothing more to pay. With no answer by {new Date(question.answerBy).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} it goes on with its best guess.
+              </span>
+            </div>
+            {answerError && <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">{answerError}</p>}
+          </div>
+        </div>
+      )}
+
       {/* The hire already started (a task exists), then the result failed or
           couldn't be read. Retrying the hire can't help, the payment is spent on
           this task, so point to the receipt and let them start a fresh hire. */}
@@ -450,6 +553,16 @@ export default function HirePanel({
             {output ? <MarkdownOutput text={output} /> : <span className="text-sm text-gray-400">(empty response)</span>}
           </div>
           <OutputFiles files={outFiles} />
+          {asked.length > 0 && (
+            <div className="mt-3 space-y-1.5 text-xs text-gray-500 dark:text-gray-400">
+              {asked.map((q) => (
+                <p key={q.n} className="break-words">
+                  <span className="text-gray-700 dark:text-gray-300">It asked:</span> {q.text}{" "}
+                  <span className="text-gray-700 dark:text-gray-300">{q.answeredHow === "person" ? "You answered:" : "No answer came, so it went on with its best guess."}</span>{q.answeredHow === "person" ? ` ${q.answer ?? ""}` : ""}
+                </p>
+              ))}
+            </div>
+          )}
           {steps.length > 0 && (
             <details className="mt-3 group">
               <summary className="cursor-pointer select-none text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">

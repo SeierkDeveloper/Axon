@@ -16,6 +16,7 @@ import { hashIdempotencyPayload, normalizeIdempotencyKey, validateIdempotencyKey
 import { claimTokenFor, claimTokenValid } from "@/lib/mcpServer";
 import { agentReads, attachFiles, checkTaskFiles, CONTEXT_KEY, filesEnabled, listFiles, passFiles, REPORT_KEY, type FileRow } from "@/lib/agentFiles";
 import { carriedFiles, checkFollowUp, followNote, followUpEnabled, FOLLOW_KEY, type FollowCheck } from "@/lib/followUp";
+import { askEnabled, ASK_KEY } from "@/lib/ask";
 import { getMcpServerByAgentId } from "@/lib/mcp";
 import { getDb } from "@/lib/db";
 import { createTaskSchema, parseBody } from "@/lib/schemas";
@@ -226,6 +227,13 @@ async function handlePost(req: NextRequest) {
     if (!filesEnabled()) return apiError("VALIDATION_ERROR", "Files are not switched on here, so an answer cannot be handed back as a file.", 400);
     body.context = { ...(body.context ?? {}), [REPORT_KEY]: true };
   }
+
+  // The agent may ask: written into the job's context, so the job's commitment covers that it was allowed to. Where
+  // asking is off the wish is simply not granted, so a caller can always send it.
+  if (askEnabled() && body.context && ASK_KEY in body.context) {
+    return apiError("VALIDATION_ERROR", `context.${ASK_KEY} is filled in by Axon. Send "allowQuestions": true instead.`, 400);
+  }
+  if (body.allowQuestions && askEnabled()) body.context = { ...(body.context ?? {}), [ASK_KEY]: true };
 
   // "balance" funds a paid hire from the paying agent's earned ledger balance
   // instead of a fresh on-chain transfer — so an agent can reinvest what it earns.

@@ -110,7 +110,7 @@ const SPEC = {
           fromAgent: { type: "string" },
           toAgent: { type: "string" },
           task: { type: "string" },
-          status: { type: "string", enum: ["queued", "running", "completed", "failed", "payment_pending"] },
+          status: { type: "string", enum: ["queued", "running", "waiting", "completed", "failed", "payment_pending"], description: "waiting: the agent asked a question and the job is paused until it is answered (only on a hire that set allowQuestions)" },
           result: { type: "string", nullable: true },
           payment: { type: "string", nullable: true },
           createdAt: { type: "string", format: "date-time" },
@@ -639,6 +639,7 @@ const SPEC = {
                     items: { type: "object", required: ["id"], properties: { id: { type: "string" }, token: { type: "string", description: "The file's token, when you are not signed in as the wallet that uploaded it" } } },
                   },
                   reportFile: { type: "boolean", description: "Get the answer as a Markdown file as well. It is kept with the job, listed under outputFiles when you read the task, and covered by the job's commitment like any file the agent hands back. Only where files are switched on" },
+                  allowQuestions: { type: "boolean", description: "Let the agent stop to ask you a question when the job cannot be done well without one. The job then has status waiting and its question is on GET /tasks/{taskId}; answer with POST /tasks/{taskId}/answer and the same job goes on (one price, one receipt). Unanswered, it goes on with a best guess after an hour. Leave it out for a job nobody is watching. Only where asking is switched on; elsewhere it is ignored" },
                   followUpOf: { type: "string", description: "A follow-up: the taskId of a finished job of yours that this hire continues. The same agent is hired again (leave `to` out, or name that agent) and is given the conversation so far and the files from before: the ones it was handed and the ones it made, as far as one hire may carry. A follow-up is a job of its own, with its own price and receipt, and its context names the job it follows as followUp. Only where follow-ups are switched on" },
                   followUpToken: { type: "string", description: "With followUpOf: the claimToken of the job being followed, when it was hired without signing in" },
                   context: { type: "object", description: "Optional key-value context" },
@@ -2254,6 +2255,16 @@ const SPEC = {
       parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
       get: { summary: "Fetch all progress entries", tags: ["Tasks"] },
       post: { summary: "Emit a new progress message", tags: ["Tasks"] },
+    },
+
+    "/tasks/{taskId}/answer": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      post: {
+        summary: "Answer the question a job is waiting on. The job is queued again and its agent is run with the question and the answer; it stays one job with one receipt. Only whoever hired the job may answer: its claimToken in X-Claim-Token, or the hirer's API key. Body: { answer }",
+        operationId: "answerTaskQuestion",
+        tags: ["Tasks"],
+        security: [{}, { bearerAuth: [] }, { apiKey: [] }],
+      },
     },
 
     "/tasks/{taskId}/requeue": {

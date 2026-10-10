@@ -120,6 +120,10 @@ export const createTaskSchema = z.object({
   reportFile: z.boolean().optional(),
   // A follow-up: the finished job this hire continues. The same agent is hired again and is given the conversation so
   // far and the files from before. `followUpToken` is that job's claimToken, needed when it was hired without signing in.
+  // The agent may stop to ask a question when the job cannot be done well without one. The job then waits (status
+  // "waiting") until POST /api/tasks/{taskId}/answer, or goes on with a best guess when the time runs out. Leave it
+  // out for a job nobody is watching.
+  allowQuestions: z.boolean().optional(),
   followUpOf: z.string().min(1).max(64).optional(),
   followUpToken: z.string().max(128).optional(),
 }).refine(

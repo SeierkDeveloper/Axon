@@ -15,6 +15,7 @@ import { isWalletAddress } from "../lib/address";
 import { attachmentsForTask, codeEnabled, filesEnabled, keepOutput, readBytes, REPORT_KEY, REPORT_NOTE, storeReport } from "../lib/agentFiles";
 import { conversationBefore, earlierTurns, followUpEnabled, FOLLOW_KEY } from "../lib/followUp";
 import { markRevision, REVISE_NOTE } from "../lib/revisions";
+import { askEnabled, askedSoFar, askTool, closeStrays, mayAsk, parkForAnswer, resumeOverdue, withAsk, ASK_KEY, type Question } from "../lib/ask";
 import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
@@ -285,6 +286,8 @@ async function processTasks() {
 
       launch(task.taskId, () => runWithTraceId(task.traceId ?? task.taskId, async () => {
         let timeoutTimer: NodeJS.Timeout | undefined;
+        // set when this run stops to ask the person a question (see the ask tool below)
+        let asked: Question | null = null;
         try {
           const prices = PRICE_AGENTS.has(agent.agentId) ? livePrices : "";
           // Files handed over with the hire: the text of text files follows the task in the message, and PDFs and
@@ -298,13 +301,19 @@ async function processTasks() {
           // note that says which job it follows is for the record, not for the agent, so it stays out of the context
           // the agent reads.
           const before = followUpEnabled() ? conversationBefore(task) : "";
-          const { [FOLLOW_KEY]: _followNote, ...said } = task.context ?? {};
+          // The agent asks: what it asked earlier in this job and what came back follow the job's own words. A
+          // question a dead run left open is closed first, since nobody is being asked now. Like the follow-up note,
+          // the mark that says the agent may ask is for the record and stays out of what the agent reads.
+          if (askEnabled()) closeStrays(task.taskId);
+          const answered = askEnabled() ? askedSoFar(task.taskId) : "";
+          const { [FOLLOW_KEY]: _followNote, [ASK_KEY]: _mayAsk, ...said } = task.context ?? {};
           void _followNote;
+          void _mayAsk;
           // Running code: an agent Axon runs on Claude may, for a hire that carries files (see below). An agent that can
           // change the files it holds is told how a change is kept: under the same name, as a new version.
           const mayCode = codeEnabled() && !mcpHandler && !agent.orchestrator && (agent.provider ?? "anthropic") === "anthropic";
           const mayRevise = followUpEnabled() && mayCode && handed.files.length > 0;
-          const fullMessage = before + task.task + formatContext(before ? said : task.context) + handed.text + prices + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "");
+          const fullMessage = before + task.task + formatContext(said) + answered + handed.text + prices + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "");
           // a file handed back that changes one the job was given is its next version; said in the log as it is kept
           const madeLine = (file: { id: string; name: string }): string => {
             const rev = markRevision(task.taskId, file.id);
@@ -313,9 +322,14 @@ async function processTasks() {
 
           // Watch it work: a line for each step, written as it happens, for whoever hired the agent to follow.
           const live = liveLog(task.taskId);
-          live.say(`Picked up by ${agent.name}`);
-          if (before) live.say("Continuing from the earlier job");
-          for (const f of handed.files) live.say(`Reading ${f.name}`);
+          if (answered) {
+            // the job is going on after a question: say what came back, not that it was picked up again
+            live.say(/The person answered:/.test(answered.slice(answered.lastIndexOf("You asked:"))) ? "Got your answer. Going on" : "No answer came in time. Going on with a best guess");
+          } else {
+            live.say(`Picked up by ${agent.name}`);
+            if (before) live.say("Continuing from the earlier job");
+            for (const f of handed.files) live.say(`Reading ${f.name}`);
+          }
 
           // Promise.race abandons the loser, it doesn't stop it. For a single
           // model call that's one wasted request; a tool loop is up to seven, so
@@ -357,6 +371,18 @@ async function processTasks() {
           const aboutPicture = (job: string) => mayDraw(agent, job, { viaMcp: Boolean(mcpHandler) });
           if (aboutPicture(task.task) || (before && earlierTurns(task).some((t) => aboutPicture(t.task)))) {
             tools = withPictures(tools, pictureTool({ taskId: task.taskId, wallet: hirerWallet, paid: task.payment != null, onMade: (f) => live.say(madeLine(f)) }));
+          }
+          // Asking: on a hire that allowed it, the agent may stop to ask the person a question. Using the tool ends
+          // this run at the next round, and the job waits for the answer instead of finishing.
+          if (mayAsk(task, agent, { viaMcp: Boolean(mcpHandler) })) {
+            tools = withAsk(tools, askTool({
+              taskId: task.taskId,
+              onAsked: (q) => {
+                asked = q;
+                live.say("Asked you a question");
+                abort.abort();
+              },
+            }));
           }
           // Every call the agent makes goes into the flight recorder as it happens,
           // so the receipt shows what it did, not just what it said.
@@ -407,6 +433,8 @@ async function processTasks() {
               taskTimeout,
             ]),
           );
+          // it asked and still came back with words: the question stands, and the job waits for its answer
+          if (asked && parkForAnswer(task.taskId)) return;
           const output = step.result;
 
           // Flight recorder: the rich per-step event — input/output hashes, the
@@ -447,6 +475,11 @@ async function processTasks() {
             taskId: task.taskId,
           });
         } catch (err) {
+          // The run stopped because the agent asked a question: that is not a failure. The job waits.
+          if (asked && parkForAnswer(task.taskId)) {
+            logger.info("worker.task_waiting", "A job stopped to ask its hirer a question", { agentId: agent.agentId, taskId: task.taskId });
+            return;
+          }
           const msg = err instanceof Error ? err.message : "Agent execution failed";
           if (failTask(task.taskId, msg)) {
             refundPayment(task.taskId);
@@ -480,6 +513,13 @@ async function poll() {
     getDb()
       .prepare("INSERT OR REPLACE INTO worker_state (key, value, updated_at) VALUES ('last_seen', 'ok', ?)")
       .run(new Date().toISOString());
+
+    // Questions nobody answered in time: those jobs go on with a best guess.
+    try {
+      if (askEnabled()) resumeOverdue();
+    } catch (err) {
+      logger.error("worker.ask_resume_failed", "Could not resume jobs waiting on an answer", { err });
+    }
 
     try {
       await deliverPendingWebhooks();

@@ -16,7 +16,7 @@ import { syncToTurso } from "./db-turso";
 import { resolveTraceId, runWithTraceId } from "./tracing";
 import { safeAppendTraceEvent, hashContent } from "./traceEvents";
 
-export type TaskStatus = "payment_pending" | "queued" | "running" | "completed" | "failed";
+export type TaskStatus = "payment_pending" | "queued" | "running" | "waiting" | "completed" | "failed";
 
 export interface Task {
   taskId: string;
