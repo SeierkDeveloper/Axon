@@ -9,6 +9,7 @@ import { noteAllowanceHire, KEY_HIRES_PER_MINUTE } from "@/lib/allowanceWatch";
 import { isWalletAddress } from "@/lib/address";
 import { checkRateLimit, getClientIp, tooManyRequests, rateLimitHeaders } from "@/lib/rateLimit";
 import { canAccessIdentity, requireApiKey } from "@/lib/apiAuth";
+import { authenticateApiKey } from "@/lib/identity";
 import { apiError } from "@/lib/apiError";
 import { checkFreeAllowance, freeLimitMessage } from "@/lib/freeAllowance";
 import { getTier } from "@/lib/holderTier";
@@ -245,11 +246,16 @@ async function handlePost(req: NextRequest) {
   }
   if (body.planFirst && planEnabled()) body.context = { ...(body.context ?? {}), [PLAN_KEY]: true };
 
+  // Who the hirer is, for memory and the library alone: the wallet a hire was signed in with, and for a hire made
+  // as "anonymous" the wallet of a key that came along with it (Mylo and an assistant hire free agents that way).
+  // The key pays for nothing and proves nothing else here.
+  const knownWallet = authWallet ?? (body.from === "anonymous" ? (authenticateApiKey(req, { allowAllowanceScope: true })?.walletAddress ?? null) : null);
+
   // It remembers you: whose memory this job reads and adds to. Only when the hire asks for it; a follow-up keeps
   // the memory of the job it follows. Written on the job once it exists, never into its context.
   let memoryOwner: string | null = null;
   if (memoryEnabled() && body.memory !== false) {
-    if (body.memory === true || body.memoryKey) memoryOwner = memoryOwnerFor({ wallet: authWallet, key: body.memoryKey });
+    if (body.memory === true || body.memoryKey) memoryOwner = memoryOwnerFor({ wallet: knownWallet, key: body.memoryKey });
     if (!memoryOwner && follow) memoryOwner = memoryOwnerOf(follow.parent.taskId);
   }
 
@@ -258,7 +264,7 @@ async function handlePost(req: NextRequest) {
   // does not matter: the library is the person's record, not the agent's.
   let libraryOwner: string | null = null;
   if (libraryEnabled()) {
-    libraryOwner = memoryOwnerFor({ wallet: authWallet, key: body.memoryKey });
+    libraryOwner = memoryOwnerFor({ wallet: knownWallet, key: body.memoryKey });
     if (!libraryOwner && follow) libraryOwner = libraryOwnerOf(follow.parent.taskId);
   }
 

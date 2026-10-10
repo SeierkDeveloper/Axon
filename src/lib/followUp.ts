@@ -66,8 +66,8 @@ export type FollowCheck =
   | { ok: false; refused: FollowRefusal; reason: string; status: 400 | 404 | 409 };
 
 /**
- * May this caller follow this job up? The job must be theirs: hired under the same name, and for a hire made without
- * signing in, proven with that hire's own token (`tokenOk`). A job that is not theirs is answered exactly like one
+ * May this caller follow this job up? The job must be theirs: proven with that hire's own token (`tokenOk`), or
+ * hired under the same name (a hire made without signing in has only its token). A job that is not theirs is answered exactly like one
  * that does not exist. It must have finished, be a single hire (not a step of a crew), and go to the same agent.
  */
 export function checkFollowUp(input: { parentId: string; from: string; to?: string | null; tokenOk: boolean }, env: Record<string, string | undefined> = process.env): FollowCheck {
@@ -76,8 +76,10 @@ export function checkFollowUp(input: { parentId: string; from: string; to?: stri
   const parent = getTaskById(input.parentId);
   const missing = () => no("not_found", "That job was not found, or it is not yours to follow up.", 404);
   if (!parent) return missing();
-  if (!sameParty(parent.fromAgent, input.from)) return missing();
-  if (parent.fromAgent === "anonymous" && !input.tokenOk) return missing();
+  // The job's own token proves that whoever holds it hired the job, under whatever name the follow-up is made:
+  // somebody who hired a free agent without signing in may pay for the next turn from their wallet. Without the
+  // token the names must match, and a job hired without signing in cannot be followed at all.
+  if (!input.tokenOk && (parent.fromAgent === "anonymous" || !sameParty(parent.fromAgent, input.from))) return missing();
   if (parent.workflowId || parent.quorumId) return no("kind", "A follow-up continues a single hire. This job was one step of a larger piece of work.");
   if (parent.status !== "completed") return no("not_finished", "That job has not finished. A follow-up continues a finished job.", 409);
   const broughtIn = Boolean(input.to && input.to !== parent.toAgent);

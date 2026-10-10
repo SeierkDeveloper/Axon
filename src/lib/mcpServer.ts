@@ -40,6 +40,7 @@ import { authenticateApiKey } from "./identity";
 import type { Agent } from "@/sdk/types";
 import { studioInfo } from "./studioPublish";
 import { ASK_MYLO_TOOL, askMylo } from "./myloMcp";
+import { callWorkTool, followedAgent, hireWorkBody, hireWorkNote, hireWorkProperties, resultWork, workTools } from "./mcpWork";
 
 const PROTOCOL_VERSION = "2025-03-26";
 const SERVER_INFO = { name: "axon", version: "1.0.0" };
@@ -272,8 +273,24 @@ const RESULT_WITH_STEPS = " While the job is still running, steps lists what the
 /** What get_task_result says about itself while files are on: it also lists what the agent handed back. */
 const RESULT_WITH_FILES = " When the agent handed back files (a chart, a table, the answer as a file), they are listed under files, each with its SHA-256 and a url that downloads it.";
 
-/** The tools on offer right now: the standing list, plus files while they are switched on. */
+/**
+ * The tools on offer right now: the standing list, plus files while they are switched on, plus what working with
+ * an agent adds (follow-ups, questions, plans, notes, the library), each by its own switch.
+ */
 export function mcpTools(): readonly McpTool[] {
+  const more = hireWorkProperties(), note = hireWorkNote(), added = workTools();
+  const base = toolsWithFiles();
+  if (!Object.keys(more).length && !note && !added.length) return base;
+  return [
+    ...base.map((t) => (t.name === "hire_agent"
+      // with a job to follow, the agent can be left out: it stays with the one that did the job
+      ? { ...t, description: t.description + note, inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, ...more }, ...("followUpOf" in more ? { required: ["task"] } : {}) } }
+      : t)),
+    ...added,
+  ];
+}
+
+function toolsWithFiles(): readonly McpTool[] {
   const standing = MCP_TOOLS as unknown as McpTool[];
   // while the live log is on, reading a result also says what the agent has done so far
   const base = liveLogEnabled() ? standing.map((t) => (t.name === "get_task_result" ? { ...t, description: t.description + RESULT_WITH_STEPS } : t)) : standing;
@@ -294,7 +311,7 @@ export function mcpTools(): readonly McpTool[] {
 export interface McpTool { name: string; description: string; inputSchema: { type: string; properties: Record<string, unknown>; required?: readonly string[] } }
 
 /** The tools that come with a single agent, beside the agent itself: reading its answer and its proof. */
-const WITH_AN_AGENT = ["get_task_result", "get_receipt", "get_allowance"];
+const WITH_AN_AGENT = ["get_task_result", "get_receipt", "get_allowance", "answer_agent", "decide_plan", "steer_task", "get_library"];
 
 /**
  * One agent as its own toolset, for a link that adds just that agent to an assistant (/mcp/agents/:id, and
@@ -316,7 +333,8 @@ export function agentToolset(agentId: string): { toolName: string; agent: Agent;
     description: `${agent.name}: ${what}. ${agent.price ? `${agent.price} per task` : "Free"}.${studio ? ` Built in Axon Agent Studio, tested ${studio.score.toFixed(1)}/10.` : ""} Give it a task; it returns a taskId and a claimToken, and get_task_result with both returns the answer.`,
     inputSchema: { type: "object", properties: props, required: ["task"] },
   };
-  return { toolName, agent, tools: [tool, ...(MCP_TOOLS.filter((t) => WITH_AN_AGENT.includes(t.name)) as unknown as McpTool[])] };
+  // read from the tools on offer right now, so what working with an agent adds comes along while it is switched on
+  return { toolName, agent, tools: [tool, ...mcpTools().filter((t) => WITH_AN_AGENT.includes(t.name))] };
 }
 
 // ── Tool implementations ──────────────────────────────────────────────────────
@@ -407,7 +425,8 @@ async function toolUploadFile(args: Record<string, unknown>, clientIp: string, a
 }
 
 async function toolHireAgent(args: Record<string, unknown>, clientIp: string, apiKey: string | null) {
-  const agentId = String(args.agentId ?? "");
+  // a follow-up that names no agent stays with the one that did the job
+  const agentId = String(args.agentId ?? "") || followedAgent(args);
   const task = typeof args.task === "string" ? args.task.trim() : "";
   if (!agentId || !task) return { error: "agentId and task are required" };
 
@@ -438,7 +457,7 @@ async function toolHireAgent(args: Record<string, unknown>, clientIp: string, ap
   }
 
   const { POST: createTaskRoute } = await import("@/app/api/tasks/route");
-  const body: Record<string, unknown> = { from: "anonymous", to: agentId, task };
+  const body: Record<string, unknown> = { from: "anonymous", to: agentId, task, ...hireWorkBody(args) };
   if (args.context && typeof args.context === "object") body.context = args.context;
   if (Array.isArray(args.files) && args.files.length) body.files = args.files;
   if (args.reportFile === true) body.reportFile = true;
@@ -447,7 +466,8 @@ async function toolHireAgent(args: Record<string, unknown>, clientIp: string, ap
 
   const req = new NextRequest(`${BASE_URL}/api/tasks`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-forwarded-for": clientIp },
+    // a key on the connection says whose memory and library a free hire belongs to; it pays nothing here
+    headers: { "Content-Type": "application/json", "x-forwarded-for": clientIp, ...(apiKey ? { "x-api-key": apiKey } : {}) },
     body: JSON.stringify(body),
   });
   const res = await createTaskRoute(req);
@@ -506,7 +526,7 @@ async function hireFromAllowance(
   const wallet = walletForKey(apiKey);
   if (!wallet) return { error: "The Authorization key on this MCP connection is not a valid Axon key" };
 
-  const body: Record<string, unknown> = { from: wallet, to: agent.agentId, task, paymentMethod: "allowance" };
+  const body: Record<string, unknown> = { from: wallet, to: agent.agentId, task, paymentMethod: "allowance", ...hireWorkBody(args) };
   if (args.context && typeof args.context === "object") body.context = args.context;
   if (Array.isArray(args.files) && args.files.length) body.files = args.files;
   if (args.reportFile === true) body.reportFile = true;
@@ -651,7 +671,7 @@ function toolGetTaskResult(args: Record<string, unknown>) {
   const files = filesEnabled() && task.status === "completed"
     ? filesOfTask(taskId, "out").map((f) => {
         const o = outputFileFor(f);
-        return { name: o.name, type: o.type, size: o.size, sha256: o.sha256, url: `${BASE_URL}${o.path}?token=${o.token}`, ...(o.madeBy ? { madeBy: o.madeBy.name } : {}) };
+        return { name: o.name, type: o.type, size: o.size, sha256: o.sha256, url: `${BASE_URL}${o.path}?token=${o.token}`, ...(o.madeBy ? { madeBy: o.madeBy.name } : {}), ...(o.version ? { version: o.version } : {}) };
       })
     : [];
   // What the agent has done so far, one line a step: something to show while the job is still running.
@@ -666,6 +686,7 @@ function toolGetTaskResult(args: Record<string, unknown>) {
     failureReason: task.status === "failed" ? (task.error ?? null) : null,
     ...(steps.length ? { steps } : {}),
     ...(files.length ? { files } : {}),
+    ...resultWork(task),
     receiptUrl: `${BASE_URL}/r/${taskId}`,
   };
 }
@@ -715,7 +736,7 @@ async function callTool(name: string, args: Record<string, unknown>, clientIp: s
     case "get_receipt":
       return toolGetReceipt(args);
     default:
-      return null;
+      return (await callWorkTool(name, args, apiKey, BASE_URL)) ?? null;
   }
 }
 
