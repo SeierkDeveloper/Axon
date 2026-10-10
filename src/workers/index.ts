@@ -2,7 +2,7 @@ import { getTasksByAgent, startTask, completeTask, failTask } from "../lib/tasks
 import { refundPayment } from "../lib/payments";
 import { settleCompletedTask } from "../lib/sla";
 import { refundDebitForTask } from "../lib/mpp";
-import { getAllAgents } from "../lib/agents";
+import { getAllAgents, getAgentById } from "../lib/agents";
 import { runOrchestration } from "../lib/orchestrator";
 import { getSubcontractsForParent } from "../lib/subcontracts";
 import { getDb } from "../lib/db";
@@ -358,7 +358,12 @@ async function processTasks() {
             live.say(/person approved/.test(approved) ? "Plan approved. Starting the work" : "No answer came in time. Going on with the plan as written");
           } else {
             live.say(`Picked up by ${agent.name}`);
-            if (before) live.say("Continuing from the earlier job");
+            if (before) {
+              // an agent brought into a conversation says so, and whose work it is picking up
+              const after = (task.context?.[FOLLOW_KEY] as { broughtIn?: boolean; after?: string } | undefined);
+              const started = after?.broughtIn && after.after ? getAgentById(after.after)?.name ?? after.after : null;
+              live.say(started ? `Joining the job ${started} started` : "Continuing from the earlier job");
+            }
             for (const f of handed.files) live.say(`Reading ${f.name}`);
           }
 
