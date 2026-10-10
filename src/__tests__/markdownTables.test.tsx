@@ -56,3 +56,13 @@ describe("quotes and lines across", () => {
     expect(out).not.toContain("<hr");
   });
 });
+
+describe("bold and code together", () => {
+  it("shows a bold file name written as code without its ticks", () => {
+    const out = html("**`revenue_by_region.png`** is ready, and `x` is code, and **plain bold** stays.");
+    expect(out).not.toContain("`");
+    expect(out).toMatch(/<strong[^>]*><code[^>]*>revenue_by_region\.png<\/code><\/strong>/);
+    expect(out).toContain(">x</code>");
+    expect(out).toMatch(/<strong[^>]*>plain bold<\/strong>/);
+  });
+});

@@ -32,7 +32,11 @@ function renderInline(text: string, links = false): React.ReactNode {
   const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
   return parts.map((part, i) => {
     if (part.startsWith("**") && part.endsWith("**")) {
-      return <strong key={i} className="font-semibold text-gray-900 dark:text-white">{part.slice(2, -2)}</strong>;
+      // a file name or a value is often bold and code at once: the code inside is shown as code, not with its ticks
+      const inner = part.slice(2, -2).split(/(`[^`]+`)/g).map((p, n) => (p.startsWith("`") && p.endsWith("`") && p.length > 2
+        ? <code key={n} className="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-1 py-0.5 rounded text-xs font-mono">{p.slice(1, -1)}</code>
+        : p));
+      return <strong key={i} className="font-semibold text-gray-900 dark:text-white">{inner}</strong>;
     }
     if (part.startsWith("`") && part.endsWith("`")) {
       return <code key={i} className="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-1 py-0.5 rounded text-xs font-mono">{part.slice(1, -1)}</code>;
