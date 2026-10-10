@@ -18,7 +18,7 @@ import { memoryOwnerOf } from "@/lib/agentMemory";
 import { libraryOwnerOf } from "@/lib/library";
 import { runTool, myloToolDefs, MYLO_TOOL_DEFS } from "@/lib/myloTools";
 import { confirmAction, getAction, refreshAction, type HireDetail } from "@/lib/myloActions";
-import { noteOf } from "@/lib/myloChat";
+import { noteOf, resultGuard } from "@/lib/myloChat";
 import { myloWorkNote, ownsJob } from "@/lib/myloWork";
 import { historyOf, startConversation } from "@/lib/myloStore";
 import { TOOLS } from "@/lib/myloPolicy";
@@ -232,5 +232,29 @@ describe("their library", () => {
     getDb().prepare("DELETE FROM mylo_actions WHERE owner = ?").run(me.ctx.owner);
     expect(ownsJob(me.ctx, first.taskId)).toBe(true);
     expect((await hireThroughMylo(me, { task: "Longer", follow_up_of: first.taskId })).error).toBeNull();
+  });
+});
+
+describe("Mylo never writes an agent's result itself", () => {
+  const through = (pieces: string[]) => { let cuts = 0; const g = resultGuard(() => { cuts++; }); const out = pieces.map((p) => g.push(p)).join("") + g.flush(); return { out, cuts }; };
+
+  it("drops everything from a made-up result on, however it is split as it streams", () => {
+    const said = "Ready: I've proposed continuing with SQL Agent. Confirm on the page.\n\n**SQL Agent** finished:\n\n```sql\nSELECT 1;\n```\n\n[Receipt](/r/x)";
+    for (const size of [1, 3, 7, 50, 1000]) {
+      const pieces = said.match(new RegExp(`[\\s\\S]{1,${size}}`, "g"))!;
+      const r = through(pieces);
+      // blank lines already sent before the made-up result began cannot be taken back, and do no harm
+      expect(r.out.trimEnd()).toBe("Ready: I've proposed continuing with SQL Agent. Confirm on the page.");
+      expect(r.cuts).toBe(1);
+    }
+    expect(through(["**Quill** has a question before it goes on:\n\nWhich language?"]).out).toBe("");
+    expect(through(["Fine.\n**Quill** wrote its plan and waits for your OK:\n1. Read."]).out).toBe("Fine.");
+    expect(through(["**Quill**'s job was called off before it delivered."]).out).toBe("");
+  });
+
+  it("leaves bold words, lists and everything else exactly as they were", () => {
+    for (const said of ["**Scholar Synth** is the better pick here: tested 9.1.", "Two options:\n\n* **Quill** finished second in the comparison\n* **Ink** is cheaper", "**Done.** Nothing else to do.", "It finished: here is why.", "*", "**"]) {
+      for (const size of [1, 4, 1000]) expect(through(said.match(new RegExp(`[\\s\\S]{1,${size}}`, "g"))!)).toEqual({ out: said, cuts: 0 });
+    }
   });
 });

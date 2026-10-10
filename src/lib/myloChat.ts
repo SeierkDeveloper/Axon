@@ -399,6 +399,32 @@ export function noteFilter() {
   };
 }
 
+/**
+ * An agent's result is written into the conversation by Axon when the agent finishes, in a form of its own
+ * ("**Name** finished:"). Mylo never writes that form itself: a model that has read earlier results will sometimes
+ * carry on in the same pattern and make an answer up before the agent has run. From the first line in that form,
+ * the rest of what Mylo says in the turn is dropped. A line that opens in bold is held until it is clear which it is.
+ */
+const AXON_SAYS = /^\s*\*\*[^*\n]{1,80}\*\*(?:'s job)?\s+(?:finished:|couldn't finish|wasn't hired|was called off|has a question before it goes on|wrote its plan and waits)/;
+export function resultGuard(onCut: () => void = () => {}) {
+  let line = "", cut = false;
+  const undecided = (l: string) => /^\s*\*/.test(l) && l.length < 160;
+  return {
+    push(delta: string): string {
+      if (cut) return "";
+      let out = "";
+      for (const ch of delta) {
+        line += ch;
+        if (AXON_SAYS.test(line)) { cut = true; line = ""; onCut(); return out.replace(/\s+$/, ""); }
+        if (ch === "\n" || !undecided(line)) { out += line; line = ""; }
+      }
+      return out;
+    },
+    flush(): string { const l = cut ? "" : line; line = ""; return l; },
+    get cut() { return cut; },
+  };
+}
+
 let replying = 0;
 
 export interface TurnInput { owner: string; limitKey?: string; addressKey?: string | null; wallet: string | null; speaker: Speaker; text: string; conversationId?: string | null }
@@ -437,9 +463,10 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
   const cards: Card[] = [], actionIds: string[] = [];
   let talking = false, written = "", toolsUsed = 0, nudged = false, nudgedAt = -1;
   const clean = dashCleaner(), notes = noteFilter();
-  // what people read: em dashes taken out, then bookkeeping lines
-  const tidy = (d: string) => notes.push(clean.push(d));
-  const tidyFlush = () => notes.push(clean.flush()) + notes.flush();
+  const guard = resultGuard(() => logger.warn("mylo.made_up_result", "Mylo began to write an agent's result itself; the rest of its words were dropped", { conversationId: conv.id, model }));
+  // what people read: em dashes taken out, then bookkeeping lines, and never an agent's result written by Mylo
+  const tidy = (d: string) => guard.push(notes.push(clean.push(d)));
+  const tidyFlush = () => guard.push(notes.push(clean.flush()) + notes.flush()) + guard.flush();
   const spend = { speaker: input.speaker, conversationId: conv.id };
   try {
     for (;;) {
