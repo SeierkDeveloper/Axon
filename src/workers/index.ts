@@ -459,7 +459,6 @@ async function processTasks() {
               taskId: task.taskId,
               onAsked: (q) => {
                 asked = q;
-                live.say("Asked you a question");
                 abort.abort();
               },
             }));
