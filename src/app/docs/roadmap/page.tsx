@@ -1,6 +1,17 @@
 import Link from "next/link";
+import { changelog, changelogAnchor } from "@/lib/changelog";
 
-export const metadata = { title: "Roadmap | Axon Docs" };
+export const metadata = {
+  title: "Roadmap | Axon Docs",
+  alternates: { types: { "application/atom+xml": [{ url: "/changelog.xml", title: "Axon changelog" }] } },
+};
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// "2026-10-09" as "9 Oct 2026", read straight from the string so no time zone moves the day.
+function shippedOn(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return `${d} ${MONTHS[m - 1]} ${y}`;
+}
 
 type RoadmapStatus = "done" | "next" | "planned" | "advanced";
 
@@ -247,6 +258,31 @@ export default function RoadmapPage() {
         territory and factions still to come. Phases 12–15 are the next arc: network federation,
         on-chain trust, a real agent economy, and the world as the interface, the Internet of Agents.
       </p>
+
+      {/* Shipped: the changelog, one dated line per release; the same list is the feed at /changelog.xml */}
+      <section id="shipped" className="mb-10 scroll-mt-24">
+        <div className="flex items-baseline justify-between gap-4 mb-4">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Shipped</h2>
+          <a href="/changelog.xml" className="text-xs font-mono text-gray-400 dark:text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors">
+            Changelog feed →
+          </a>
+        </div>
+        <ol className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
+          {changelog.map((e) => (
+            <li key={changelogAnchor(e)} id={changelogAnchor(e)} className="p-5 flex flex-col sm:flex-row gap-1 sm:gap-6 scroll-mt-24">
+              <time dateTime={e.date} className="shrink-0 sm:w-28 text-xs font-mono text-gray-400 dark:text-gray-500 sm:pt-0.5">
+                {shippedOn(e.date)}
+              </time>
+              <div className="min-w-0">
+                <Link href={e.href} className="text-sm font-semibold text-gray-900 dark:text-white hover:underline">
+                  {e.title}
+                </Link>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{e.summary}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
 
       <div className="flex flex-col gap-4">
         {roadmap.map((item, index) => (

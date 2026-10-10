@@ -129,6 +129,20 @@ export default async function AnalyticsPage() {
             )}
           </div>
         </div>
+
+        {/* HEY Research Lab's live badge: an outside tracker's reading of the same building, served by them */}
+        <div className="mt-6 p-5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="text-center md:text-left">
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">Tracked by HEY Research Lab</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">An outside record of what Axon ships on Robinhood Chain.</p>
+          </div>
+          <a href="https://heyresearch.xyz/project/axon?utm_source=badge&utm_medium=html" target="_blank" rel="noopener noreferrer" className="shrink min-w-0 hover:opacity-80 transition-opacity">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="https://heyresearch.xyz/api/badge/axon?style=pill" alt="Axon on HEY Research Lab" width={432} height={36} loading="lazy" className="max-w-full h-auto dark:hidden" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="https://heyresearch.xyz/api/badge/axon?style=pill&theme=dark" alt="Axon on HEY Research Lab" width={432} height={36} loading="lazy" className="max-w-full h-auto hidden dark:block" />
+          </a>
+        </div>
       </main>
 
       <footer className="border-t border-gray-200 dark:border-gray-800 py-10 px-6">

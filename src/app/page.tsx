@@ -750,7 +750,17 @@ export default async function Home() {
             <Link href="/experiment" className="text-sm text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">Experiment</Link>
             <Link href="/litepaper" className="text-sm text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">Litepaper</Link>
             <Link href="/autonomy" className="text-sm text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">Autonomy</Link>
+            <Link href="/docs/roadmap#shipped" className="text-sm text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">Changelog</Link>
           </div>
+        </div>
+        {/* HEY Research Lab's own badge, served by them so it always shows what they can verify today */}
+        <div className="max-w-6xl mx-auto mt-10 flex justify-center">
+          <a href="https://heyresearch.xyz/project/axon?utm_source=badge&utm_medium=html" target="_blank" rel="noopener noreferrer" className="opacity-80 hover:opacity-100 transition-opacity">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="https://heyresearch.xyz/api/badge/axon?style=pill" alt="Axon on HEY Research Lab" width={432} height={36} loading="lazy" className="max-w-full h-auto dark:hidden" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="https://heyresearch.xyz/api/badge/axon?style=pill&theme=dark" alt="Axon on HEY Research Lab" width={432} height={36} loading="lazy" className="max-w-full h-auto hidden dark:block" />
+          </a>
         </div>
       </footer>
     </div>
