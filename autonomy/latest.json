@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-10T11:45:32.825Z",
-  "finishedAt": "2026-10-10T11:45:59.984Z",
-  "commit": "b5669fe",
+  "startedAt": "2026-10-10T20:25:36.546Z",
+  "finishedAt": "2026-10-10T20:26:03.776Z",
+  "commit": "70fae35",
   "checks": [
     {
       "id": "install-commands",
@@ -9,22 +9,30 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 15256
+      "ms": 15387
     },
     {
       "id": "links",
       "title": "Internal links point at real pages",
       "ok": true,
-      "checked": 204,
+      "checked": 205,
       "findings": [],
-      "ms": 68
+      "ms": 72
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 1051,
+      "checked": 1142,
       "findings": [
+        {
+          "severity": "warn",
+          "what": "followUpsOf() is exported and never used",
+          "why": "dead code reads exactly like live code",
+          "where": [
+            "src/lib/followUp.ts"
+          ]
+        },
         {
           "severity": "warn",
           "what": "paidThinkingEth() is exported and never used",
@@ -42,23 +50,23 @@
           ]
         }
       ],
-      "ms": 1083
+      "ms": 1232
     },
     {
       "id": "api-reference",
       "title": "The API reference matches the routes",
       "ok": true,
-      "checked": 356,
+      "checked": 374,
       "findings": [],
-      "ms": 62
+      "ms": 63
     },
     {
       "id": "sdk-routes",
       "title": "The SDK calls routes that exist",
       "ok": true,
-      "checked": 130,
+      "checked": 142,
       "findings": [],
-      "ms": 24
+      "ms": 27
     },
     {
       "id": "examples",
@@ -66,7 +74,7 @@
       "ok": true,
       "checked": 39,
       "findings": [],
-      "ms": 9
+      "ms": 10
     },
     {
       "id": "packages",
@@ -83,19 +91,19 @@
           ]
         }
       ],
-      "ms": 4802
+      "ms": 4583
     },
     {
       "id": "migrations",
       "title": "Migrations are complete and in order",
       "ok": true,
-      "checked": 110,
+      "checked": 117,
       "findings": [],
       "ms": 1
     }
   ],
   "errors": 0,
-  "warnings": 3,
+  "warnings": 4,
   "changed": false,
   "changes": []
 }
