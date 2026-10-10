@@ -697,7 +697,8 @@ class AnthropicProvider implements ProviderClient {
       const toolUses = msg.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
       if (toolUses.length === 0) {
         // About to finish. A note that came in while it worked still counts: the model gets it and one more round.
-        const late = exhausted || (msg.stop_reason as string) === "max_tokens" ? null : readNotes(notes);
+        // That holds for an answer cut off at its length limit too: the round after is a whole answer, with the note.
+        const late = exhausted ? null : readNotes(notes);
         if (!late) return { text: requireText(lastText), refused: false };
         messages.push({ role: "assistant", content: msg.content as Anthropic.ContentBlockParam[] });
         messages.push({ role: "user", content: late });

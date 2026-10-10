@@ -172,6 +172,15 @@ describe("the note reaches the agent", () => {
     ]);
   });
 
+  it("also when its answer was cut off at the length limit: the next round is a whole answer with the note", async () => {
+    sdk.stream
+      .mockReturnValueOnce(reply([{ type: "text", text: "A very long guide that is cut" }], { stop_reason: "max_tokens" }))
+      .mockReturnValueOnce(reply([{ type: "text", text: "Five short points." }]));
+    const queue = ["A note: five bullet points instead."];
+    expect(await getProvider(who).completeWithTools!("system", "Write a guide", 500, tools, { notes: () => queue.shift() ?? null })).toBe("Five short points.");
+    expect(sdk.stream).toHaveBeenCalledTimes(2);
+  });
+
   it("nothing changes for a job nobody wrote to, or when reading the notes fails", async () => {
     sdk.stream.mockReturnValue(reply([{ type: "text", text: "The answer." }]));
     expect(await getProvider(who).completeWithTools!("system", "Do it", 500, tools, { notes: () => null })).toBe("The answer.");
