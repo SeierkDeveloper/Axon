@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-10T20:31:04.532Z",
-  "finishedAt": "2026-10-10T20:31:31.295Z",
-  "commit": "562872d",
+  "startedAt": "2026-10-10T20:54:54.324Z",
+  "finishedAt": "2026-10-10T20:55:20.940Z",
+  "commit": "53dfbe2",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 14667
+      "ms": 15564
     },
     {
       "id": "links",
@@ -17,7 +17,7 @@
       "ok": true,
       "checked": 205,
       "findings": [],
-      "ms": 72
+      "ms": 77
     },
     {
       "id": "dead-exports",
@@ -50,7 +50,7 @@
           ]
         }
       ],
-      "ms": 1239
+      "ms": 1329
     },
     {
       "id": "api-reference",
@@ -58,7 +58,7 @@
       "ok": true,
       "checked": 374,
       "findings": [],
-      "ms": 66
+      "ms": 68
     },
     {
       "id": "sdk-routes",
@@ -66,7 +66,7 @@
       "ok": true,
       "checked": 142,
       "findings": [],
-      "ms": 27
+      "ms": 29
     },
     {
       "id": "examples",
@@ -74,7 +74,7 @@
       "ok": true,
       "checked": 39,
       "findings": [],
-      "ms": 10
+      "ms": 12
     },
     {
       "id": "packages",
@@ -91,7 +91,7 @@
           ]
         }
       ],
-      "ms": 4766
+      "ms": 3261
     },
     {
       "id": "migrations",
