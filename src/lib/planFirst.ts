@@ -92,7 +92,7 @@ export function approvedNote(taskId: string): string {
   const last = plansOf(taskId).at(-1);
   if (!last || (last.outcome !== "approved" && last.outcome !== "timeout")) return "";
   const how = last.outcome === "approved" ? "The person approved this plan for the job. Follow it:" : "You wrote this plan for the job. The person did not answer in time, so go on with it as written:";
-  return `\n\n${how}\n\n${last.text}\n\nNow do the job. Do not show the plan again.`;
+  return `\n\n${how}\n\n${last.text}\n\nNow do the job. What the plan assumes is settled with it: do not stop to ask about that. Do not show the plan again.`;
 }
 
 /** Keep the plan a run has written. The job then waits on it. */

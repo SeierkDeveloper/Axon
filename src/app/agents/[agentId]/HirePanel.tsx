@@ -620,7 +620,8 @@ export default function HirePanel({
           <StepList steps={steps} />
           <div className="mt-3 rounded-md border border-teal-200 bg-teal-50/50 p-3.5 dark:border-teal-900/50 dark:bg-teal-950/20">
             <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">{agentName}&apos;s plan{plan.n > 1 ? `, changed ${plan.n - 1 === 1 ? "once" : `${plan.n - 1} times`}` : ""}</p>
-            <div className="max-h-80 overflow-auto break-words rounded-md border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
+            {/* shown whole: a plan is short, and nobody should approve one they had to scroll a box to read */}
+            <div className="break-words rounded-md border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
               <MarkdownOutput text={plan.text} />
             </div>
             <p className="mt-2.5 text-xs text-gray-600 dark:text-gray-300">
