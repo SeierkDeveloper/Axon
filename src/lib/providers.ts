@@ -699,6 +699,10 @@ class AnthropicProvider implements ProviderClient {
         // About to finish. A note that came in while it worked still counts: the model gets it and one more round.
         // That holds for an answer cut off at its length limit too: the round after is a whole answer, with the note.
         const late = exhausted ? null : readNotes(notes);
+        // a run that ends with nothing said fails below; say first how it ended, since the message alone does not
+        if (!late && !lastText.trim()) {
+          logger.warn("provider.tool_loop_empty", "A tool loop ended with no words", { model, step, stop: msg.stop_reason, blocks: msg.content.map((b) => b.type).join(",") });
+        }
         if (!late) return { text: requireText(lastText), refused: false };
         messages.push({ role: "assistant", content: msg.content as Anthropic.ContentBlockParam[] });
         messages.push({ role: "user", content: late });
