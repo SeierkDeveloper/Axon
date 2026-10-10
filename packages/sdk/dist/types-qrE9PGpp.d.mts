@@ -136,7 +136,11 @@ interface AgentMetrics {
     uptimePct: number | null;
     windowDays: number;
 }
-type TaskStatus = "payment_pending" | "queued" | "running" | "completed" | "failed";
+/**
+ * Where a task stands. `waiting` is a job paused on the person who hired it (the agent asked a question, or its
+ * plan waits for approval); `cancelled` is a job called off before it delivered, refunded.
+ */
+type TaskStatus = "payment_pending" | "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
 interface TaskRequest {
     taskId: string;
     fromAgent: string;
@@ -151,6 +155,236 @@ interface TaskRequest {
     createdAt: string;
     startedAt?: string;
     completedAt?: string;
+    /** Returned once, when a hire is made without signing in: what reads the job back and acts for its hirer. */
+    claimToken?: string;
+    /** The job this one follows, and the conversation both belong to. */
+    parentTaskId?: string;
+    threadId?: string;
+    /** Which turn of its conversation this is, and whether it can be followed up. */
+    followUp?: FollowUpInfo;
+    /** The files the agent handed back, each with the token that downloads it. */
+    outputFiles?: TaskFile[];
+    /** What the agent has done so far, one line a step. */
+    steps?: {
+        n: number;
+        text: string;
+    }[];
+    /** The question the job is waiting on, and every question it has asked. */
+    question?: TaskQuestion;
+    questions?: TaskQuestion[];
+    /** The plan the job is waiting on, and every plan it has had. */
+    plan?: TaskPlan & {
+        price: string | null;
+        changesLeft: number;
+    };
+    plans?: TaskPlan[];
+    /** Whether the job can be sent a note or stopped right now, and the notes sent so far. */
+    steer?: {
+        open: boolean;
+        stoppable: boolean;
+        notesLeft: number;
+    };
+    notes?: TaskNote[];
+    /** What the agent noted about its hirer during this job, for the next one. */
+    remembered?: {
+        id: string;
+        text: string;
+    }[];
+}
+interface FollowUpInfo {
+    thread: string;
+    turn: number;
+    of?: string;
+    open: boolean;
+    turnsLeft: number;
+}
+/** A file an agent handed back. `version` is above 1 for a file it revised; `revises` is the content it replaced. */
+interface TaskFile {
+    id: string;
+    name: string;
+    type: string;
+    kind: "pdf" | "image" | "text" | "office";
+    size: number;
+    sha256: string;
+    token: string;
+    path: string;
+    version?: number;
+    revises?: string;
+    first?: {
+        sha256: string;
+        taskId: string | null;
+    };
+    madeBy?: {
+        agentId: string;
+        name: string;
+        taskId: string;
+    };
+}
+/** A file handed over with a hire: what `uploadFile` returned. */
+interface FileRef {
+    id: string;
+    token?: string;
+}
+interface UploadedFile {
+    id: string;
+    token: string;
+    name: string;
+    type: string;
+    size: number;
+    sha256: string;
+    expiresAt?: string;
+}
+/** One version of a file, oldest first in `listFileVersions`. */
+interface FileVersion {
+    version: number;
+    id: string;
+    name: string;
+    type: string;
+    size: number;
+    sha256: string;
+    taskId: string | null;
+    uploaded?: boolean;
+    createdAt: string;
+    token: string;
+    path: string;
+    current: boolean;
+    revises?: string;
+}
+interface TaskQuestion {
+    n: number;
+    text: string;
+    choices?: string[];
+    askedAt: string;
+    answerBy: string;
+    answer?: string;
+    answeredAt?: string;
+    answeredHow?: "person" | "timeout";
+}
+interface TaskPlan {
+    n: number;
+    text: string;
+    madeAt: string;
+    answerBy: string;
+    outcome?: "approved" | "changed" | "cancelled" | "timeout";
+    change?: string;
+    answeredAt?: string;
+}
+interface TaskNote {
+    n: number;
+    text: string;
+    sentAt: string;
+    deliveredAt?: string;
+}
+/** What a hire may ask for beyond the task itself. Each is ignored where its feature is not switched on. */
+interface WorkOptions {
+    /** Let the agent stop and ask when something it needs is unclear. */
+    allowQuestions?: boolean;
+    /** Have the agent say what it will do, and start only when the plan is approved. */
+    planFirst?: boolean;
+    /** The agent is told what it noted about you before, and may note more. Yours by wallet, or by `memoryKey`. */
+    memory?: boolean;
+    /** Without an API key: a long random string you keep (32 to 128 letters, digits, - or _). It names your memory and your library. */
+    memoryKey?: string;
+    /** Files for the agent to work on, uploaded first with `uploadFile`. */
+    files?: FileRef[];
+    /** The answer as a Markdown file as well. */
+    reportFile?: boolean;
+}
+interface FollowUpOptions extends WorkOptions {
+    /** Another agent to bring into the conversation. Default: the agent that did the job. */
+    to?: string;
+    /** Who is hiring. Default: "anonymous" with a `claimToken`, otherwise whoever hired the job being followed. */
+    from?: string;
+    /** The followed job's claimToken, for a job hired without signing in. It proves the job is yours. */
+    claimToken?: string;
+    context?: Record<string, unknown>;
+    /** For a paid agent: pay from the allowance or the `from` agent's balance, or prove a payment already made. */
+    paymentMethod?: "balance" | "allowance";
+    paymentSignature?: string;
+    payerWallet?: string;
+    idempotencyKey?: string;
+}
+/** Acting for the hirer of a job made without signing in: its claimToken. A signed-in client needs none. */
+interface HirerOptions {
+    claimToken?: string;
+}
+/** What an agent remembers about you. */
+interface AgentMemory {
+    lines: {
+        id: string;
+        text: string;
+        createdAt: string;
+        taskId: string | null;
+    }[];
+    jobs: number;
+    most: number;
+}
+/** Reading a library kept under a browser-style key instead of (or beside) this client's wallet. */
+interface LibraryOptions {
+    memoryKey?: string;
+}
+interface Conversation {
+    thread: string;
+    agent: {
+        id: string;
+        name: string;
+    };
+    agents: string[];
+    lastAgent: {
+        id: string;
+        name: string;
+    };
+    turns: number;
+    asked: string;
+    startedAt: string;
+    lastAt: string;
+    status: TaskStatus;
+    files: number;
+    lastTaskId: string;
+    onSite: boolean;
+}
+interface ConversationTurn {
+    taskId: string;
+    claimToken: string;
+    agent: {
+        id: string;
+        name: string;
+        price: string | null;
+    };
+    task: string;
+    status: TaskStatus;
+    output: string | null;
+    error: string | null;
+    createdAt: string;
+    completedAt: string | null;
+    outputFiles: TaskFile[];
+    receipt: string;
+}
+interface LibraryFile extends TaskFile {
+    taskId: string;
+    thread: string;
+    agent: {
+        id: string;
+        name: string;
+    };
+    createdAt: string;
+    receipt: string;
+}
+/** How `waitForTask` (and `hire`) deal with a job that pauses on its hirer. */
+interface WaitOptions extends HirerOptions {
+    pollIntervalMs?: number;
+    timeoutMs?: number;
+    /** Called when the agent asks. Return the answer; return nothing to leave it (the job goes on by itself later). */
+    onQuestion?: (question: TaskQuestion, task: TaskRequest) => string | void | Promise<string | void>;
+    /** Called when a plan waits. Return "approve", "cancel" or `{ change }`; return nothing to leave it. */
+    onPlan?: (plan: TaskPlan & {
+        price: string | null;
+        changesLeft: number;
+    }, task: TaskRequest) => "approve" | "cancel" | {
+        change: string;
+    } | void | Promise<"approve" | "cancel" | {
+        change: string;
+    } | void>;
 }
 interface TaskResult {
     taskId: string;
@@ -161,7 +395,8 @@ interface TaskResult {
 }
 interface SendTaskOptions {
     from: string;
-    to: string;
+    /** The agent to hire. May be left out on a follow-up (`followUpOf`): it then stays with the agent that did the job. */
+    to?: string;
     task: string;
     context?: Record<string, unknown>;
     payment?: string;
@@ -179,6 +414,17 @@ interface SendTaskOptions {
     quoteId?: string;
     signature?: string;
     idempotencyKey?: string;
+    /** With `paymentSignature`: the address that sent the payment. */
+    payerWallet?: string;
+    /** Continue a finished job: its taskId, and for a job hired without signing in its claimToken. `to` may then be left out. */
+    followUpOf?: string;
+    followUpToken?: string;
+    allowQuestions?: boolean;
+    planFirst?: boolean;
+    memory?: boolean;
+    memoryKey?: string;
+    files?: FileRef[];
+    reportFile?: boolean;
 }
 interface GetTaskHistoryOptions {
     agentId: string;
@@ -1114,11 +1360,25 @@ interface HireOptions {
     timeoutMs?: number;
     /** Fetch the verifiable receipt once completed. Default true. */
     withReceipt?: boolean;
+    /**
+     * Work with your agent: let it ask (`allowQuestions`), see its plan first (`planFirst`), have it remember you
+     * (`memory`), hand it files (`files`). Each is ignored where the feature is not switched on. With a paid agent
+     * these travel on the `allowance` and `balance` paths; a hire paid by a `pay` function carries the task alone.
+     */
+    work?: WorkOptions;
+    /** Called when the agent asks a question. Return the answer. Without it a question is left to time out. */
+    onQuestion?: WaitOptions["onQuestion"];
+    /** Called when the agent's plan waits for approval. Return "approve", "cancel" or `{ change }`. */
+    onPlan?: WaitOptions["onPlan"];
 }
 interface HireResult {
     taskId: string;
-    /** Terminal status observed (`completed` / `failed`), or the last status seen on timeout. */
+    /** Terminal status observed (`completed` / `failed` / `cancelled`), or the last status seen on timeout. */
     status: TaskStatus;
+    /** The files the agent handed back, when there are any. */
+    files?: TaskFile[];
+    /** For a hire made without signing in: what reads the job again and follows it up (`followUp`). */
+    claimToken?: string;
     /** The agent's output, when completed. */
     output?: string;
     /** The failure reason, when failed. */
@@ -1894,4 +2154,4 @@ interface MindRewardShare {
     endAt: number;
 }
 
-export type { CreateRetainerOptions as $, ApprovalRequest as A, AgentMetrics as B, CreateProfileOptions as C, DelegateOptions as D, Receipt as E, FindAgentsOptions as F, GrantMandateOptions as G, HireOptions as H, HireResult as I, RunOptions as J, RunResult as K, ListPurchasesOptions as L, AxonToolsOptions as M, AxonTool as N, AllowanceStatus as O, PurchasesView as P, QuorumTask as Q, RegisterOptions as R, SignMandate as S, TaskRequest as T, UpdateAgentOptions as U, VerifyOptions as V, WatchPurchasesOptions as W, X402PayFunction as X, CreateAllowanceKeyOptions as Y, CreatedAllowanceKey as Z, AllowanceKey as _, CommerceProfile as a, WorkerMetrics as a$, Retainer as a0, RetainerLimits as a1, UpdateRetainerOptions as a2, RetainerRun as a3, ListTokenMindsOptions as a4, TokenMindPage as a5, TokenMind as a6, ListMindThoughtsOptions as a7, MindThought as a8, MindRewardShare as a9, CreateWorkflowTemplateOptions as aA, WorkflowTemplate as aB, InstantiateTemplateOptions as aC, AttestCapabilityOptions as aD, CapabilityAttestation as aE, DefineSlaOptions as aF, TaskSla as aG, FileAbuseReportOptions as aH, AbuseReport as aI, FeePolicy as aJ, ProtocolInfo as aK, ProtocolNegotiation as aL, ExplorerFeed as aM, SystemStatus as aN, SubmitBidOptions as aO, AcceptBidOptions as aP, X402Requirements as aQ, RegisterMcpServerOptions as aR, McpServer as aS, McpToolRecord as aT, CallMcpToolOptions as aU, StartMissionOptions as aV, Mission as aW, OpenChannelOptions as aX, OpenChannelResult as aY, PaymentChannel as aZ, ReproductionProof as a_, MindBriefState as aa, SetMindBriefResult as ab, AgentRetainers as ac, RouteHireOptions as ad, RoutingInfo as ae, PlanOptions as af, PlanResult as ag, SubcontractOptions as ah, SubcontractResult as ai, OptimizeResult as aj, PaymentNote as ak, GetTaskHistoryOptions as al, RegisterGatewayProviderOptions as am, GatewayProvider as an, GatewayCallOptions as ao, GatewayCallResult as ap, X402Currency as aq, RegisterWebhookOptions as ar, Webhook as as, WebhookDelivery as at, CreateOpenTaskOptions as au, OpenTask as av, ListOpenTasksOptions as aw, Bid as ax, SplitRecipient as ay, TaskSplitsView as az, SpendMandate as b, X402PaymentOption as b0, AgentRuntimeOptions as b1, AxonAgent as b2, AbuseReason as b3, AbuseStatus as b4, AgentContext as b5, AgentRating as b6, AgentRunHandler as b7, AllowanceAccount as b8, AllowanceKeyLimitsView as b9, PaymentInstrument as bA, PaymentNoteKind as bB, PaymentStatus as bC, PlanView as bD, PlannedStep as bE, PurchaseStatus as bF, QuorumStatus as bG, ReceiptDelivery as bH, RetainerSchedule as bI, Review as bJ, SlaStatus as bK, SpendSummary as bL, SplitPayout as bM, TaskSplit as bN, TaskStatus as bO, TokenMindEvent as bP, TokenMindSummary as bQ, TokenMindTotals as bR, WebhookEventType as bS, WorkflowStep as bT, ApiErrorBody as ba, ApiErrorCode as bb, BidStatus as bc, ComponentStatus as bd, DefineSplitsOptions as be, DelegationResult as bf, DelegationStep as bg, EndpointUptime as bh, ExplorerSettlement as bi, ExplorerTask as bj, FeeTier as bk, MindActionKind as bl, MindBooks as bm, MindBrief as bn, MindFees as bo, MindMove as bp, MindOrder as bq, MindPlan as br, MindPromises as bs, MindReport as bt, MindState as bu, MindTrackRecord as bv, MindTreasury as bw, MissionStatus as bx, OpenTaskStatus as by, PaymentHandlerDescriptor as bz, PurchaseIntent as c, PaymentOptionsView as d, ApproveOptions as e, ApproveResult as f, WatchHandle as g, AutoApprovePolicy as h, ParsedAuthorisation as i, PurchaseExpectation as j, AxonConfig as k, AuthChallenge as l, AuthVerifyResult as m, Agent as n, CapabilitySummary as o, SendTaskOptions as p, TaskProgress as q, TaskHandler as r, TaskResult as s, CreateQuorumOptions as t, QuorumResult as u, Workflow as v, GetTransactionsOptions as w, Transaction as x, AgentBalance as y, Reputation as z };
+export type { LibraryOptions as $, ApprovalRequest as A, AgentMetrics as B, CreateProfileOptions as C, DelegateOptions as D, Receipt as E, FindAgentsOptions as F, GrantMandateOptions as G, HirerOptions as H, HireOptions as I, HireResult as J, RunOptions as K, ListPurchasesOptions as L, RunResult as M, AxonToolsOptions as N, AxonTool as O, PurchasesView as P, QuorumTask as Q, RegisterOptions as R, SignMandate as S, TaskRequest as T, UpdateAgentOptions as U, VerifyOptions as V, WatchPurchasesOptions as W, X402PayFunction as X, FollowUpOptions as Y, WaitOptions as Z, TaskNote as _, CommerceProfile as a, X402Requirements as a$, AgentMemory as a0, Conversation as a1, ConversationTurn as a2, LibraryFile as a3, UploadedFile as a4, FileVersion as a5, AllowanceStatus as a6, CreateAllowanceKeyOptions as a7, CreatedAllowanceKey as a8, AllowanceKey as a9, GatewayCallResult as aA, X402Currency as aB, RegisterWebhookOptions as aC, Webhook as aD, WebhookDelivery as aE, CreateOpenTaskOptions as aF, OpenTask as aG, ListOpenTasksOptions as aH, Bid as aI, SplitRecipient as aJ, TaskSplitsView as aK, CreateWorkflowTemplateOptions as aL, WorkflowTemplate as aM, InstantiateTemplateOptions as aN, AttestCapabilityOptions as aO, CapabilityAttestation as aP, DefineSlaOptions as aQ, TaskSla as aR, FileAbuseReportOptions as aS, AbuseReport as aT, FeePolicy as aU, ProtocolInfo as aV, ProtocolNegotiation as aW, ExplorerFeed as aX, SystemStatus as aY, SubmitBidOptions as aZ, AcceptBidOptions as a_, CreateRetainerOptions as aa, Retainer as ab, RetainerLimits as ac, UpdateRetainerOptions as ad, RetainerRun as ae, ListTokenMindsOptions as af, TokenMindPage as ag, TokenMind as ah, ListMindThoughtsOptions as ai, MindThought as aj, MindRewardShare as ak, MindBriefState as al, SetMindBriefResult as am, AgentRetainers as an, RouteHireOptions as ao, RoutingInfo as ap, PlanOptions as aq, PlanResult as ar, SubcontractOptions as as, SubcontractResult as at, OptimizeResult as au, PaymentNote as av, GetTaskHistoryOptions as aw, RegisterGatewayProviderOptions as ax, GatewayProvider as ay, GatewayCallOptions as az, SpendMandate as b, TokenMindSummary as b$, RegisterMcpServerOptions as b0, McpServer as b1, McpToolRecord as b2, CallMcpToolOptions as b3, StartMissionOptions as b4, Mission as b5, OpenChannelOptions as b6, OpenChannelResult as b7, PaymentChannel as b8, ReproductionProof as b9, MindMove as bA, MindOrder as bB, MindPlan as bC, MindPromises as bD, MindReport as bE, MindState as bF, MindTrackRecord as bG, MindTreasury as bH, MissionStatus as bI, OpenTaskStatus as bJ, PaymentHandlerDescriptor as bK, PaymentInstrument as bL, PaymentNoteKind as bM, PaymentStatus as bN, PlanView as bO, PlannedStep as bP, PurchaseStatus as bQ, QuorumStatus as bR, ReceiptDelivery as bS, RetainerSchedule as bT, Review as bU, SlaStatus as bV, SpendSummary as bW, SplitPayout as bX, TaskSplit as bY, TaskStatus as bZ, TokenMindEvent as b_, WorkerMetrics as ba, X402PaymentOption as bb, AgentRuntimeOptions as bc, AxonAgent as bd, AbuseReason as be, AbuseStatus as bf, AgentContext as bg, AgentRating as bh, AgentRunHandler as bi, AllowanceAccount as bj, AllowanceKeyLimitsView as bk, ApiErrorBody as bl, ApiErrorCode as bm, BidStatus as bn, ComponentStatus as bo, DefineSplitsOptions as bp, DelegationResult as bq, DelegationStep as br, EndpointUptime as bs, ExplorerSettlement as bt, ExplorerTask as bu, FeeTier as bv, MindActionKind as bw, MindBooks as bx, MindBrief as by, MindFees as bz, PurchaseIntent as c, TokenMindTotals as c0, WebhookEventType as c1, WorkflowStep as c2, PaymentOptionsView as d, ApproveOptions as e, ApproveResult as f, WatchHandle as g, AutoApprovePolicy as h, ParsedAuthorisation as i, PurchaseExpectation as j, AxonConfig as k, AuthChallenge as l, AuthVerifyResult as m, Agent as n, CapabilitySummary as o, SendTaskOptions as p, TaskProgress as q, TaskHandler as r, TaskResult as s, CreateQuorumOptions as t, QuorumResult as u, Workflow as v, GetTransactionsOptions as w, Transaction as x, AgentBalance as y, Reputation as z };

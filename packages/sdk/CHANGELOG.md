@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 Work with your agent: a hire becomes a conversation. Nothing was removed or renamed.
 

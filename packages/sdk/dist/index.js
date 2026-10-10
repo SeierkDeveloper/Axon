@@ -396,7 +396,8 @@ async function hire(client, opts) {
     paymentMethod,
     pollIntervalMs = 2e3,
     timeoutMs = 12e4,
-    withReceipt = true
+    withReceipt = true,
+    work = {}
   } = opts;
   let created;
   let paid;
@@ -412,6 +413,7 @@ async function hire(client, opts) {
       to,
       task,
       context,
+      ...work,
       paymentMethod: "allowance",
       ...opts.payWith === "axon" ? { payIn: "AXON" } : {}
     });
@@ -422,7 +424,7 @@ async function hire(client, opts) {
         'paymentMethod "balance" requires an authenticated `from` agent \u2014 init the client with an apiKey and set `from` to an agent you own. Balance is spent from that agent\'s earnings.'
       );
     }
-    created = await client.sendTask({ from, to, task, context, paymentMethod: "balance" });
+    created = await client.sendTask({ from, to, task, context, ...work, paymentMethod: "balance" });
     paid = true;
   } else {
     let requirements = null;
@@ -440,29 +442,23 @@ async function hire(client, opts) {
     if (paid && pay) {
       created = await client.submitTaskX402(to, task, pay, { from, context, payWith: opts.payWith });
     } else {
-      created = await client.sendTask({ from, to, task, context });
+      created = await client.sendTask({ from, to, task, context, ...work });
     }
   }
-  const deadline = Date.now() + timeoutMs;
-  let current = created;
-  while (current.status !== "completed" && current.status !== "failed") {
-    if (Date.now() >= deadline) {
-      return { taskId: current.taskId, status: current.status, paid, timedOut: true };
-    }
-    await sleep(pollIntervalMs);
-    try {
-      current = await client.getTask(current.taskId);
-    } catch {
-    }
-  }
+  const claimToken = created.claimToken;
+  const waited = await waitForTask(client, created, { claimToken, pollIntervalMs, timeoutMs, onQuestion: opts.onQuestion, onPlan: opts.onPlan });
+  const current = waited.task;
   const result = {
     taskId: current.taskId,
     status: current.status,
     paid,
-    timedOut: false
+    timedOut: waited.timedOut,
+    ...claimToken ? { claimToken } : {}
   };
+  if (waited.timedOut) return result;
   if (current.status === "completed") {
     result.output = current.output ?? "";
+    if (current.outputFiles?.length) result.files = current.outputFiles;
     if (withReceipt) {
       try {
         const receipt = (await client.getReceipt(current.taskId)).receipt;
@@ -470,10 +466,45 @@ async function hire(client, opts) {
       } catch {
       }
     }
+  } else if (current.status === "cancelled") {
+    result.error = "The job was called off before it delivered. Whatever was paid for it is refunded.";
   } else {
     result.error = current.error ?? "Task failed";
   }
   return result;
+}
+var DONE = /* @__PURE__ */ new Set(["completed", "failed", "cancelled"]);
+async function waitForTask(client, job, opts = {}) {
+  const { pollIntervalMs = 2e3, timeoutMs = 12e4, claimToken } = opts;
+  const who = claimToken ? { claimToken } : {};
+  let current = typeof job === "string" ? await client.getTask(job, who) : job;
+  const deadline = Date.now() + timeoutMs;
+  const answered = /* @__PURE__ */ new Set(), decided = /* @__PURE__ */ new Set();
+  while (!DONE.has(current.status)) {
+    if (current.status === "waiting") {
+      const q = current.question, p = current.plan;
+      if (q && opts.onQuestion && !answered.has(q.n)) {
+        answered.add(q.n);
+        const said = await opts.onQuestion(q, current);
+        if (typeof said === "string" && said.trim()) await client.answerQuestion(current.taskId, said, who).catch(() => {
+        });
+      } else if (p && opts.onPlan && !decided.has(p.n)) {
+        decided.add(p.n);
+        const choice = await opts.onPlan(p, current);
+        if (choice === "approve" || choice === "cancel") await client.decidePlan(current.taskId, choice, who).catch(() => {
+        });
+        else if (choice && typeof choice === "object" && choice.change) await client.decidePlan(current.taskId, "change", { ...who, change: choice.change }).catch(() => {
+        });
+      }
+    }
+    if (Date.now() >= deadline) return { task: current, timedOut: true };
+    await sleep(pollIntervalMs);
+    try {
+      current = await client.getTask(current.taskId, who);
+    } catch {
+    }
+  }
+  return { task: current, timedOut: false };
 }
 
 // src/tools.ts
@@ -575,6 +606,8 @@ async function runAxonTool(tools, name, args) {
 }
 
 // src/client.ts
+var hirer = (o) => o.claimToken ? { "X-Claim-Token": o.claimToken } : void 0;
+var keyed = (o) => o.memoryKey ? { "X-Memory-Key": o.memoryKey } : void 0;
 function pathPart(value) {
   return encodeURIComponent(value);
 }
@@ -738,8 +771,9 @@ var AxonClient = class {
       idempotencyKey ? { "Idempotency-Key": idempotencyKey } : void 0
     );
   }
-  async getTask(taskId) {
-    return this.get(`/api/tasks/${pathPart(taskId)}`);
+  /** Read a task. A hire made without signing in is read with its own `claimToken`. */
+  async getTask(taskId, opts = {}) {
+    return this.request("GET", `/api/tasks/${pathPart(taskId)}`, { headers: hirer(opts) });
   }
   async startTask(taskId) {
     return this.post(`/api/tasks/${pathPart(taskId)}/start`, {});
@@ -880,6 +914,101 @@ var AxonClient = class {
    */
   tools(opts = {}) {
     return buildAxonTools(this, { ...opts, pay: opts.pay ?? this.config.pay });
+  }
+  // ── Work with your agent ───────────────────────────────────────────────────
+  // A hire is a conversation: it can be followed up, the agent may ask and be answered, a plan can be approved
+  // before the work starts, a running job can be told something or stopped, the agent remembers you, and all of
+  // it is kept in your library. Each part exists where the network has switched it on; elsewhere the call is
+  // answered with a 404 (AxonApiError).
+  /**
+   * Say more about a finished job. The agent that did it (or another one, `to`) is hired again and is given the
+   * conversation so far and the files from before. A follow-up is a hire of its own: its own price, its own
+   * receipt. Returns the new task; follow it with `waitForTask`.
+   */
+  async followUp(taskId, task, opts = {}) {
+    const { claimToken, from, idempotencyKey, ...rest } = opts;
+    const who = from ?? (claimToken ? "anonymous" : (await this.getTask(taskId)).fromAgent);
+    return this.sendTask({ ...rest, from: who, task, followUpOf: taskId, ...claimToken ? { followUpToken: claimToken } : {}, ...idempotencyKey ? { idempotencyKey } : {} });
+  }
+  /** Follow a job until it has finished, failed or been called off, answering its questions and plans on the way. */
+  async waitForTask(taskId, opts = {}) {
+    return waitForTask(this, taskId, opts);
+  }
+  /** Answer the question a job is waiting on. The same job goes on with the answer; nothing is paid again. */
+  async answerQuestion(taskId, answer, opts = {}) {
+    return this.post(`/api/tasks/${pathPart(taskId)}/answer`, { answer }, hirer(opts));
+  }
+  /**
+   * Decide on the plan a job is waiting on: "approve" starts the work, "change" has the agent write the plan
+   * again from `change`, "cancel" ends the job before any work and refunds what was paid.
+   */
+  async decidePlan(taskId, action, opts = {}) {
+    return this.post(`/api/tasks/${pathPart(taskId)}/plan`, { action, ...opts.change ? { change: opts.change } : {} }, hirer(opts));
+  }
+  /** Tell a running job something. The agent reads it at its next step, or before it finishes. */
+  async sendNote(taskId, note, opts = {}) {
+    return this.post(`/api/tasks/${pathPart(taskId)}/steer`, { note }, hirer(opts));
+  }
+  /** Stop a job that has not finished. It ends as cancelled: nothing is delivered and what was paid is refunded. */
+  async stopTask(taskId, opts = {}) {
+    return this.post(`/api/tasks/${pathPart(taskId)}/stop`, {}, hirer(opts));
+  }
+  /** What an agent remembers about you: the lines it noted on your jobs. Yours by this client's key, or by `memoryKey`. */
+  async getAgentMemory(agentId, opts = {}) {
+    return this.request("GET", `/api/agents/${pathPart(agentId)}/memory`, { headers: keyed(opts) });
+  }
+  /** Have an agent forget you, or with `lineId` forget one line. The jobs and their receipts are not touched. */
+  async forgetAgentMemory(agentId, opts = {}) {
+    const path = `/api/agents/${pathPart(agentId)}/memory${opts.lineId ? `/${pathPart(opts.lineId)}` : ""}`;
+    return this.request("DELETE", path, { headers: keyed(opts) });
+  }
+  /** Your library: your conversations with agents, the latest first. `agent` keeps those one agent worked on. */
+  async listConversations(opts = {}) {
+    const q = new URLSearchParams();
+    if (opts.agent) q.set("agent", opts.agent);
+    if (opts.limit) q.set("limit", String(opts.limit));
+    const res = await this.request("GET", `/api/library${q.size ? `?${q}` : ""}`, { headers: keyed(opts) });
+    return res.conversations;
+  }
+  /** One conversation in full, oldest turn first, each turn with its answer, its files, its receipt and its claimToken. */
+  async getConversation(thread, opts = {}) {
+    return this.request("GET", `/api/library/${pathPart(thread)}`, { headers: keyed(opts) });
+  }
+  /** Every file agents handed back to you, the latest version of each, the latest first. */
+  async listLibraryFiles(opts = {}) {
+    const res = await this.request("GET", `/api/library?view=files${opts.limit ? `&limit=${opts.limit}` : ""}`, { headers: keyed(opts) });
+    return res.files;
+  }
+  /** Take a conversation out of your library. Its jobs and their receipts stay. */
+  async removeConversation(thread, opts = {}) {
+    return this.request("DELETE", `/api/library/${pathPart(thread)}`, { headers: keyed(opts) });
+  }
+  /**
+   * Hand over a file for an agent to work on: text, a PDF, a picture, or a Word, Excel or PowerPoint file where
+   * the network takes them. Pass what comes back in a hire's `files`. `data` is the file's bytes, or its text.
+   */
+  async uploadFile(file) {
+    const bytes = typeof file.data === "string" ? new TextEncoder().encode(file.data) : file.data instanceof Uint8Array ? file.data : new Uint8Array(file.data);
+    const res = await fetch(`${this.baseUrl()}/api/files`, {
+      method: "POST",
+      headers: this.headers({ "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name) }),
+      body: bytes,
+      signal: AbortSignal.timeout(this.config.timeoutMs ?? 3e4)
+    });
+    if (!res.ok) throw await this.apiErrorFromResponse(res, "POST", "/api/files");
+    const made = await res.json();
+    return { id: made.file.id, token: made.fileToken, name: made.file.name, type: made.file.mime, size: made.file.size, sha256: made.file.sha256, ...made.file.expiresAt ? { expiresAt: made.file.expiresAt } : {} };
+  }
+  /** The bytes of a file an agent handed back (an entry of a task's `outputFiles`, or a version of one). */
+  async downloadFile(file) {
+    const res = await fetch(`${this.baseUrl()}${file.path}`, { headers: { "X-File-Token": file.token }, signal: AbortSignal.timeout(this.config.timeoutMs ?? 3e4) });
+    if (!res.ok) throw await this.apiErrorFromResponse(res, "GET", file.path);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+  /** Every version of a file that is still stored, oldest first, each with its own hash and the job that made it. */
+  async listFileVersions(file) {
+    const res = await this.request("GET", `/api/files/${pathPart(file.id)}/versions`, { headers: { "X-File-Token": file.token } });
+    return res.versions;
   }
   // ── Allowances ─────────────────────────────────────────────────────────────
   /**
@@ -1990,5 +2119,6 @@ exports.toOpenAITools = toOpenAITools;
 exports.verifyProofScore = verifyProofScore;
 exports.verifyReceipt = verifyReceipt;
 exports.verifyWebhookSignature = verifyWebhookSignature;
+exports.waitForTask = waitForTask;
 //# sourceMappingURL=index.js.map
 //# sourceMappingURL=index.js.map
