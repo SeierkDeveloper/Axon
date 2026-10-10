@@ -9,7 +9,16 @@ import { useEffect, useState } from "react";
  */
 
 export interface Helper { id: string; name: string; price: string | null }
-interface Listed { agentId: string; name: string; capabilities?: string[]; price?: string | null; endpoint?: string | null; orchestrator?: boolean }
+interface Listed { agentId: string; name: string; capabilities?: string[]; category?: string | null; price?: string | null; endpoint?: string | null; orchestrator?: boolean }
+
+/** A typed word as the first letters it shares with its relatives: "translator" finds "translation", "designer" finds "design". */
+const stem = (word: string): string => word.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5);
+
+/** How well an agent fits what was typed: its name counts double, then what it does. Zero is no fit. */
+function fit(agent: Listed, words: string[]): number {
+  const name = agent.name.toLowerCase(), does = `${(agent.capabilities ?? []).join(" ")} ${agent.category ?? ""}`.toLowerCase();
+  return words.reduce((n, w) => n + (name.includes(w) ? 2 : 0) + (does.includes(w) ? 1 : 0), 0);
+}
 
 export default function BringIn({ exclude, canPay, onPick, disabled }: {
   /** agents not to offer: the one the follow-up would go to anyway */
@@ -20,25 +29,26 @@ export default function BringIn({ exclude, canPay, onPick, disabled }: {
   disabled?: boolean;
 }) {
   const [q, setQ] = useState("");
-  const [found, setFound] = useState<Listed[] | null>(null);
+  const [all, setAll] = useState<Listed[] | null>(null);
   const skip = exclude.join(",");
 
+  // The agents on the network, read once. What is typed is matched here, against each agent's name and what it
+  // does, so the search works the same whether or not the server has a search of its own.
   useEffect(() => {
     let alive = true;
-    // a moment after the last key, so a word typed is one search and not six
-    const t = setTimeout(() => {
-      const ask = q.trim() ? `/api/agents?q=${encodeURIComponent(q.trim())}&limit=24` : "/api/agents?sort=proven&limit=24";
-      void fetch(ask)
-        .then(async (r) => (r.ok ? ((await r.json()) as { agents?: Listed[] }) : null))
-        .then((d) => {
-          if (!alive) return;
-          const out = new Set(skip.split(","));
-          setFound((d?.agents ?? []).filter((a) => !out.has(a.agentId) && !(a.endpoint && !a.orchestrator) && (canPay || !a.price)).slice(0, 6));
-        })
-        .catch(() => { if (alive) setFound([]); });
-    }, q.trim() ? 300 : 0);
-    return () => { alive = false; clearTimeout(t); };
-  }, [q, skip, canPay]);
+    void fetch("/api/agents?sort=proven&limit=200")
+      .then(async (r) => (r.ok ? ((await r.json()) as { agents?: Listed[] }) : null))
+      .then((d) => { if (alive) setAll(d?.agents ?? []); })
+      .catch(() => { if (alive) setAll([]); });
+    return () => { alive = false; };
+  }, []);
+
+  const out = new Set(skip.split(","));
+  const can = (all ?? []).filter((a) => !out.has(a.agentId) && !(a.endpoint && !a.orchestrator) && (canPay || !a.price));
+  const words = q.split(/\s+/).map(stem).filter((w) => w.length >= 3);
+  const found = all === null
+    ? null
+    : (words.length ? can.map((a) => ({ a, n: fit(a, words) })).filter((x) => x.n > 0).sort((x, y) => y.n - x.n).map((x) => x.a) : can).slice(0, 6);
 
   return (
     <div className="mt-2 rounded-md border border-gray-200 bg-gray-50/60 p-2.5 dark:border-gray-800 dark:bg-gray-900/40">
