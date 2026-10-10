@@ -20,20 +20,20 @@ export default function Partners() {
             </p>
           </FadeIn>
         </div>
-        <div className="grid md:grid-cols-2 gap-4">
+        <div className="grid md:grid-cols-2 gap-4 max-w-4xl mx-auto">
           {partners.map((p, i) => (
             <FadeIn key={p.name} delay={i * 80}>
-              <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 h-full flex flex-col">
-                <div className="flex items-center justify-between gap-4 mb-5">
-                  <span className={`inline-flex h-14 items-center justify-center overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white ${p.wide ? "px-4" : "w-14"}`}>
+              <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 h-full flex flex-col">
+                <div className="flex items-center justify-between gap-4 mb-4">
+                  <span className={`inline-flex h-12 items-center justify-center overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white ${p.wide ? "px-3.5" : "w-12"}`}>
                     {/* eslint-disable-next-line @next/next/no-img-element -- a small mark from /public, shown at its own shape */}
-                    <img src={p.mark} alt={`${p.name} logo`} loading="lazy" className={p.wide ? "h-5 w-auto" : "h-full w-full object-cover"} />
+                    <img src={p.mark} alt={`${p.name} logo`} loading="lazy" className={p.wide ? "h-[18px] w-auto" : "h-full w-full object-cover"} />
                   </span>
                   <span className="text-xs font-mono uppercase tracking-wider text-gray-400 dark:text-gray-500 text-right">{p.role}</span>
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{p.name}</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed mb-5">{p.how}</p>
-                <div className="mt-auto flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-gray-100 dark:border-gray-800 pt-4">
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-1.5">{p.name}</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed mb-4">{p.how}</p>
+                <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-gray-100 dark:border-gray-800 pt-3.5">
                   <a href={p.site.href} target="_blank" rel="noopener noreferrer" className={link}>{p.site.label}<ExtArrow /></a>
                   <a href={p.x.href} target="_blank" rel="noopener noreferrer" className={link}>{p.x.handle}<ExtArrow /></a>
                   {p.more.href.startsWith("/")
