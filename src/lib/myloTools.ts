@@ -53,6 +53,7 @@ import { buildsOf, getBuild } from "./studioDraft";
 import { roundsOf, settleStale } from "./studioTest";
 import { MAX_TWEAKS_PER_BUILD, MIN_PUBLISH_SCORE, PRICE_ETH } from "./studioPolicy";
 import type { Agent } from "@/sdk/types";
+import { MYLO_WORK_LABELS, myloHireProps, myloWorkTools, runMyloWorkTool } from "./myloWork";
 
 /** The tools as the model sees them (Anthropic tool schema). Only what this phase can do. */
 export const MYLO_TOOL_DEFS = [
@@ -267,7 +268,7 @@ export const TOOL_LABELS: Record<string, string> = {
 };
 
 export async function runTool(name: string, input: Record<string, unknown>, ctx: ToolContext): Promise<ToolOutcome> {
-  const label = TOOL_LABELS[name] ?? name;
+  const label = TOOL_LABELS[name] ?? MYLO_WORK_LABELS[name] ?? name;
   const gate = toolGate(name, Boolean(ctx.wallet));
   if (!gate.ok) return { result: { error: gate.reason }, label };
   try {
@@ -281,7 +282,7 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
         return { result: { items: items.map((t) => ({ kind: t.kind, text: t.text, at: t.createdAt })), note: items.length ? undefined : "Nothing in the public feed yet." }, label };
       }
       case "hire_agent": {
-        const p = proposeHire(ctx, [String(input.agent_id ?? "")], String(input.task ?? ""));
+        const p = proposeHire(ctx, [String(input.agent_id ?? "")], String(input.task ?? ""), { followUpOf: typeof input.follow_up_of === "string" ? input.follow_up_of : null, planFirst: input.plan_first === true });
         return typeof p === "string" ? { result: { error: p }, label } : { result: { proposed: true, actionId: p.id, summary: p.summary, note: "Proposed only. The person must confirm and pay in the page; say what you proposed and that it waits for their OK. Never say it is done or paid." }, actionId: p.id, label };
       }
       case "second_opinion": {
@@ -377,7 +378,10 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
         const p = proposeImprovement(ctx, String(input.improvement_id ?? ""));
         return typeof p === "string" ? { result: { error: p }, label } : { result: { proposed: true, actionId: p.id, summary: p.summary, note: "Proposed only. Nothing changes until the person taps Apply in the page." }, actionId: p.id, label };
       }
-      default: return { result: { error: `Mylo can't use ${name} yet.` }, label };
+      default: {
+        const worked = runMyloWorkTool(name, input, ctx);
+        return { result: worked ?? { error: `Mylo can't use ${name} yet.` }, label };
+      }
     }
   } catch (err) {
     return { result: { error: `That didn't work just now: ${err instanceof Error ? err.message.split("\n")[0].slice(0, 160) : "unknown error"}` }, label };
@@ -886,6 +890,15 @@ async function mindLaunchTool(wallet: string, input: Record<string, unknown>): P
 /** The tools as the model sees them right now. With Agent Minds on, launching no longer needs an agent of their own,
  *  and the tools that read tokens and their minds are there. */
 export function myloToolDefs(): typeof MYLO_TOOL_DEFS {
+  const hireProps = myloHireProps(), work = myloWorkTools();
+  const base = toolDefsWithMinds();
+  if (!Object.keys(hireProps).length && !work.length) return base;
+  // working with an agent: hire_agent can continue a job or ask for the plan first (the agent may then be left out),
+  // and the tools that answer, decide, steer and look back are there, each by its own switch
+  return [...base.map((t) => (t.name !== "hire_agent" ? t : { ...t, input_schema: { ...t.input_schema, properties: { ...t.input_schema.properties, ...hireProps }, required: "follow_up_of" in hireProps ? ["task"] : t.input_schema.required } })), ...work] as unknown as typeof MYLO_TOOL_DEFS;
+}
+
+function toolDefsWithMinds(): typeof MYLO_TOOL_DEFS {
   if (!agentMindsEnabled()) return MYLO_TOOL_DEFS;
   return [...MYLO_TOOL_DEFS.map((t) => (t.name !== "launch_token" ? t : {
     name: "launch_token",

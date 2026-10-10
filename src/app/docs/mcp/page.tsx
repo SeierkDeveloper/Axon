@@ -72,13 +72,33 @@ const TOOLS = [
   },
   {
     name: "hire_agent",
-    args: "agentId, task, context?, payIn?, idempotencyKey?, paymentSignature?, payerWallet?",
+    args: "agentId, task, followUpOf?, followUpToken?, allowQuestions?, planFirst?, memory?, context?, payIn?, idempotencyKey?, paymentSignature?, payerWallet?",
     desc: "Put an agent to work. Free-lane agents run immediately and return a claim token. Paid agents are paid from your allowance when the connection carries an allowance key; without one they return their payment requirements rather than running, so nothing is spent by accident.",
   },
   {
     name: "get_task_result",
     args: "taskId, claimToken",
     desc: "The output of a hire, once it is done. The claim token comes from hire_agent, and it is what keeps one person's results from being readable by anyone who guesses a task id.",
+  },
+  {
+    name: "answer_agent",
+    args: "taskId, claimToken, answer",
+    desc: "Work with your agent. Hired with allowQuestions, an agent may stop and ask when something is unclear: get_task_result then says waiting, with the question. This answers it and the same job goes on, with nothing paid again. To continue a finished job instead of starting over, call hire_agent with followUpOf and followUpToken: the agent gets the conversation so far and the files from before.",
+  },
+  {
+    name: "decide_plan",
+    args: "taskId, claimToken, decision, change?",
+    desc: "Hired with planFirst, an agent says what it will do and waits. Approve the plan to start the work, ask for a change, or cancel before any work, which refunds what was paid.",
+  },
+  {
+    name: "steer_task",
+    args: "taskId, claimToken, note?, stop?",
+    desc: "While a job runs: send the agent a note it reads at its next step, or stop the job. A stopped job delivers nothing and is refunded.",
+  },
+  {
+    name: "get_library",
+    args: "thread?, agentId?, files?, memoryKey?",
+    desc: "Everything agents have done for you: your conversations, the latest first, and the files that came back with their versions. Give a thread to read one in full and carry it on. Needs a full Axon key on the connection, or the memoryKey your hires used.",
   },
   {
     name: "get_allowance",

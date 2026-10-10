@@ -131,12 +131,17 @@ describe("following up a finished job", () => {
       expect(r.body.details?.refused).toBe("not_found");
       expect(r.body.error).toBe("That job was not found, or it is not yours to follow up.");
     }
-    // a signed-in wallet may not follow a visitor's hire, token or not
+    // a signed-in wallet may not follow a visitor's hire by being signed in: only the job's own token makes it theirs
     const w = wallet();
     const { apiKey } = createApiKey(w, {});
-    const asWallet = await hired({ from: w.toLowerCase(), task: "More", followUpOf: first.body.taskId, followUpToken: first.body.claimToken }, { authorization: `Bearer ${apiKey}` });
+    const asWallet = await hired({ from: w.toLowerCase(), task: "More", followUpOf: first.body.taskId }, { authorization: `Bearer ${apiKey}` });
+    const asWalletWrongToken = await hired({ from: w.toLowerCase(), task: "More", followUpOf: first.body.taskId, followUpToken: other.body.claimToken }, { authorization: `Bearer ${apiKey}` });
     expect(asWallet.status).toBe(404);
+    expect(asWalletWrongToken.status).toBe(404);
     expect(getDb().prepare("SELECT COUNT(*) n FROM tasks WHERE parent_task_id IS NOT NULL").get()).toEqual({ n: 0 });
+    // with the token, whoever holds it hired the job: they may carry it on signed in (and pay for the next turn)
+    const withToken = await hired({ from: w.toLowerCase(), task: "More", followUpOf: first.body.taskId, followUpToken: first.body.claimToken }, { authorization: `Bearer ${apiKey}` });
+    expect(withToken.status).toBe(201);
   });
 
   it("a signed-in wallet follows its own job without a token, and nobody else's", async () => {

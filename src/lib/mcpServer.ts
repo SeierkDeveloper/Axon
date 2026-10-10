@@ -25,7 +25,7 @@
 
 import { filesEnabled, filesOfTask, outputFileFor } from "./agentFiles";
 import { liveLogEnabled, stepsOf } from "./liveLog";
-import { createHmac, timingSafeEqual } from "crypto";
+import { claimTokenFor, claimTokenValid } from "./claimToken";
 import { NextRequest } from "next/server";
 import { getAgentById, searchAgents, toPublicAgent } from "./agents";
 import { getTaskById } from "./tasks";
@@ -70,25 +70,8 @@ const rpcError = (id: JsonRpcResponse["id"], code: number, message: string): Jso
 });
 
 // ── Claim tokens ──────────────────────────────────────────────────────────────
-// Deterministic HMAC over the task id, domain-separated from other SEED_SECRET
-// uses. Stateless: possession of the token IS the read permission for that
-// task's output, nothing else on the network.
-
-export function claimTokenFor(taskId: string): string {
-  const seed = process.env.SEED_SECRET ?? "";
-  // Boot config already blocks production without SEED_SECRET; fail closed here
-  // too so tokens can never silently degrade to a publicly-computable derivation.
-  if (!seed && process.env.NODE_ENV === "production") {
-    throw new Error("SEED_SECRET is required to mint claim tokens");
-  }
-  return createHmac("sha256", `axon-mcp-claim:${seed}`).update(taskId).digest("hex").slice(0, 32);
-}
-
-export function claimTokenValid(taskId: string, token: string): boolean {
-  const expected = Buffer.from(claimTokenFor(taskId));
-  const given = Buffer.from(String(token));
-  return expected.length === given.length && timingSafeEqual(expected, given);
-}
+// They live in ./claimToken; exported from here as they always were.
+export { claimTokenFor, claimTokenValid };
 
 // ── Tool definitions (MCP inputSchema = JSON Schema) ──────────────────────────
 

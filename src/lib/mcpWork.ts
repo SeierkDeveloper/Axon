@@ -18,6 +18,7 @@ import { memoryEnabled, memoryOwnerFor, rememberedBy, validMemoryKey } from "./a
 import { conversationOf, conversationsOf, filesOf, libraryEnabled } from "./library";
 import { officeEnabled } from "./officeFiles";
 import { filesEnabled } from "./agentFiles";
+import { claimTokenValid } from "./claimToken";
 import type { McpTool } from "./mcpServer";
 
 type Args = Record<string, unknown>;
@@ -126,11 +127,10 @@ export function workTools(): McpTool[] {
 }
 
 /** The job a tool call is about, once its claim token checks out. Otherwise the words to send back. */
-async function jobOf(args: Args): Promise<{ job: Task } | { refused: { error: string } }> {
+function jobOf(args: Args): { job: Task } | { refused: { error: string } } {
   const taskId = text(args.taskId), token = text(args.claimToken);
   const no = (error: string) => ({ refused: { error } });
   if (!taskId || !token) return no("taskId and claimToken are required");
-  const { claimTokenValid } = await import("./mcpServer");
   if (!claimTokenValid(taskId, token)) return no("invalid claim token for this task");
   const job = getTaskById(taskId);
   return job ? { job } : no(`task '${taskId}' not found`);
@@ -155,7 +155,7 @@ function libraryOwners(args: Args, apiKey: string | null, baseUrl: string): stri
 /** Run one of the tools above. Undefined for a name that is not one of them, or whose feature is switched off. */
 export async function callWorkTool(name: string, args: Args, apiKey: string | null, baseUrl: string): Promise<unknown | undefined> {
   if (name === "answer_agent" && askEnabled()) {
-    const found = await jobOf(args);
+    const found = jobOf(args);
     if ("refused" in found) return found.refused;
     const { job } = found;
     const done = answerQuestion(job.taskId, text(args.answer));
@@ -163,7 +163,7 @@ export async function callWorkTool(name: string, args: Args, apiKey: string | nu
     return { taskId: job.taskId, status: done.task.status, note: "Answered. The job is working again: read it with get_task_result." };
   }
   if (name === "decide_plan" && planEnabled()) {
-    const found = await jobOf(args);
+    const found = jobOf(args);
     if ("refused" in found) return found.refused;
     const { job } = found;
     const action = (["approve", "change", "cancel"] as PlanAction[]).find((a) => a === args.decision);
@@ -174,7 +174,7 @@ export async function callWorkTool(name: string, args: Args, apiKey: string | nu
     return { taskId: job.taskId, status: done.task.status, note: said };
   }
   if (name === "steer_task" && steerEnabled()) {
-    const found = await jobOf(args);
+    const found = jobOf(args);
     if ("refused" in found) return found.refused;
     const { job } = found;
     if (args.stop === true) {

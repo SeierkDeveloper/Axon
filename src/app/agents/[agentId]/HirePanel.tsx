@@ -73,9 +73,12 @@ function EarlierTurn({ n, turn, named }: { n: number; turn: Turn; named: boolean
         {turn.output ? <MarkdownOutput text={turn.output} /> : <span className="text-sm text-gray-400">(empty response)</span>}
       </div>
       <OutputFiles files={turn.outFiles} />
-      <a href={`/r/${encodeURIComponent(turn.taskId)}`} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-teal-600 hover:underline dark:text-teal-400">
-        Receipt →
-      </a>
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+        <a href={`/r/${encodeURIComponent(turn.taskId)}`} target="_blank" rel="noopener noreferrer" className="text-xs text-teal-600 hover:underline dark:text-teal-400">
+          Receipt →
+        </a>
+        {turn.output && <VoiceOutput taskId={turn.taskId} claimToken={turn.claim} />}
+      </div>
     </div>
   );
 }
@@ -211,6 +214,9 @@ export default function HirePanel({
   const [stopAsk, setStopAsk] = useState(false);
   const [stopBusy, setStopBusy] = useState(false);
   const [stoppedHere, setStoppedHere] = useState(false);
+
+  /** What was said out loud, added to what is already written in a box. */
+  const add = (said: string) => (had: string) => (had.trim() ? `${had.trimEnd()} ${said}` : said);
 
   // Stop the poll loop if the user navigates away mid-hire — no setState on an
   // unmounted component, no orphaned timers.
@@ -769,7 +775,7 @@ export default function HirePanel({
                   ? (hasPaid ? "Retry hire" : `Pay ${price} & Hire`)
                   : "Hire"}
             </button>
-            <VoiceInput disabled={phase === "hiring"} onText={(said) => setTask((t) => (t.trim() ? `${t.trimEnd()} ${said}` : said))} />
+            <VoiceInput disabled={phase === "hiring"} onText={(said) => setTask(add(said))} />
             <span className="text-[11px] text-gray-400 dark:text-gray-500">
               {payAndHire
                 ? "Pay with MetaMask · leaves a verifiable receipt · payment is the authorization"
@@ -819,6 +825,7 @@ export default function HirePanel({
                     <button onClick={() => void sendNoteNow()} disabled={!noteText.trim() || noteBusy} className="shrink-0 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 transition-colors hover:border-teal-500 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100">
                       {noteBusy ? "Sending…" : "Send"}
                     </button>
+                    <VoiceInput what="a note" disabled={noteBusy} onText={(said) => setNoteText(add(said))} />
                   </>
                 )}
                 {steer.stoppable && !stopAsk && (
@@ -868,6 +875,7 @@ export default function HirePanel({
               <button onClick={() => void sendAnswer(answer)} disabled={!answer.trim() || answerBusy} className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700 disabled:opacity-50">
                 {answerBusy ? "Sending…" : "Answer"}
               </button>
+              <VoiceInput what="your answer" disabled={answerBusy} onText={(said) => setAnswer(add(said))} />
               <span className="text-[11px] text-gray-500 dark:text-gray-400">
                 Same job, nothing more to pay. With no answer by {new Date(question.answerBy).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} it goes on with its best guess.
               </span>
@@ -907,6 +915,7 @@ export default function HirePanel({
                   <button onClick={() => void decide("change")} disabled={!change.trim() || planBusy} className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700 disabled:opacity-50">
                     {planBusy ? "Sending…" : "Send the change"}
                   </button>
+                  <VoiceInput what="the change" disabled={planBusy} onText={(said) => setChange(add(said))} />
                   <button onClick={() => { setChanging(false); setChange(""); }} disabled={planBusy} className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:border-gray-400 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200">
                     Back
                   </button>
@@ -1064,6 +1073,7 @@ export default function HirePanel({
                       ? (followHasPaid ? "Retry follow-up" : `Pay ${target.price} & send${helper ? ` to ${helper.name}` : ""}`)
                       : helper ? `Send to ${helper.name}` : "Send follow-up"}
                 </button>
+                <VoiceInput what="your follow-up" disabled={followBusy} onText={(said) => setFollowText(add(said))} />
                 <span className="text-[11px] text-gray-400 dark:text-gray-500">
                   {helper
                     ? `${helper.name} joins · it gets the conversation and the files · ${targetPays ? "paid for its own part" : "uses one free hire of its own"}`

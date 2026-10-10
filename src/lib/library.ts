@@ -14,7 +14,7 @@
 
 import { getDb } from "./db";
 import { getAgentById } from "./agents";
-import { claimTokenFor } from "./mcpServer";
+import { claimTokenFor } from "./claimToken";
 import { filesEnabled, filesOfTask, latestOnly, outputFileFor, type FileRow, type OutputFile } from "./agentFiles";
 
 type Env = Record<string, string | undefined>;

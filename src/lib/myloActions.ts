@@ -39,6 +39,13 @@ import { LIMITS, MIN_PUBLISH_SCORE, PRICE_ETH } from "./studioPolicy";
 import { logger } from "./logger";
 import { agentReads, filesEnabled, filesOfTask, fileTokenFor, fitForHire, passFiles } from "./agentFiles";
 import { getMcpServerByAgentId } from "./mcp";
+import { bringInEnabled, followUpEnabled } from "./followUp";
+import { askEnabled } from "./ask";
+import { planEnabled } from "./planFirst";
+import { memoryEnabled } from "./agentMemory";
+import { libraryOwnerOf } from "./library";
+import { claimTokenFor } from "./claimToken";
+import { waitingNotice } from "./myloWork";
 
 /** How long a proposal can wait for its confirmation: prices move and people change their minds. */
 export const PROPOSAL_MINUTES = 15;
@@ -62,7 +69,9 @@ export interface ImproveDetail { improvementId: string; agentId: string; name: s
 export interface CrewDetail { crewName: string; roles: string[]; current: number; payments: Record<string, string>; error: string | null }
 /** A job on a schedule: what, when, at most how much a run and a day, and the retainer once it exists. */
 export interface ScheduleDetail { agentId: string; name: string; schedule: Record<string, unknown>; scheduleText: string; maxPriceEth: number; maxPerDayEth: number; maxRuns: number | null; retainerId: string | null; nextRunAt: string | null; error: string | null }
-export type Detail = BuildDetail | PublishDetail | WithdrawDetail | ImproveDetail | CrewDetail | ScheduleDetail;
+/** A hire that continues a finished job, or shows its plan first; and which questions and plans were announced. */
+export interface HireDetail { followUpOf: string | null; planFirst: boolean; told: string[] }
+export type Detail = BuildDetail | PublishDetail | WithdrawDetail | ImproveDetail | CrewDetail | ScheduleDetail | HireDetail;
 export interface Action { id: string; conversationId: string; owner: string; wallet: string; kind: ActionKind; task: string; hires: Hire[]; detail: Detail | null; status: ActionStatus; resultMessageId: string | null; expiresAt: string; createdAt: string }
 
 /** Studio, as Mylo uses it. Swappable in tests, so no test calls a model. */
@@ -72,6 +81,13 @@ const now = () => new Date().toISOString();
 
 interface Row { id: string; conversation_id: string; owner: string; wallet: string; kind: ActionKind; task: string; hires: string; detail: string | null; status: ActionStatus; result_message_id: string | null; expires_at: string; created_at: string }
 const fromRow = (r: Row): Action => ({ id: r.id, conversationId: r.conversation_id, owner: r.owner, wallet: r.wallet, kind: r.kind, task: r.task, hires: JSON.parse(r.hires) as Hire[], detail: r.detail ? (JSON.parse(r.detail) as Detail) : null, status: r.status, resultMessageId: r.result_message_id, expiresAt: r.expires_at, createdAt: r.created_at });
+
+/** Was this job hired through Mylo by this person? */
+export function hiredThroughMylo(owner: string, taskId: string): boolean {
+  if (!/^[A-Za-z0-9-]{8,64}$/.test(taskId)) return false;
+  const rows = getDb().prepare("SELECT hires FROM mylo_actions WHERE owner = ? AND hires LIKE ?").all(owner, `%${taskId}%`) as { hires: string }[];
+  return rows.some((r) => (JSON.parse(r.hires) as Hire[]).some((h) => h.taskId === taskId));
+}
 
 export function getAction(id: string, owner: string): Action | null {
   const r = getDb().prepare("SELECT * FROM mylo_actions WHERE id = ? AND owner = ?").get(id, owner) as Row | undefined;
@@ -103,15 +119,30 @@ function summaryOf(a: Pick<Action, "hires"> & Partial<Pick<Action, "kind" | "det
   if (a.kind === "improve") { const d = a.detail as ImproveDetail; return `Apply the better version of ${d.name}${d.fromScore !== null && d.toScore !== null ? ` (tested ${d.fromScore} before, ${d.toScore} now)` : ""}.`; }
   const cost = a.hires.reduce((s, h) => s + (h.priceEth ?? 0), 0);
   const who = a.hires.map((h) => `${h.name} (${h.priceEth === null ? "free" : `${h.priceEth} ETH`})`).join(" and ");
-  return `Hire ${who} for this task${cost > 0 ? `, ${+cost.toFixed(8)} ETH in total` : ""}.`;
+  const how = (a.detail ?? null) as HireDetail | null;
+  const plan = how?.planFirst ? " It shows its plan first and starts when you approve." : "";
+  if (how?.followUpOf) return `Continue the job with ${who}: it carries on from the conversation and the files so far.${plan}`;
+  return `Hire ${who} for this task${cost > 0 ? `, ${+cost.toFixed(8)} ETH in total` : ""}.${plan}`;
 }
 
 /** Write down a hire for the person to confirm. Returns it, or why not. Spends nothing. */
-export function proposeHire(ctx: { wallet: string | null; owner: string; conversationId: string }, agentIds: string[], task: string): { id: string; summary: string } | string {
+export function proposeHire(ctx: { wallet: string | null; owner: string; conversationId: string }, agentIds: string[], task: string, how: { followUpOf?: string | null; planFirst?: boolean } = {}): { id: string; summary: string } | string {
   if (!ctx.wallet) return "Sign in with your wallet first, and Mylo can set that hire up for you.";
   const t = task.replace(/\r\n/g, "\n").trim();
   if (t.length < 3) return "Say what the agent should do.";
   if (t.length > TASK_CHARS) return `Keep the task under ${TASK_CHARS.toLocaleString("en-US")} characters.`;
+  // continuing a finished job: it must be theirs and finished, and it goes to one agent (by default the one that did it)
+  let followUpOf: string | null = null;
+  if (how.followUpOf && followUpEnabled()) {
+    const parent = getTaskById(how.followUpOf.trim());
+    const theirs = parent && (hiredThroughMylo(ctx.owner, parent.taskId) || libraryOwnerOf(parent.taskId) === `w:${ctx.wallet.toLowerCase()}`);
+    if (!parent || !theirs) return "That is not one of their jobs. Use a task_id from your notes or from my_work.";
+    if (parent.status !== "completed") return "That job has not finished yet. It can be continued once its answer is in.";
+    followUpOf = parent.taskId;
+    if (!agentIds.some((s) => s.trim())) agentIds = [parent.toAgent];
+    if (new Set(agentIds.map((s) => s.trim()).filter(Boolean)).size > 1) return "A job is continued with one agent.";
+    if (agentIds[0].trim() !== parent.toAgent && !bringInEnabled()) return `That job is continued with the agent that did it (${parent.toAgent}).`;
+  }
   const ids = [...new Set(agentIds.map((s) => s.trim()).filter(Boolean))];
   if (!ids.length || ids.length > 3) return "Choose one agent, or two or three for a second opinion.";
   const hires: Hire[] = [];
@@ -120,8 +151,10 @@ export function proposeHire(ctx: { wallet: string | null; owner: string; convers
     if (!a) return `There is no agent called ${id} on Axon.`;
     hires.push({ agentId: a.agentId, name: a.name, price: a.price ?? null, priceEth: parsePriceToEth(a.price ?? undefined), taskId: null, error: null });
   }
-  const id = insert({ ...ctx, wallet: ctx.wallet }, "hire", t, hires, null);
-  return { id, summary: summaryOf({ hires }) };
+  const planFirst = Boolean(how.planFirst) && planEnabled();
+  const detail: HireDetail | null = followUpOf || planFirst ? { followUpOf, planFirst, told: [] } : null;
+  const id = insert({ ...ctx, wallet: ctx.wallet }, "hire", t, hires, detail);
+  return { id, summary: summaryOf({ hires, kind: "hire", detail }) };
 }
 
 const buildDetail = (sentence: string, change: string | null = null, b: Build | null = null): BuildDetail =>
@@ -305,8 +338,17 @@ export async function confirmAction(id: string, owner: string, wallet: string, c
     if (!agent) { h.error = "This agent is no longer on Axon."; continue; }
     const priceNow = parsePriceToEth(agent.price ?? undefined);
     if (priceNow !== h.priceEth) { h.error = "Its price changed since Mylo proposed this. Ask Mylo again."; continue; }
-    const body: Record<string, unknown> = { to: h.agentId, task: a.task };
-    const headers: Record<string, string> = { "x-forwarded-for": c.clientIp };
+    // Working with the agent: it may ask, it remembers the person, and the hire can continue a job or show its plan
+    // first. The person's key goes along so the job joins their library; it pays for nothing by itself.
+    const how = (a.detail ?? null) as HireDetail | null;
+    const body: Record<string, unknown> = {
+      to: h.agentId, task: a.task,
+      ...(askEnabled() ? { allowQuestions: true } : {}),
+      ...(memoryEnabled() ? { memory: true } : {}),
+      ...(how?.planFirst ? { planFirst: true } : {}),
+      ...(how?.followUpOf ? { followUpOf: how.followUpOf, followUpToken: claimTokenFor(how.followUpOf) } : {}),
+    };
+    const headers: Record<string, string> = { "x-forwarded-for": c.clientIp, ...(c.apiKey ? { "x-api-key": c.apiKey } : {}) };
     if (priceNow === null) {
       body.from = "anonymous";
     } else if (c.method === "allowance") {
@@ -519,6 +561,18 @@ export function refreshAction(id: string, owner: string): { action: Action; task
     return { agentId: h.agentId, status: t?.status ?? null, output: t?.status === "completed" ? (t.output ?? null) : null, error: h.error ?? (t?.status === "failed" ? (t.error ?? "It failed.") : null) };
   });
   let message: { id: string; content: string } | null = null;
+  // A job that stopped to ask, or whose plan waits: said in the conversation, once for each question and plan.
+  if (a.status === "running") {
+    const how: HireDetail = (a.detail as HireDetail | null) ?? { followUpOf: null, planFirst: false, told: [] };
+    for (const h of a.hires) {
+      const notice = h.taskId ? waitingNotice(h.taskId, h.name) : null;
+      if (!notice || how.told.includes(notice.mark)) continue;
+      const m = addMessage(a.conversationId, a.owner, "assistant", notice.text, { actionId: a.id });
+      a.detail = { ...how, told: [...how.told, notice.mark] };
+      save(a);
+      return { action: a, tasks, message: { id: m.id, content: notice.text } };
+    }
+  }
   const started = a.hires.filter((h) => h.taskId);
   const allDone = a.status === "running" && started.length > 0 && tasks.every((t, i) => !a.hires[i].taskId || TERMINAL.has(t.status ?? ""));
   if (allDone) {
@@ -526,6 +580,7 @@ export function refreshAction(id: string, owner: string): { action: Action; task
       const t = tasks[i];
       if (!h.taskId) return `**${h.name}** wasn't hired: ${h.error ?? "not paid"}.`;
       if (t.status === "completed") return `**${h.name}** finished:\n\n${(t.output ?? "").trim() || "(it returned nothing)"}\n\n[Receipt](/r/${h.taskId})`;
+      if (t.status === "cancelled") return `**${h.name}**'s job was called off before it delivered. Whatever was paid for it is refunded. [Receipt](/r/${h.taskId})`;
       return `**${h.name}** couldn't finish: ${t.error ?? "it failed"}. [Receipt](/r/${h.taskId})`;
     });
     const content = a.hires.length > 1 ? `Here are their answers, side by side.\n\n${parts.join("\n\n---\n\n")}` : parts[0];

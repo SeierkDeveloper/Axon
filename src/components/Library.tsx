@@ -5,6 +5,7 @@ import Link from "next/link";
 import MarkdownOutput from "@/components/MarkdownOutput";
 import OutputFiles, { type OutputFile } from "@/components/OutputFiles";
 import { browserMemoryKey } from "@/components/AgentMemory";
+import VoiceOutput from "@/components/VoiceOutput";
 
 /**
  * Your library: every conversation you have had with an agent, the files that came back and their versions, and
@@ -187,7 +188,10 @@ function Opened({ c, memoryKey, onRemoved }: { c: LibraryConversation; memoryKey
             <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{t.agent.name}: {STANDS[t.status] ?? t.status}.</p>
           )}
           <OutputFiles files={t.outputFiles} />
-          <a href={t.receipt} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-teal-600 hover:underline dark:text-teal-400">Receipt →</a>
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+            <a href={t.receipt} target="_blank" rel="noopener noreferrer" className="text-xs text-teal-600 hover:underline dark:text-teal-400">Receipt →</a>
+            {t.status === "completed" && t.output && <VoiceOutput taskId={t.taskId} claimToken={t.claimToken} />}
+          </div>
         </div>
       ))}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">

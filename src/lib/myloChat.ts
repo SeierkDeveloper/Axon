@@ -18,7 +18,9 @@ import { addMessage, getConversation, historyOf, memoryOf, sentFromAddress, sent
 import { budgetShare, reserveCall, settleCall, type Hold } from "./myloBudget";
 import { myloToolDefs, runTool, forModel, type Card } from "./myloTools";
 import { agentMindsEnabled } from "./mindsPolicy";
-import { actionsOf, getAction, viewOf, type Action, type BuildDetail, type CrewDetail, type ImproveDetail, type PublishDetail, type ScheduleDetail, type WithdrawDetail } from "./myloActions";
+import { actionsOf, getAction, viewOf, type Action, type BuildDetail, type CrewDetail, type HireDetail, type ImproveDetail, type PublishDetail, type ScheduleDetail, type WithdrawDetail } from "./myloActions";
+import { getTaskById } from "./tasks";
+import { myloWorkNote } from "./myloWork";
 
 /** What the page is told while a turn runs, in order. */
 export type MyloEvent =
@@ -343,7 +345,13 @@ export function noteOf(a: Action): string {
   if (a.kind === "crew") { const d = a.detail as CrewDetail; return `crew "${d.crewName}" run (${a.hires.map((h) => h.name).join(" then ")}), ${a.status}, on step ${d.current + 1}${d.error ? `: ${d.error}` : ""}`; }
   if (a.kind === "schedule") { const d = a.detail as ScheduleDetail; return `autopilot for ${d.name} (${d.scheduleText})${d.retainerId ? `, retainer_id ${d.retainerId}` : ""}, ${a.status}${d.error ? `: ${d.error}` : ""}`; }
   if (a.kind === "improve") { const d = a.detail as ImproveDetail; return `apply the better version of ${d.name} (improvement_id ${d.improvementId}), ${a.status}${d.error ? `: ${d.error}` : ""}`; }
-  return `hire of ${a.hires.map((h) => `${h.name} (id ${h.agentId})`).join(", ")}, ${a.status}`;
+  // each hire's own job: its task_id is what continues it, answers it and steers it, and where it stands right now
+  const jobs = a.hires.map((h) => {
+    const t = h.taskId ? getTaskById(h.taskId) : null;
+    return `${h.name} (id ${h.agentId}${t ? `, task_id ${t.taskId}, job ${t.status === "waiting" ? "waiting on the person" : t.status}` : ""})`;
+  });
+  const how = a.detail as HireDetail | null;
+  return `hire of ${jobs.join(", ")}, ${a.status}${how?.followUpOf ? `, continuing task_id ${how.followUpOf}` : ""}`;
 }
 
 /** Words that say Mylo set something up. Said with no proposal made, they would promise a card that isn't there. */
@@ -413,7 +421,7 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
   // what the first call will read, so its cost can be held before anything is saved or started
   const model = modelFor(input.speaker, budgetShare());
   const past = conv ? historyOf(conv.id, TURN_BUDGET.historyMessages - 1) : [];
-  const system = withMemory(MYLO_SYSTEM, input.wallet) + (agentMindsEnabled() ? MINDS_NOTE : "") + contextOf(past, conv ? actionsOf(conv.id, input.owner) : []);
+  const system = withMemory(MYLO_SYSTEM, input.wallet) + (agentMindsEnabled() ? MINDS_NOTE : "") + myloWorkNote() + contextOf(past, conv ? actionsOf(conv.id, input.owner) : []);
   const earlier = past.map((m) => ({ role: m.role, content: m.content }));
   const messages: ModelMessage[] = fitHistory(toTurns([...earlier, { role: "user", content: text }])).map((t) => ({ role: t.role, content: t.content }));
   let hold: Hold | null = reserveCall(model, requestBytes(system, messages), TURN_BUDGET.answerTokens);

@@ -230,6 +230,12 @@ export const TOOLS: Record<string, ToolRule> = {
   // the person's own tokens: what they launched, what they hold, and rewards waiting for them. Claiming is theirs to
   // do on the token's page; nothing here moves anything
   my_tokens: { kind: "read", wallet: true, confirm: false, spends: false },
+  // working with an agent after it is hired: passing on the person's own answer, decision or note to their own job,
+  // and reading their own library. None of it spends; stopping or cancelling refunds
+  answer_agent: { kind: "act", wallet: true, confirm: false, spends: false },
+  decide_plan: { kind: "act", wallet: true, confirm: false, spends: false },
+  steer_job: { kind: "act", wallet: true, confirm: false, spends: false },
+  my_work: { kind: "read", wallet: true, confirm: false, spends: false },
   // memory: about yourself, so no confirmation, but only with a wallet
   remember: { kind: "act", wallet: true, confirm: false, spends: false },
   forget: { kind: "act", wallet: true, confirm: false, spends: false },

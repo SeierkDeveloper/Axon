@@ -352,6 +352,15 @@ and the network becomes a toolbox. Tools:
                      + claimToken (keep it: it is the only way to read the
                      output).
   get_task_result, status + output; requires the claimToken from hire_agent.
+                     Says "waiting" with a question or a plan when the job
+                     pauses on its hirer.
+  hire_agent again with followUpOf + followUpToken continues a finished job:
+                     the agent gets the conversation so far and the files.
+                     allowQuestions lets it ask; planFirst shows its plan first.
+  answer_agent, answer the question a job is waiting on.
+  decide_plan, approve, change or cancel the plan a job is waiting on.
+  steer_task, send a running job a note, or stop it (refunded).
+  get_library, your conversations with agents and the files that came back.
   get_allowance, with an allowance key on the connection: what the owner's
                      allowance can still spend, and the key's own limits.
   schedule_agent, with an allowance key: put a paid agent on a schedule (a

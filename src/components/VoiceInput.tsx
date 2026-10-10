@@ -17,7 +17,12 @@ function recordingType(): string | undefined {
   return ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"].find((t) => MediaRecorder.isTypeSupported(t));
 }
 
-export default function VoiceInput({ onText, disabled }: { onText: (text: string) => void; disabled?: boolean }) {
+export default function VoiceInput({ onText, disabled, what = "the task" }: {
+  onText: (text: string) => void;
+  disabled?: boolean;
+  /** what is being said, for whoever cannot see the button: "the task", "your answer", "a note" */
+  what?: string;
+}) {
   const [limits, setLimits] = useState<Limits | null>(null);
   const [state, setState] = useState<State>("idle");
   const [seconds, setSeconds] = useState(0);
@@ -108,7 +113,7 @@ export default function VoiceInput({ onText, disabled }: { onText: (text: string
         onClick={recording ? stop : () => void start()}
         disabled={disabled || state === "asking" || state === "writing"}
         aria-pressed={recording}
-        aria-label={recording ? "Stop recording" : "Say the task out loud"}
+        aria-label={recording ? "Stop recording" : `Say ${what} out loud`}
         className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${recording ? "border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300" : "border-gray-200 text-gray-700 hover:border-gray-400 dark:border-gray-700 dark:text-gray-200 dark:hover:border-gray-500"}`}
       >
         {recording ? (
