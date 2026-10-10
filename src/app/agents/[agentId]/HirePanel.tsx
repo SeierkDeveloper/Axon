@@ -130,6 +130,9 @@ export default function HirePanel({
   const [followError, setFollowError] = useState<string | null>(null);
   // a follow-up's payment that already landed, kept so a failed send retries with it instead of paying again
   const followPaid = useRef<{ paymentSignature: string; payerWallet: string } | null>(null);
+  // whether a payment is already held for the hire, and for the follow-up: what the buttons say depends on it
+  const [hasPaid, setHasPaid] = useState(false);
+  const [followHasPaid, setFollowHasPaid] = useState(false);
   // The agent asks: the question the job is waiting on, the answer being written, and what was asked along the way.
   const [question, setQuestion] = useState<Asked | null>(null);
   const [answer, setAnswer] = useState("");
@@ -281,6 +284,7 @@ export default function HirePanel({
         const { signature, payer } = await payForBuild({ rpcUrl, treasury: receiver, ethAmount });
         if (cancelled.current) return;
         paid.current = { paymentSignature: signature, payerWallet: payer };
+        setHasPaid(true);
         justPaid = true;
       }
       setHint(justPaid ? "Payment sent, starting the hire…" : "Starting the hire…");
@@ -308,6 +312,7 @@ export default function HirePanel({
           const { signature, payer } = await payForBuild({ rpcUrl, treasury: receiver, ethAmount });
           if (cancelled.current) return;
           followPaid.current = { paymentSignature: signature, payerWallet: payer };
+          setFollowHasPaid(true);
         } catch (e) {
           setFollowError(payErrorMessage(e instanceof Error ? e.message : "", ethAmount));
           return;
@@ -330,6 +335,8 @@ export default function HirePanel({
         setTurns((had) => [...had, { taskId, claim, task, output, outFiles }]);
         paid.current = followPaid.current;
         followPaid.current = null;
+        setHasPaid(Boolean(paid.current));
+        setFollowHasPaid(false);
         setTask(said);
         setFollowText("");
         setTaskId(data.taskId);
@@ -387,6 +394,8 @@ export default function HirePanel({
   function reset() {
     cancelled.current = true;
     paid.current = null; // a fresh hire pays anew
+    setHasPaid(false);
+    setFollowHasPaid(false);
     setQuestion(null);
     setAnswer("");
     setAnswerError(null);
@@ -465,9 +474,9 @@ export default function HirePanel({
               className="text-sm font-medium px-4 py-2 rounded-md bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white transition-colors"
             >
               {phase === "hiring"
-                ? (payAndHire && !paid.current ? "Paying…" : "Starting…")
+                ? (payAndHire && !hasPaid ? "Paying…" : "Starting…")
                 : payAndHire
-                  ? (paid.current ? "Retry hire" : `Pay ${price} & Hire`)
+                  ? (hasPaid ? "Retry hire" : `Pay ${price} & Hire`)
                   : "Hire"}
             </button>
             <VoiceInput disabled={phase === "hiring"} onText={(said) => setTask((t) => (t.trim() ? `${t.trimEnd()} ${said}` : said))} />
@@ -602,7 +611,7 @@ export default function HirePanel({
                   disabled={!followText.trim() || followBusy}
                   className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700 disabled:opacity-50"
                 >
-                  {followBusy ? (payAndHire && !followPaid.current ? "Paying…" : "Sending…") : payAndHire ? (followPaid.current ? "Retry follow-up" : `Pay ${price} & send`) : "Send follow-up"}
+                  {followBusy ? (payAndHire && !followHasPaid ? "Paying…" : "Sending…") : payAndHire ? (followHasPaid ? "Retry follow-up" : `Pay ${price} & send`) : "Send follow-up"}
                 </button>
                 <span className="text-[11px] text-gray-400 dark:text-gray-500">
                   {payAndHire
