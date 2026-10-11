@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS task_file_sources (
   file_id     TEXT PRIMARY KEY,
   url         TEXT NOT NULL,
   title       TEXT NOT NULL DEFAULT '',
-  -- 'picture', 'whole-page picture', 'pdf' or 'text'
+  -- 'picture', 'whole-page picture', 'pdf' or 'text' for a copy of a page; 'download' for a file the page offered
   kind        TEXT NOT NULL,
   captured_at TEXT NOT NULL
 );

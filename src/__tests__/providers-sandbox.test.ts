@@ -183,3 +183,45 @@ describe("an agent that runs code", () => {
     expect((sdk.stream.mock.calls[0][0] as { system: string }).system).toBe("System.");
   });
 });
+
+describe("a file that comes to the job while it runs", () => {
+  const PDF: SandboxFile = { name: "report.pdf", mime: "application/pdf", bytes: Buffer.from("%PDF-1.4 a report") };
+  const fetchIt = { name: "browser", label: "browser", description: "A browser", inputSchema: { type: "object", properties: {} }, run: async () => "Took report.pdf" };
+
+  it("is put into the sandbox after the round it arrived in, beside that round's results, and removed at the end", async () => {
+    const waiting: SandboxFile[] = [];
+    sdk.stream
+      .mockReturnValueOnce({ finalMessage: async () => ({ content: [{ type: "tool_use", id: "tu_1", name: "browser", input: { action: "download" } }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 }, container: { id: "c1" } }) })
+      .mockReturnValueOnce(reply([{ type: "text", text: "The report has 3 pages." }]));
+    const tools = { ...withCode(null), localTools: [{ ...fetchIt, run: async () => { waiting.push(PDF); return "Took report.pdf"; } }] };
+    const out = await getProvider(agent).completeWithTools!("s", "Fetch the report", 1000, tools, { sandbox: { files: [], more: () => waiting.splice(0) } });
+    expect(out).toBe("The report has 3 pages.");
+    expect(sdk.upload).toHaveBeenCalledTimes(1);
+    const [second, options] = sdk.stream.mock.calls[1] as [{ messages: { role: string; content: unknown }[] }, { headers?: Record<string, string> }];
+    expect(second.messages.at(-1)).toEqual({ role: "user", content: [{ type: "tool_result", tool_use_id: "tu_1", content: "Took report.pdf" }, { type: "container_upload", file_id: "file_in_report.pdf" }] });
+    expect(options.headers).toEqual({ "anthropic-beta": "files-api-2025-04-14" });
+    // nothing was there to put in at the start, so the first call carried no file
+    expect((sdk.stream.mock.calls[0] as [{ messages: { content: unknown }[] }])[0].messages[0].content).toBe("Fetch the report");
+    expect(sdk.del).toHaveBeenCalledWith("file_in_report.pdf");
+  });
+
+  it("a job without a sandbox is asked for nothing and uploads nothing", async () => {
+    const more = vi.fn(() => [PDF]);
+    sdk.stream
+      .mockReturnValueOnce({ finalMessage: async () => ({ content: [{ type: "tool_use", id: "tu_1", name: "browser", input: {} }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } }) })
+      .mockReturnValueOnce(reply([{ type: "text", text: "done" }]));
+    await getProvider(agent).completeWithTools!("s", "go", 1000, { serverTools: [], localTools: [fetchIt], grants: [] }, { sandbox: { files: [], more } });
+    expect(more).not.toHaveBeenCalled();
+    expect(sdk.upload).not.toHaveBeenCalled();
+  });
+
+  it("a file that cannot be put in is passed over: the job goes on with the words it was given", async () => {
+    sdk.upload.mockRejectedValueOnce(new Error("upload refused"));
+    sdk.stream
+      .mockReturnValueOnce({ finalMessage: async () => ({ content: [{ type: "tool_use", id: "tu_1", name: "browser", input: {} }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 }, container: { id: "c1" } }) })
+      .mockReturnValueOnce(reply([{ type: "text", text: "done" }]));
+    const out = await getProvider(agent).completeWithTools!("s", "go", 1000, { ...withCode(null), localTools: [fetchIt] }, { sandbox: { files: [], more: () => [PDF] } });
+    expect(out).toBe("done");
+    expect((sdk.stream.mock.calls[1] as [{ messages: { content: unknown }[] }])[0].messages.at(-1)!.content).toEqual([{ type: "tool_result", tool_use_id: "tu_1", content: "Took report.pdf" }]);
+  });
+});

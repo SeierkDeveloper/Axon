@@ -8,10 +8,10 @@
 
 import { getDb } from "./db";
 
-export type SavedKind = "picture" | "whole-page picture" | "pdf" | "text";
+export type SavedKind = "picture" | "whole-page picture" | "pdf" | "text" | "download";
 export interface FileSource { url: string; title: string; kind: SavedKind; at: string }
 
-const KINDS: readonly string[] = ["picture", "whole-page picture", "pdf", "text"];
+const KINDS: readonly string[] = ["picture", "whole-page picture", "pdf", "text", "download"];
 
 /** Write down where a file was saved from. Only a web address is ever kept. Returns false when nothing was written. */
 export function recordSource(fileId: string, from: { url: string; title?: string; kind: SavedKind }, now = Date.now()): boolean {

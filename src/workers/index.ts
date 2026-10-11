@@ -23,7 +23,7 @@ import { approvedNote, approveOverdue, keepPlan, parkForPlan, planEnabled, planN
 import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
-import { asksToSend, BROWSER_STEPS, browserTool, mayBrowse, refusalLine, withBrowser } from "../lib/browserTool";
+import { asksForFile, asksToSend, BROWSER_STEPS, browserTool, mayBrowse, refusalLine, withBrowser } from "../lib/browserTool";
 import { recordSent } from "../lib/taskSent";
 import { recordPage } from "../lib/taskPages";
 import { triggersEnabled } from "../lib/triggers";
@@ -445,9 +445,17 @@ async function processTasks() {
           // about them is calculated rather than guessed; an agent whose owner granted "code_execution" has one
           // anyway. The hire's files are put into it, and whatever it writes there for the person is kept with the job.
           if (mayCode && (handed.files.length || office) && !hasCode(tools)) tools = withCode(tools);
+          // Using the internet (the browser itself is handed over further down). A job that goes to a website for a
+          // file to work on gets the sandbox too, so what it fetches can be counted and charted, not just read.
+          const aboutSite = (job: string) => mayBrowse(agent, job, { viaMcp: Boolean(mcpHandler) });
+          const browsing = aboutSite(task.task) || Boolean(before && earlierTurns(task).some((t) => aboutSite(t.task)));
+          if (mayCode && browsing && asksForFile(task.task) && !hasCode(tools)) tools = withCode(tools);
+          // files the job's browser takes from the web while it runs, on their way into the sandbox
+          const fetched: SandboxFile[] = [];
           const sandbox = mayCode && hasCode(tools)
             ? {
                 files: handed.files.flatMap((f) => { const bytes = readBytes(f); return bytes ? [{ name: f.name, mime: f.mime, bytes }] : []; }),
+                more: () => fetched.splice(0),
                 onFile: (f: SandboxFile) => {
                   const kept = keepOutput({ taskId: task.taskId, bytes: f.bytes, name: f.name, wallet: hirerWallet });
                   if (kept && !kept.ok) logger.info("worker.output_file_refused", "A file the agent wrote was not kept", { taskId: task.taskId, name: f.name, refused: kept.refused });
@@ -464,9 +472,8 @@ async function processTasks() {
           }
           // Using the internet. A hire that is about a website gives the agent a browser of its own for the job: it
           // opens pages, clicks, types, scrolls and reads. A follow-up to such a job is about that website too.
-          const aboutSite = (job: string) => mayBrowse(agent, job, { viaMcp: Boolean(mcpHandler) });
           let browserSteps = 0;
-          if (aboutSite(task.task) || (before && earlierTurns(task).some((t) => aboutSite(t.task)))) {
+          if (browsing) {
             // each thing it does there is a line in the live log, with a picture of the page as it then was
             const b = browserTool({ taskId: task.taskId, paid: task.payment != null, say: (line) => live.show(line, hirerWallet), onPage: (page) => { recordPage(task.taskId, page); },
               // a form is sent only when the person asked for something to be sent, in this turn or one before it
@@ -474,7 +481,10 @@ async function processTasks() {
               onSent: (sent) => { recordSent(task.taskId, sent); },
               // a picture or a copy of a page it saves is kept with the job like any file it hands back
               wallet: hirerWallet,
-              onMade: (f) => live.say(madeLine(f)),
+              onMade: (f, how) => live.say(madeLine(f).replace(/^Made/, how === "downloaded" ? "Took" : "Saved")),
+              // a file it takes from the web goes into its sandbox too, where it has one
+              hasSandbox: Boolean(sandbox),
+              onTaken: (f) => { if (sandbox) fetched.push(f); },
             });
             tools = withBrowser(tools, b.tool);
             closeBrowser = b.close;

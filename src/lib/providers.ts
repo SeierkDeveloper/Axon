@@ -253,7 +253,12 @@ export interface ToolRunOptions {
    * For an agent that may run code: the hire's files, which are put into its sandbox, and where anything it writes
    * there for the person is handed once the job is done. Only used when the tools include the sandbox.
    */
-  sandbox?: { files: SandboxFile[]; onFile?: (file: SandboxFile) => void | Promise<void> };
+  sandbox?: {
+    files: SandboxFile[];
+    onFile?: (file: SandboxFile) => void | Promise<void>;
+    /** Files that have come to the job since it was last asked (something its browser fetched). Asked between rounds. */
+    more?: () => SandboxFile[];
+  };
 }
 
 /** A file going into, or coming out of, the sandbox an agent runs code in. */
@@ -457,13 +462,16 @@ async function runLocalTool(
       input: JSON.stringify(args),
       output,
     });
-    if (pictures.length) {
+    // a PDF the tool fetched goes to the model as the document it is
+    const papers = (rich?.documents ?? []).slice(0, 1).filter((d) => d.data.length > 4 && d.data.length <= 20_000_000 && d.data.subarray(0, 5).toString("latin1") === "%PDF-");
+    if (pictures.length || papers.length) {
       return {
         type: "tool_result",
         tool_use_id: use.id,
         content: [
           { type: "text", text: output || "(no output)" },
           ...pictures.map((i) => ({ type: "image" as const, source: { type: "base64" as const, media_type: i.mime as "image/jpeg" | "image/png" | "image/gif" | "image/webp", data: i.data.toString("base64") } })),
+          ...papers.map((d) => ({ type: "document" as const, source: { type: "base64" as const, media_type: "application/pdf" as const, data: d.data.toString("base64") }, title: d.name.slice(0, 200) })),
         ],
       };
     }
@@ -625,7 +633,7 @@ class AnthropicProvider implements ProviderClient {
     message: string,
     maxTokens: number,
     tools: ResolvedTools,
-    { onToolCall, onLive, signal, maxSteps: maxStepsOpt, maxToolResultChars, attachments, notes }: ToolRunOptions,
+    { onToolCall, onLive, signal, maxSteps: maxStepsOpt, maxToolResultChars, attachments, notes, sandbox }: ToolRunOptions,
     box: { uploads: string[]; produced: Set<string> } | null,
   ): Promise<{ text: string; refused: boolean }> {
     const timeoutMs = Math.max(120_000, maxTokens * 30);
@@ -773,10 +781,30 @@ class AnthropicProvider implements ProviderClient {
         old.block.content = old.tool.shrink!(wordsOf(old.block));
         looks.splice(i, 1);
       }
-      looks.push(...fresh);
+      // Something large the tool answered that is not a look (a file it fetched, with its words or the file itself):
+      // it cuts nothing down, but it is cut down itself once there is a newer look, like a look would be.
+      const heavy = toolUses.flatMap((use, i) => {
+        const tool = byName.get(use.name);
+        if (!tool?.shrink || results[i].is_error || fresh.some((f) => f.block === results[i])) return [];
+        return Array.isArray(results[i].content) || wordsOf(results[i]).length > 1_500 ? [{ tool, block: results[i] }] : [];
+      });
+      looks.push(...fresh, ...heavy);
+      // files that came to the job while it ran (something its browser fetched) are put into the sandbox now
+      const arrived: Anthropic.ContentBlockParam[] = [];
+      if (box) {
+        for (const f of sandbox?.more?.() ?? []) {
+          try {
+            const up = await this.client.beta.files.upload({ file: await toFile(f.bytes, f.name, { type: f.mime }) });
+            box.uploads.push(up.id);
+            arrived.push({ type: "container_upload", file_id: up.id } as unknown as Anthropic.ContentBlockParam);
+          } catch (err) {
+            logger.warn("provider.sandbox_upload_failed", "A file could not be put into the sandbox", { name: f.name, err });
+          }
+        }
+      }
       // a note from the person goes back with the results, after them
       const said = readNotes(notes);
-      messages.push({ role: "user", content: said ? [...results, { type: "text" as const, text: said }] : results });
+      messages.push({ role: "user", content: arrived.length || said ? [...results, ...arrived, ...(said ? [{ type: "text" as const, text: said }] : [])] : results });
     }
 
     return { text: requireText(lastText), refused: false };

@@ -489,6 +489,48 @@ describe("completeWithTools: a tool that answers with a picture as well as words
     expect(resultOf(1, "a").content).toBe("words");
   });
 
+  it("a PDF the tool fetched goes to the model as the document it is, and is dropped at the next look like a picture", async () => {
+    const PDF = Buffer.from("%PDF-1.4 the report");
+    let n = 0;
+    const tool: LocalTool = { ...eye(async () => (n++ === 0 ? { text: "Took report.pdf", documents: [{ name: "report.pdf", data: PDF }] } : { text: "PAGE two in words" })), isLook: (r) => r.startsWith("PAGE") };
+    mockStream
+      .mockImplementationOnce(answer([{ type: "tool_use", id: "a", name: "browser", input: {} }], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "tool_use", id: "b", name: "browser", input: {} }], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "text", text: "done" }]));
+    await getProvider(makeAgent()).completeWithTools!("sys", "go", 1000, makeTools({ localTools: [tool] }));
+    expect(resultOf(1, "a").content).toEqual([
+      { type: "text", text: "Took report.pdf" },
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: PDF.toString("base64") }, title: "report.pdf" },
+    ]);
+    // it was not a look, so it cut nothing down; but a look came after it, and it is words now
+    expect(resultOf(2, "a").content).toBe("[was: Took repo]");
+    expect(resultOf(2, "b").content).toBe("PAGE two in words");
+  });
+
+  it("what is called a PDF and is not one is not sent as a document", async () => {
+    mockStream
+      .mockImplementationOnce(answer([{ type: "tool_use", id: "a", name: "browser", input: {} }], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "text", text: "done" }]));
+    await getProvider(makeAgent()).completeWithTools!("sys", "go", 1000, makeTools({ localTools: [eye(async () => ({ text: "words", documents: [{ name: "x.pdf", data: Buffer.from("<html>not a pdf</html>") }] }))] }));
+    expect(resultOf(1, "a").content).toBe("words");
+  });
+
+  it("a long answer that is not a look is cut down at the next look too; a short one is left as it is", async () => {
+    const long = `Took data.csv\n${"row,row,row\n".repeat(400)}`;
+    const answers = [long, "Noted.", "PAGE in words"];
+    let n = 0;
+    const tool: LocalTool = { ...eye(async () => ({ text: answers[n++] })), isLook: (r) => r.startsWith("PAGE") };
+    mockStream
+      .mockImplementationOnce(answer([{ type: "tool_use", id: "a", name: "browser", input: {} }], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "tool_use", id: "b", name: "browser", input: {} }], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "tool_use", id: "c", name: "browser", input: {} }], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "text", text: "done" }]));
+    await getProvider(makeAgent()).completeWithTools!("sys", "go", 1000, makeTools({ localTools: [tool] }));
+    expect(resultOf(2, "a").content).toBe(long);                 // a note taken does not cut it down
+    expect(resultOf(3, "a").content).toBe("[was: Took data]");   // the next look does
+    expect(resultOf(3, "b").content).toBe("Noted.");
+  });
+
   it("an earlier picture is dropped once the tool has given a newer look: it is not paid for again and again", async () => {
     let n = 0;
     mockStream

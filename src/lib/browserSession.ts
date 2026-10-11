@@ -15,8 +15,9 @@
 //   root (the container), the browser runs as its own user with no rights, and the folder holding the database is
 //   closed to everybody but root first.
 //
-//   Its profile is a fresh folder that is deleted when the job ends. Downloads are refused, a second window is
-//   closed as soon as it opens, and a page that pops up a dialog has it dismissed.
+//   Its profile is a fresh folder that is deleted when the job ends. A second window is closed as soon as it opens,
+//   and a page that pops up a dialog has it dismissed. A file a page offers is refused unless the job's tool asks
+//   for that one file: then it is taken into a folder of the browser's own, up to a size, and read from there.
 
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
@@ -245,6 +246,15 @@ export interface BrowserSession {
   lastStatus(): number | null;
   /** Why the guard refused this host, in plain words, or null if it did not. */
   whyRefused(host: string): string | null;
+  /** The files pages have offered so far (each a download the browser did not take), oldest first. */
+  offered(): { url: string; name: string }[];
+  /**
+   * Take the one file that `start` makes the page offer (a click on a button, say): downloads are let through for
+   * just that long. The file is read and removed; one larger than `maxBytes` is stopped and refused.
+   */
+  download(start: () => Promise<void>, maxBytes: number): Promise<{ ok: true; name: string; url: string; bytes: Buffer } | { ok: false; reason: string }>;
+  /** The name the browser gives itself to the sites it visits. */
+  readonly userAgent: string;
   left(): { steps: number; seconds: number; megabytes: number };
   /** What the pages said in dialogs, and what the guard refused. */
   notes(): { dialogs: string[]; refused: { host: string; why: string }[] };
@@ -301,7 +311,16 @@ export async function openBrowser(o: OpenOptions = {}): Promise<{ ok: true; sess
     let steps = 0, closed = false, mainStatus: number | null = null, mainFrame = "";
     const dialogs: string[] = [];
 
-    await pipe.send("Browser.setDownloadBehavior", { behavior: "deny" });
+    // A file a page offers is not taken, but the offer is heard, so the agent can be told there was one.
+    const downloads = path.join(profile, "downloads");
+    fs.mkdirSync(downloads, { recursive: true });
+    const asUser = runAs(env);
+    if (asUser) fs.chownSync(downloads, asUser.uid, asUser.gid);
+    await pipe.send("Browser.setDownloadBehavior", { behavior: "deny", eventsEnabled: true });
+    const offers: { url: string; name: string; guid: string }[] = [];
+    const progress = new Map<string, { state: string; received: number; total: number }>();
+    pipe.on("Browser.downloadWillBegin", (p) => { if (offers.length < 50) offers.push({ url: String(p.url ?? ""), name: String(p.suggestedFilename ?? "").slice(0, 200), guid: String(p.guid ?? "") }); });
+    pipe.on("Browser.downloadProgress", (p) => { progress.set(String(p.guid ?? ""), { state: String(p.state ?? ""), received: Number(p.receivedBytes) || 0, total: Number(p.totalBytes) || 0 }); });
     await pipe.send("Target.setDiscoverTargets", { discover: true });
     // the one window the browser started with is the job's window
     const there = ((await pipe.send("Target.getTargets")).targetInfos as { targetId: string; type: string }[] | undefined)?.find((t) => t.type === "page");
@@ -384,6 +403,43 @@ export async function openBrowser(o: OpenOptions = {}): Promise<{ ok: true; sess
       listen: (event, fn) => pipe.on(event, (p, sid) => { if (sid === sessionId) fn(p); }),
       lastStatus: () => mainStatus,
       whyRefused: (host) => { const why = guard!.whyRefused(host); return why ? plainWhy(why) : null; },
+      offered: () => offers.map((o) => ({ url: o.url, name: o.name })),
+      userAgent: browserUserAgent(version, env),
+      async download(start, maxBytes) {
+        const gone = usable();
+        if (gone) return { ok: false, reason: gone };
+        const before = offers.length;
+        const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+        try {
+          await pipe.send("Browser.setDownloadBehavior", { behavior: "allowAndName", downloadPath: downloads, eventsEnabled: true });
+          await start();
+          // the offer, then the file itself: each is waited for only so long
+          for (let i = 0; i < 80 && offers.length === before; i++) await wait(100);
+          const offer = offers[before];
+          if (!offer) return { ok: false, reason: "No file came of that. It may open a page, not offer a file." };
+          const t0 = Date.now();
+          for (;;) {
+            const p = progress.get(offer.guid);
+            if (p && (p.received > maxBytes || p.total > maxBytes)) {
+              await pipe.send("Browser.cancelDownload", { guid: offer.guid }).catch(() => undefined);
+              return { ok: false, reason: `The file is larger than can be taken here (at most ${Math.round(maxBytes / (1024 * 1024))} MB).` };
+            }
+            if (p?.state === "completed") break;
+            if (p?.state === "canceled") return { ok: false, reason: "The site stopped the download before it finished." };
+            if (Date.now() - t0 > 45_000 || usable()) { await pipe.send("Browser.cancelDownload", { guid: offer.guid }).catch(() => undefined); return { ok: false, reason: "The download did not finish in time." }; }
+            await wait(150);
+          }
+          const file = path.join(downloads, offer.guid);
+          const size = fs.statSync(file).size;
+          if (size > maxBytes) return { ok: false, reason: `The file is larger than can be taken here (at most ${Math.round(maxBytes / (1024 * 1024))} MB).` };
+          return { ok: true, name: offer.name, url: offer.url, bytes: fs.readFileSync(file) };
+        } catch (err) {
+          return { ok: false, reason: `The file could not be taken: ${(err as Error).message}.` };
+        } finally {
+          await pipe.send("Browser.setDownloadBehavior", { behavior: "deny", eventsEnabled: true }).catch(() => undefined);
+          for (const o of offers.slice(before)) fs.rm(path.join(downloads, o.guid), { force: true }, () => undefined);
+        }
+      },
       notes: () => ({ dialogs: [...dialogs], refused: guard!.refused().map((r) => ({ host: r.host, why: plainWhy(r.why) })) }),
       async goto(rawUrl) {
         const checked = checkBrowserUrl(rawUrl);

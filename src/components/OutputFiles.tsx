@@ -16,7 +16,7 @@ interface Version { version: number; id: string; name: string; size: number; sha
 const pageLabel = (url: string): string => { try { const u = new URL(url); return `${u.hostname.replace(/^www\./, "")}${u.pathname === "/" ? "" : u.pathname}`; } catch { return url; } };
 /** A moment as it is written beside a saved page: the day and the minute, in UTC, the same for every reader. */
 const savedAt = (iso: string): string => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : `${d.toISOString().slice(0, 10)} ${d.toISOString().slice(11, 16)} UTC`; };
-const KIND_WORDS: Record<string, string> = { picture: "A picture of", "whole-page picture": "A picture of the whole of", pdf: "A PDF copy of", text: "The words of" };
+const KIND_WORDS: Record<string, string> = { picture: "A picture of", "whole-page picture": "A picture of the whole of", pdf: "A PDF copy of", text: "The words of", download: "Downloaded from" };
 
 /**
  * For a file an agent saved from a web page: which page it is a copy of and when the copy was made. The file's
@@ -28,7 +28,7 @@ function SavedFrom({ from }: { from: NonNullable<OutputFile["from"]> }) {
     <p className="mt-1.5 break-words text-[11px] text-gray-500 dark:text-gray-400">
       {KIND_WORDS[from.kind] ?? "Saved from"}{" "}
       <a href={from.url} target="_blank" rel="noopener noreferrer nofollow" title={from.url} className="break-all text-teal-600 hover:underline dark:text-teal-400">{pageLabel(from.url)}</a>
-      {savedAt(from.at) ? `, as it was on ${savedAt(from.at)}` : ""}
+      {savedAt(from.at) ? (from.kind === "download" ? ` on ${savedAt(from.at)}` : `, as it was on ${savedAt(from.at)}`) : ""}
     </p>
   );
 }
