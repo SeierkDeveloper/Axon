@@ -188,6 +188,9 @@ describe("with Mylo", () => {
     expect(note).toMatch(/real browser/);
     expect(note).toMatch(/You do not browse yourself/);
     expect(note).toMatch(/sign in anywhere, type a password or a card number/);
+    // the browser is the agent's own: Mylo must not tell somebody that signing in themselves first would help
+    expect(note).toMatch(/starts empty on every job/);
+    expect(note).toMatch(/A page behind a sign-in cannot\s+be read at all/);
     expect(note).not.toMatch(/—/);
     process.env.AGENT_BROWSER = "off";
     expect(myloBrowserNote()).toBe("");

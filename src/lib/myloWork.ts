@@ -63,6 +63,9 @@ export function myloBrowserNote(): string {
 - What it never does: sign in anywhere, type a password or a card number, press a button that pays or orders, or
   solve a CAPTCHA. It sends a form only when the task asks for that in words, and the result then shows exactly what
   was sent. Never promise any of these, and say so plainly when a job needs one of them.
+- The browser is the agent's own and starts empty on every job. It is not the person's browser: nothing they are
+  signed in to is signed in there, and signing in themselves first changes nothing. A page behind a sign-in cannot
+  be read at all. Say that, and offer what is public instead. Never suggest a way around it.
 - A hire made on an agent's own page shows each step with a picture of the page while it works. A hire made through
   you comes back with the answer and the sites it opened, and their library on /dashboard lists every page. Say what
   the agent found, not that you saw the pages.
