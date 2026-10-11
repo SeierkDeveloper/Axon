@@ -39,6 +39,13 @@ afterAll(() => {
 });
 
 describe("the switch", () => {
+  it("where a command sends its errors is not the file it looks at", () => {
+    const line = (command: string) => lineFor({ type: "tool", id: "x", tool: "bash_code_execution", input: { command } });
+    expect(line("cat airtravel.csv 2>/dev/null")).toBe("Looking at airtravel.csv");
+    expect(line("head -5 data/sales.csv 2>&1")).toBe("Looking at sales.csv");
+    expect(line("cat report.txt > /dev/null")).toBe("Looking at report.txt");
+  });
+
   it("is on only when it says on", () => {
     expect(liveLogEnabled({})).toBe(false);
     expect(liveLogEnabled({ AGENT_LIVE_LOG: "off" })).toBe(false);

@@ -67,7 +67,8 @@ function part(cmd: string, whole: string): { rank: number; line: string | null }
   if (/^pip3?\s+install\b/.test(cmd)) return { rank: 3, line: oneLine(`Installing ${cmd.replace(/^pip3?\s+install\s+/, "").replace(/(^|\s)-\S+/g, " ")}`, 90) };
   if (/^(head|cat|tail|wc|file|less)\s/.test(cmd)) {
     // the file is named before any pipe; what follows the pipe only trims what is shown
-    const named = cmd.split("|")[0].trim().split(/\s+/).slice(1).filter((w) => !w.startsWith("-")).pop() ?? "";
+    // and where its output or its errors are sent (2>/dev/null) is not a file being looked at
+    const named = cmd.split("|")[0].replace(/\s\d*[<>]{1,2}.*$/, "").trim().split(/\s+/).slice(1).filter((w) => !w.startsWith("-")).pop() ?? "";
     return { rank: 2, line: `Looking at ${baseName(named.replace(/["']/g, "")) || "a file"}` };
   }
   if (/^(ls|find|pwd|tree|du)\b/.test(cmd)) return { rank: 1, line: "Looking at the files" };
