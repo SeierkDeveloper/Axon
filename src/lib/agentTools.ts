@@ -142,6 +142,11 @@ export interface LocalTool {
   label: string;
   run(args: Record<string, unknown>): Promise<string>;
   /**
+   * The same call, for a tool that can answer with a picture as well as words (a look at a page). The agent is sent
+   * the words and the pictures; everything that records the call records the words. Absent, `run` is all there is.
+   */
+  runRich?(args: Record<string, unknown>): Promise<{ text: string; images?: { mime: string; data: Buffer }[] }>;
+  /**
    * What an earlier result of this tool is cut down to once the agent has a newer one. For a tool whose every result
    * is a fresh look at the same thing (a page in a browser): the old looks are dead weight in every later call, and
    * the agent is told where it was rather than shown it all again. Absent, results are kept as they are.

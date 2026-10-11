@@ -6,6 +6,7 @@ import { payForBuild } from "@/lib/buildPaymentClient";
 import MarkdownOutput from "@/components/MarkdownOutput";
 import FileAttach, { type Attached } from "@/components/FileAttach";
 import OutputFiles, { type OutputFile } from "@/components/OutputFiles";
+import StepPicture, { type StepShot } from "@/components/StepPicture";
 import VoiceInput from "@/components/VoiceInput";
 import VoiceOutput from "@/components/VoiceOutput";
 import AgentMemory, { browserMemoryKey } from "@/components/AgentMemory";
@@ -83,17 +84,33 @@ function EarlierTurn({ n, turn, named }: { n: number; turn: Turn; named: boolean
   );
 }
 
-/** The steps of a hire, oldest first. While it runs the last one is the one happening now. */
-function StepList({ steps, live }: { steps: { n: number; text: string }[]; live?: boolean }) {
+interface StepLine { n: number; text: string; shot?: StepShot }
+
+/**
+ * The steps of a hire, oldest first. While it runs the last one is the one happening now. A step an agent took in
+ * its browser carries a picture of the page as it then was: while the job runs the newest picture is open, so the
+ * person watches the agent's window; any other opens when asked for.
+ */
+function StepList({ steps, live }: { steps: StepLine[]; live?: boolean }) {
+  // what the person opened or closed themselves wins over what is open by itself
+  const [chosen, setChosen] = useState<Record<number, boolean>>({});
   if (!steps.length) return null;
+  const newest = live ? [...steps].reverse().find((s) => s.shot)?.n : undefined;
   return (
     <ol className="mt-2.5 space-y-1.5 border-l border-gray-200 pl-3 dark:border-gray-700" aria-live={live ? "polite" : undefined}>
       {steps.map((s, i) => {
         const now = live && i === steps.length - 1;
+        const open = s.shot ? chosen[s.n] ?? s.n === newest : false;
         return (
           <li key={s.n} className={`relative text-xs leading-snug break-words ${now ? "text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"}`}>
             <span className={`absolute -left-[15.5px] top-[5px] h-1.5 w-1.5 rounded-full ${now ? "bg-teal-500 animate-pulse" : "bg-gray-300 dark:bg-gray-600"}`} />
             {s.text}
+            {s.shot && (
+              <button type="button" onClick={() => setChosen((c) => ({ ...c, [s.n]: !open }))} aria-expanded={open} className="ml-2 text-[11px] text-teal-600 hover:underline dark:text-teal-400">
+                {open ? "Hide the picture" : "See the page"}
+              </button>
+            )}
+            {s.shot && open && <StepPicture shot={s.shot} alt={`The page after: ${s.text}`} />}
           </li>
         );
       })}
@@ -143,7 +160,7 @@ export default function HirePanel({
   const [report, setReport] = useState(false);
   const [outFiles, setOutFiles] = useState<OutputFile[]>([]);
   // what the agent has done so far, one line a step, while it runs and after
-  const [steps, setSteps] = useState<{ n: number; text: string }[]>([]);
+  const [steps, setSteps] = useState<StepLine[]>([]);
   const cancelled = useRef(false);
   // the hire's own token: what reads its answer, and what has that answer read aloud
   const [claim, setClaim] = useState<string | null>(null);
@@ -250,7 +267,7 @@ export default function HirePanel({
         setPhase("error");
         return;
       }
-      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: { n: number; text: string }[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[]; plan?: OpenPlan; steer?: { open?: boolean; stoppable?: boolean; notesLeft?: number }; notes?: SentNote[]; remembered?: { id: string; text: string }[] };
+      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: StepLine[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[]; plan?: OpenPlan; steer?: { open?: boolean; stoppable?: boolean; notesLeft?: number }; notes?: SentNote[]; remembered?: { id: string; text: string }[] };
       if (cancelled.current) return;
       if (Array.isArray(t.steps)) setSteps((had) => (t.steps!.length >= had.length ? t.steps! : had));
       if (Array.isArray(t.questions)) setAsked(t.questions.filter((q) => q.answeredAt));

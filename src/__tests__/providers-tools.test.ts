@@ -422,3 +422,59 @@ describe("completeWithTools: earlier looks are cut down once there is a newer on
     expect(resultOf(2, "a")).toMatchObject({ content: "first" });
   });
 });
+
+// ── A tool that answers with a picture ────────────────────────────────────────
+
+describe("completeWithTools: a tool that answers with a picture as well as words", () => {
+  const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(40, 2)]);
+  const sent: { role: string; content: unknown }[][] = [];
+  const answer = (content: unknown[], stop = "end_turn") => (req: { messages: unknown }) => { sent.push(JSON.parse(JSON.stringify(req.messages))); return turn(content, stop); };
+  const resultOf = (call: number, id: string) => sent[call].flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((b) => (b as { tool_use_id?: string }).tool_use_id === id) as { content: unknown };
+  beforeEach(() => { sent.length = 0; });
+  const eye = (rich: LocalTool["runRich"]): LocalTool => ({
+    name: "browser", label: "browser", description: "A browser", inputSchema: { type: "object", properties: {} },
+    run: async () => "words only", runRich: rich, shrink: (r) => `[was: ${r.slice(0, 9)}]`,
+  });
+
+  it("the model is sent the words and the picture; the receipt's record of the call is the words", async () => {
+    mockStream
+      .mockImplementationOnce(answer([{ type: "tool_use", id: "a", name: "browser", input: { action: "look" } }], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "text", text: "It is a bar chart." }]));
+    const calls: ToolCallEvent[] = [];
+    const out = await getProvider(makeAgent()).completeWithTools!("sys", "go", 1000, makeTools({ localTools: [eye(async () => ({ text: "The window, as a picture.", images: [{ mime: "image/jpeg", data: JPEG }] }))] }), { onToolCall: (e) => calls.push(e) });
+    expect(out).toBe("It is a bar chart.");
+    expect(resultOf(1, "a").content).toEqual([
+      { type: "text", text: "The window, as a picture." },
+      { type: "image", source: { type: "base64", media_type: "image/jpeg", data: JPEG.toString("base64") } },
+    ]);
+    expect(calls[0]).toMatchObject({ ok: true, output: "The window, as a picture." });
+  });
+
+  it("a rich tool that answers in words alone is sent as words", async () => {
+    mockStream
+      .mockImplementationOnce(answer([{ type: "tool_use", id: "a", name: "browser", input: {} }], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "text", text: "done" }]));
+    await getProvider(makeAgent()).completeWithTools!("sys", "go", 1000, makeTools({ localTools: [eye(async () => ({ text: "PAGE: x" }))] }));
+    expect(resultOf(1, "a").content).toBe("PAGE: x");
+  });
+
+  it("what is not a picture, or is far too large, is not sent as one", async () => {
+    mockStream
+      .mockImplementationOnce(answer([{ type: "tool_use", id: "a", name: "browser", input: {} }], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "text", text: "done" }]));
+    await getProvider(makeAgent()).completeWithTools!("sys", "go", 1000, makeTools({ localTools: [eye(async () => ({ text: "words", images: [{ mime: "text/html", data: JPEG }, { mime: "image/jpeg", data: Buffer.alloc(0) }, { mime: "image/png", data: Buffer.alloc(4_000_001, 1) }] }))] }));
+    expect(resultOf(1, "a").content).toBe("words");
+  });
+
+  it("an earlier picture is dropped once the tool has given a newer look: it is not paid for again and again", async () => {
+    let n = 0;
+    mockStream
+      .mockImplementationOnce(answer([{ type: "tool_use", id: "a", name: "browser", input: {} }], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "tool_use", id: "b", name: "browser", input: {} }], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "text", text: "done" }]));
+    await getProvider(makeAgent()).completeWithTools!("sys", "go", 1000, makeTools({ localTools: [eye(async () => (n++ === 0 ? { text: "A picture of page one", images: [{ mime: "image/jpeg", data: JPEG }] } : { text: "PAGE two in words" }))] }));
+    expect(Array.isArray(resultOf(1, "a").content)).toBe(true);
+    expect(resultOf(2, "a").content).toBe("[was: A picture]");
+    expect(resultOf(2, "b").content).toBe("PAGE two in words");
+  });
+});

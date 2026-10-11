@@ -13,6 +13,7 @@
 import type { LiveEvent } from "./providers";
 import { emitProgress, getTaskProgress } from "./progress";
 import { logger } from "./logger";
+import { keepStepShot, shotsOf, type StepShot } from "./stepShots";
 
 export function liveLogEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return (env.AGENT_LIVE_LOG ?? "").trim().toLowerCase() === "on";
@@ -117,12 +118,15 @@ export function lineFor(ev: LiveEvent): string | null {
   return oneLine(`Using ${name.replace(/_/g, " ")}`, 80);
 }
 
-export interface Step { n: number; text: string; at: string }
+export interface Step { n: number; text: string; at: string; shot?: StepShot }
 
 /** The lines of a job so far, oldest first. */
 export function stepsOf(taskId: string): Step[] {
   try {
-    return getTaskProgress(taskId).map((p) => ({ n: p.sequence, text: p.message, at: p.emittedAt }));
+    const lines = getTaskProgress(taskId);
+    if (!lines.length) return [];
+    const shots = shotsOf(taskId);
+    return lines.map((p) => ({ n: p.sequence, text: p.message, at: p.emittedAt, ...(shots.has(p.sequence) ? { shot: shots.get(p.sequence)! } : {}) }));
   } catch {
     return [];
   }
@@ -137,18 +141,32 @@ export function liveLog(taskId: string, o: { enabled?: boolean } = {}) {
   const on = o.enabled ?? liveLogEnabled();
   const seen = new Set<string>();
   let written = 0, last = "";
-  const say = (text: string | null): void => {
-    if (!on || !text) return;
+  /** Adds a line. Returns the line's place in the log, or null when nothing was written. */
+  const say = (text: string | null): number | null => {
+    if (!on || !text) return null;
     const line = oneLine(text);
-    if (!line || line === last || written > MAX_STEPS) return;
+    if (!line || line === last || written > MAX_STEPS) return null;
     try {
       written++;
       const kept = written > MAX_STEPS ? "Still working. Later steps are not listed." : line;
       last = line;
-      emitProgress(taskId, kept);
+      const entry = emitProgress(taskId, kept);
+      return entry && written <= MAX_STEPS ? entry.sequence : null;
     } catch (err) {
       logger.warn("live_log.write_failed", "A step could not be written", { taskId, err });
+      return null;
     }
+  };
+  /**
+   * Adds a line that will get a picture: what the agent is doing in its browser now. What comes back takes the
+   * picture of the page once the thing is done, and keeps it with that line. A line said twice in a row is written
+   * once, and the picture then goes with the line that is there.
+   */
+  let lastPlace: number | null = null;
+  const show = (text: string, wallet?: string | null): ((jpeg: Buffer) => void) => {
+    const place = say(text) ?? (oneLine(text) === last ? lastPlace : null);
+    if (place !== null) lastPlace = place;
+    return (jpeg) => { if (on && place !== null) keepStepShot({ taskId, sequence: place, bytes: jpeg, wallet }); };
   };
   const onLive = (ev: LiveEvent): void => {
     try {
@@ -160,5 +178,5 @@ export function liveLog(taskId: string, o: { enabled?: boolean } = {}) {
       logger.warn("live_log.write_failed", "A step could not be written", { taskId, err });
     }
   };
-  return { on, say, onLive };
+  return { on, say, show, onLive };
 }

@@ -157,8 +157,15 @@ export function fileTokenValid(fileId: string, token: unknown): boolean {
 
 // ── Rows ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * What a stored file is to its job: handed to the agent ('in'), handed back by it ('out'), or a picture of a step it
+ * took ('shot'). A step's picture is kept and read like any file but is neither a deliverable nor on a receipt, and
+ * nothing that lists a job's files in or out ever shows it.
+ */
+export type Direction = "in" | "out" | "shot";
+
 export interface FileRow {
-  id: string; sha256: string; name: string; mime: string; kind: FileKind; size: number; direction: "in" | "out";
+  id: string; sha256: string; name: string; mime: string; kind: FileKind; size: number; direction: Direction;
   owner_wallet: string | null; task_id: string | null; created_at: string; expires_at: string; deleted_at: string | null;
   /** the job this file first belonged to, when it was handed on from another job; null for an upload */
   source_task_id?: string | null;
@@ -177,7 +184,7 @@ export const versionInfo = (r: FileRow): { version?: number; revises?: string; f
     : {};
 export interface FileView {
   /** `type` and `mime` are the same thing: `type` is what every other listing of a file calls it */
-  id: string; name: string; type: string; mime: string; kind: FileKind; size: number; sha256: string; direction: "in" | "out";
+  id: string; name: string; type: string; mime: string; kind: FileKind; size: number; sha256: string; direction: Direction;
   taskId: string | null; createdAt: string; expiresAt: string;
 }
 export const toView = (r: FileRow): FileView => ({
@@ -247,7 +254,7 @@ const no = (status: 400 | 413 | 415 | 429 | 507, refused: StoreRefusal, reason: 
  * Take a file in. Returns what was stored and its token, or a plain reason it was not. Nothing is written unless
  * every rule passes; a file already held (the same bytes) is not written a second time.
  */
-export function storeFile(input: { bytes: Buffer; name?: unknown; wallet?: string | null; direction?: "in" | "out"; taskId?: string | null }, o: { now?: number; env?: Record<string, string | undefined> } = {}): StoreResult {
+export function storeFile(input: { bytes: Buffer; name?: unknown; wallet?: string | null; direction?: Direction; taskId?: string | null }, o: { now?: number; env?: Record<string, string | undefined> } = {}): StoreResult {
   const env = o.env ?? process.env, now = o.now ?? Date.now();
   const { bytes } = input;
   const wallet = input.wallet ? input.wallet.toLowerCase() : null;

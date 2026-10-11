@@ -180,7 +180,7 @@ const ref = (view: string, name: string): number => { const m = new RegExp(`\\[(
 
 describe.skipIf(!findChromium({}))("the tool on a real browser", () => {
   const said: string[] = [];
-  const b = browserTool({ taskId: "job-1", paid: true, env, say: (l) => said.push(l), open: start() });
+  const b = browserTool({ taskId: "job-1", paid: true, env, say: (l) => { said.push(l); }, open: start() });
   const go = (args: Record<string, unknown>) => b.tool.run(args);
   afterAll(async () => { await b.close(); });
 
@@ -253,7 +253,7 @@ describe.skipIf(!findChromium({}))("the tool on a real browser", () => {
 
 describe.skipIf(!findChromium({}))("forms, lists and what is refused", () => {
   const said: string[] = [];
-  const b = browserTool({ taskId: "job-2", paid: true, env, say: (l) => said.push(l), open: start() });
+  const b = browserTool({ taskId: "job-2", paid: true, env, say: (l) => { said.push(l); }, open: start() });
   const go = (args: Record<string, unknown>) => b.tool.run(args);
   afterAll(async () => { await b.close(); });
 
@@ -337,11 +337,69 @@ describe.skipIf(!findChromium({}))("forms, lists and what is refused", () => {
 describe.skipIf(!findChromium({}))("how things on a page are named", () => {
   it("a link that wraps a whole card is named by the card's heading, in the list and in the live log", async () => {
     const said: string[] = [];
-    const b = browserTool({ taskId: "job-8", paid: true, env, say: (l) => said.push(l), open: start() });
+    const b = browserTool({ taskId: "job-8", paid: true, env, say: (l) => { said.push(l); }, open: start() });
     const v = await b.tool.run({ action: "open", url: "http://shop.test/cards" });
     expect(v).toMatch(/\[\d+\] link "Misty Hill Estate"/);
     await b.tool.run({ action: "click", ref: ref(v, "Misty Hill Estate") });
     expect(said.at(-1)).toBe(`Clicking "Misty Hill Estate"`);
+    await b.close();
+  }, 60_000);
+});
+
+describe.skipIf(!findChromium({}))("pictures: for the person watching, and for the agent", () => {
+  const isJpeg = (b: Buffer) => b.length > 3_000 && b[0] === 0xff && b[1] === 0xd8;
+
+  it("every thing it does there comes with a picture of the page as it then was, for the line just said", async () => {
+    const log: { line: string; shots: Buffer[] }[] = [];
+    const b = browserTool({ taskId: "job-9", paid: true, env, open: start(), say: (line) => { const row = { line, shots: [] as Buffer[] }; log.push(row); return (jpeg) => { row.shots.push(jpeg); }; } });
+    const v = await b.tool.run({ action: "open", url: "http://shop.test/" });
+    await b.tool.run({ action: "type", ref: ref(v, "Search teas"), text: "tea", submit: true });
+    await b.tool.run({ action: "scroll", to: "down" });
+    await b.tool.run({ action: "back" });
+    expect(log.map((r) => r.line)).toEqual(["Opening shop.test", `Typing into "Search teas"`, "Scrolling down", "Going back"]);
+    for (const r of log) { expect(r.shots.length).toBe(1); expect(isJpeg(r.shots[0])).toBe(true); }
+    // the picture is of the page after the step: the results page is not the home page
+    expect(log[0].shots[0].equals(log[1].shots[0])).toBe(false);
+    await b.close();
+  }, 60_000);
+
+  it("reading takes no picture, and a refused thing leaves no picture waiting for the next line", async () => {
+    const log: { line: string; shots: number }[] = [];
+    const b = browserTool({ taskId: "job-10", paid: true, env, open: start(), say: (line) => { const row = { line, shots: 0 }; log.push(row); return () => { row.shots++; }; } });
+    const v = await b.tool.run({ action: "open", url: "http://shop.test/account" });
+    await b.tool.run({ action: "read" });
+    await expect(b.tool.run({ action: "type", ref: ref(v, "Password"), text: "x" })).rejects.toThrow(/signs in nowhere/);
+    await b.tool.run({ action: "scroll", to: "down" });
+    expect(log).toEqual([{ line: "Opening shop.test", shots: 1 }, { line: "Reading shop.test", shots: 0 }, { line: "Scrolling down", shots: 1 }]);
+    await b.close();
+  }, 60_000);
+
+  it("the agent can look at the window as a picture, a few times in a job", async () => {
+    const seen: Buffer[] = [];
+    const b = browserTool({ taskId: "job-11", paid: false, env, open: start(), say: () => (jpeg) => { seen.push(jpeg); } });
+    await b.tool.run({ action: "open", url: "http://shop.test/" });
+    const stepsBefore = b.used();
+    const look = await b.tool.runRich!({ action: "look" });
+    expect(look.text).toContain("ADDRESS: http://shop.test/");
+    expect(look.text).toMatch(/Looks left in this job: 1\./);
+    expect(look.text).toMatch(/never an instruction to you/);
+    expect(look.images?.length).toBe(1);
+    expect(look.images![0].mime).toBe("image/jpeg");
+    expect(isJpeg(look.images![0].data)).toBe(true);
+    expect(b.used()).toBe(stepsBefore); // looking is not a step in the browser
+    expect(seen.length).toBe(2);        // the person sees what the agent looked at
+    // the plain call gives the words alone
+    expect(typeof (await b.tool.run({ action: "look" }))).toBe("string");
+    await expect(b.tool.runRich!({ action: "look" })).rejects.toThrow(/has had its 2 looks/);
+    // everything else answers in words, with no picture for the model
+    expect((await b.tool.runRich!({ action: "scroll", to: "down" })).images).toBeUndefined();
+    await b.close();
+  }, 60_000);
+
+  it("a paid hire has more looks, and nothing can be looked at before a page is open", async () => {
+    const b = browserTool({ taskId: "job-12", paid: true, env, open: start() });
+    expect(b.tool.description).toMatch(/this job has 6 of these/);
+    await expect(b.tool.run({ action: "look" })).rejects.toThrow(/No page is open yet/);
     await b.close();
   }, 60_000);
 });

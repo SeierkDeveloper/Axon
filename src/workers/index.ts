@@ -465,7 +465,8 @@ async function processTasks() {
           const aboutSite = (job: string) => mayBrowse(agent, job, { viaMcp: Boolean(mcpHandler) });
           let browserSteps = 0;
           if (aboutSite(task.task) || (before && earlierTurns(task).some((t) => aboutSite(t.task)))) {
-            const b = browserTool({ taskId: task.taskId, paid: task.payment != null, say: (line) => live.say(line) });
+            // each thing it does there is a line in the live log, with a picture of the page as it then was
+            const b = browserTool({ taskId: task.taskId, paid: task.payment != null, say: (line) => live.show(line, hirerWallet) });
             tools = withBrowser(tools, b.tool);
             closeBrowser = b.close;
             browserSteps = task.payment != null ? BROWSER_STEPS.paid : BROWSER_STEPS.free;

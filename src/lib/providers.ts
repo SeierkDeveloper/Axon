@@ -420,6 +420,10 @@ function readNotes(notes: (() => string | null) | undefined): string | null {
 // A tool that throws comes back as an is_error result rather than a thrown
 // exception: the model can read the message and try something else, which is a
 // far better outcome for a paid task than failing the whole job.
+/** The words of a tool's result, whether it answered in words alone or with pictures beside them. */
+const wordsOf = (block: Anthropic.ToolResultBlockParam): string =>
+  typeof block.content === "string" ? block.content : (block.content ?? []).flatMap((b) => (b.type === "text" ? [b.text] : [])).join("\n");
+
 async function runLocalTool(
   use: Anthropic.ToolUseBlock,
   byName: Map<string, LocalTool>,
@@ -439,9 +443,12 @@ async function runLocalTool(
 
   const startedAt = Date.now();
   try {
-    const raw = await tool.run(args);
+    const rich = tool.runRich ? await tool.runRich(args) : null;
+    const raw = rich ? rich.text : await tool.run(args);
     const output =
       raw.length > maxResultChars ? `${raw.slice(0, maxResultChars)}\n…[truncated]` : raw;
+    // pictures the tool answered with go to the model beside the words; what is recorded of the call is the words
+    const pictures = (rich?.images ?? []).slice(0, 2).filter((i) => /^image\/(jpeg|png|gif|webp)$/.test(i.mime) && i.data.length > 0 && i.data.length <= 4_000_000);
     sink?.({
       tool: tool.label,
       kind: "mcp",
@@ -450,6 +457,16 @@ async function runLocalTool(
       input: JSON.stringify(args),
       output,
     });
+    if (pictures.length) {
+      return {
+        type: "tool_result",
+        tool_use_id: use.id,
+        content: [
+          { type: "text", text: output || "(no output)" },
+          ...pictures.map((i) => ({ type: "image" as const, source: { type: "base64" as const, media_type: i.mime as "image/jpeg" | "image/png" | "image/gif" | "image/webp", data: i.data.toString("base64") } })),
+        ],
+      };
+    }
     return { type: "tool_result", tool_use_id: use.id, content: output || "(no output)" };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "tool call failed";
@@ -749,13 +766,13 @@ class AnthropicProvider implements ProviderClient {
       for (let i = looks.length - 1; i >= 0; i--) {
         const old = looks[i];
         if (!fresh.some((f) => f.tool === old.tool)) continue;
-        if (typeof old.block.content === "string") old.block.content = old.tool.shrink!(old.block.content);
+        old.block.content = old.tool.shrink!(wordsOf(old.block));
         looks.splice(i, 1);
       }
       // several looks in one round: only the last of them is the page as it is now
       fresh.forEach((f, i) => {
         const last = !fresh.slice(i + 1).some((g) => g.tool === f.tool);
-        if (last) looks.push(f); else if (typeof f.block.content === "string") f.block.content = f.tool.shrink!(f.block.content);
+        if (last) looks.push(f); else f.block.content = f.tool.shrink!(wordsOf(f.block));
       });
       // a note from the person goes back with the results, after them
       const said = readNotes(notes);
