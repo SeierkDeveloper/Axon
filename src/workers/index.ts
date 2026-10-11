@@ -510,9 +510,15 @@ async function processTasks() {
           }
           // Every call the agent makes goes into the flight recorder as it happens,
           // so the receipt shows what it did, not just what it said.
+          let lastRefusal: string | null = "";
           const onToolCall = (ev: ToolCallEvent) => {
             // a browser that did not do something says what and why, in the person's words; anything else just says it failed
-            if (!ev.ok) live.say(ev.tool === "browser" ? refusalLine(ev.error ?? "") : ev.kind === "code" ? "That run did not work. Trying another way." : "That step did not work. Trying another way.");
+            if (!ev.ok) {
+              const line = ev.tool === "browser" ? refusalLine(ev.error ?? "") : ev.kind === "code" ? "That run did not work. Trying another way." : "That step did not work. Trying another way.";
+              // an agent that tries again past its share is told the same thing again; the person is told once
+              if (line !== lastRefusal) live.say(line);
+              lastRefusal = line;
+            }
             safeAppendTraceEvent({
               traceId: task.traceId ?? task.taskId,
               taskId: task.taskId,

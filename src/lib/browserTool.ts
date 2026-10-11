@@ -707,7 +707,8 @@ export function browserTool(ctx: BrowserToolContext): { tool: LocalTool; close: 
       const raw = typeof args.url === "string" ? args.url : "";
       const checked = checkBrowserUrl(raw);
       if (!checked.ok) throw new Error(checked.reason);
-      say(`Opening ${hostOf(checked.url) || "a page"}`);
+      // with no steps left the page is not opened, so the person is not told that it is
+      if (s.left().steps > 0) say(`Opening ${hostOf(checked.url) || "a page"}`);
       const r = await s.goto(checked.url);
       if (!r.ok) throw new Error(`${r.reason}${/steps|time|data|closed/.test(r.reason) ? ` ${enough()}` : ""}`);
       await hands.settle();

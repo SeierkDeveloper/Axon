@@ -95,6 +95,12 @@ describe("a step as a line", () => {
     expect(lineFor(tool("web_search", { query: "q".repeat(400) }))!.length).toBeLessThanOrEqual(MAX_STEP_CHARS);
   });
 
+  it("a colon or a full stop inside brackets does not end the sentence", () => {
+    expect(noteLine("The form is filled correctly (Text input: Ada Lovelace, Dropdown: Two). Sending it now.")).toBe("The form is filled correctly (Text input: Ada Lovelace, Dropdown: Two).");
+    expect(noteLine("Checking the three plans [Free, Pro, Team: all listed] before I compare: prices first.")).toBe("Checking the three plans [Free, Pro, Team: all listed] before I compare.");
+    expect(noteLine("I will look at the pricing page: it lists the plans.")).toBe("I will look at the pricing page.");
+  });
+
   it("takes the first sentence of what the agent said, without the markup", () => {
     expect(noteLine("I'll start by **looking** at the file structure. Then I will compute totals.")).toBe("I'll start by looking at the file structure.");
     expect(noteLine("## Plan\n\nLet me check the data first:\n```python\nprint(1)\n```")).toBe("Plan");

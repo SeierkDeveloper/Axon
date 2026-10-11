@@ -37,12 +37,23 @@ const host = (u: unknown): string => {
   }
 };
 
+/** The first sentence of a line: up to its first full stop, question mark or colon, but never one inside brackets. */
+function firstSentence(text: string): string {
+  let open = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "(" || c === "[") open++;
+    else if (c === ")" || c === "]") open = Math.max(0, open - 1);
+    else if (i >= 12 && open === 0 && /[.!?:]/.test(c) && (i + 1 === text.length || /\s/.test(text[i + 1]))) return text.slice(0, i + 1);
+  }
+  return text;
+}
+
 /** What an agent said before reaching for a tool, as one short line: its first sentence, without the markup. */
 export function noteLine(text: string): string | null {
   const plain = text.replace(/```[\s\S]*?```/g, " ").replace(/[*_`#>]+/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
   const first = plain.split(/\n+/).map((l) => l.trim()).find((l) => l.length > 0) ?? "";
-  const sentence = first.match(/^.{12,}?[.!?:](?=\s|$)/)?.[0] ?? first;
-  const line = oneLine(sentence.replace(/:$/, "."));
+  const line = oneLine(firstSentence(first).replace(/:$/, "."));
   return line.length >= 4 ? line : null;
 }
 
