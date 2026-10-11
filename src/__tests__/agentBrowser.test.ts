@@ -53,12 +53,12 @@ describe("the switch and the limits", () => {
 
   it("gives a job a number of steps, an amount of time and an amount of data", () => {
     const l = browserLimits({});
-    expect(l).toMatchObject({ steps: 25, seconds: 180, pageSeconds: 25, megabytes: 60, atOnce: 2, width: 1280, height: 800 });
+    expect(l).toMatchObject({ steps: 25, seconds: 300, pageSeconds: 25, megabytes: 60, atOnce: 2, width: 1280, height: 800 });
     expect(browserLimits({ AXON_BROWSER_MAX_STEPS: "40", AXON_BROWSER_AT_ONCE: "1" })).toMatchObject({ steps: 40, atOnce: 1 });
   });
 
   it("ignores a limit that is out of range, so a typo cannot open the gates", () => {
-    expect(browserLimits({ AXON_BROWSER_MAX_STEPS: "100000", AXON_BROWSER_MAX_SECONDS: "-1", AXON_BROWSER_MAX_MB: "lots", AXON_BROWSER_AT_ONCE: "" })).toMatchObject({ steps: 25, seconds: 180, megabytes: 60, atOnce: 2 });
+    expect(browserLimits({ AXON_BROWSER_MAX_STEPS: "100000", AXON_BROWSER_MAX_SECONDS: "-1", AXON_BROWSER_MAX_MB: "lots", AXON_BROWSER_AT_ONCE: "" })).toMatchObject({ steps: 25, seconds: 300, megabytes: 60, atOnce: 2 });
   });
 
   it("an opened browser is refused while the switch is off, and nothing is started", async () => {
@@ -311,11 +311,12 @@ describe.skipIf(!chrome)("a real browser behind the guard", () => {
     expect((await s.where()).url).not.toMatch(/127\.0\.0\.1|localhost|^file:/);
   }, 60_000);
 
-  it("closes a window a page opens, and dismisses its dialog", async () => {
+  it("a page that opens a second window is taken there in the one it has, and its dialog is dismissed", async () => {
     const r = await s.goto("http://public.test/popup");
-    expect(r).toMatchObject({ ok: true, title: "Popup" });
-    await new Promise((res) => setTimeout(res, 800));
+    expect(r).toMatchObject({ ok: true });
+    await new Promise((res) => setTimeout(res, 1200));
     expect(s.notes().dialogs).toContain("hello from the page");
+    expect((await s.where()).title).toBe("Public page");
     const targets = (await s.command("Target.getTargets") as { targetInfos: { type: string }[] }).targetInfos.filter((t) => t.type === "page");
     expect(targets.length).toBe(1);
   }, 60_000);
@@ -333,7 +334,8 @@ describe.skipIf(!chrome)("a real browser behind the guard", () => {
     await expect(s.screenshot()).rejects.toThrow(/closed/);
     expect(s.step()).toMatchObject({ ok: false });
     await new Promise((r) => setTimeout(r, 300));
-    expect(fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith("axon-browser-")).length).toBe(0);
+    expect(s.home.startsWith(os.tmpdir())).toBe(true);
+    expect(fs.existsSync(s.home)).toBe(false);
   }, 60_000);
 
   it("gives a second job an empty browser: no cookie from the first", async () => {

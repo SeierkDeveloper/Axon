@@ -56,7 +56,7 @@ export interface BrowserLimits {
 export function browserLimits(env: Env = process.env): BrowserLimits {
   return {
     steps: num(env.AXON_BROWSER_MAX_STEPS, 25, 1, 200),
-    seconds: num(env.AXON_BROWSER_MAX_SECONDS, 180, 10, 900),
+    seconds: num(env.AXON_BROWSER_MAX_SECONDS, 300, 10, 900),
     pageSeconds: num(env.AXON_BROWSER_PAGE_SECONDS, 25, 3, 120),
     megabytes: num(env.AXON_BROWSER_MAX_MB, 60, 1, 500),
     atOnce: num(env.AXON_BROWSER_AT_ONCE, 2, 1, 8),

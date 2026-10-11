@@ -23,6 +23,7 @@ import { approvedNote, approveOverdue, keepPlan, parkForPlan, planEnabled, planN
 import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
+import { BROWSER_STEPS, browserTool, mayBrowse, withBrowser } from "../lib/browserTool";
 import { triggersEnabled } from "../lib/triggers";
 import { runChainTriggers } from "../lib/triggerChain";
 import { retryFileCommitments } from "../lib/outputCommitment";
@@ -295,6 +296,8 @@ async function processTasks() {
         let timeoutTimer: NodeJS.Timeout | undefined;
         // Stop and steer: the watch that notices the person stopped the job, and whether they did
         let stopWatch: NodeJS.Timeout | undefined;
+        // the job's browser, if it is given one: closed when the job ends, whichever way it ends
+        let closeBrowser: (() => Promise<void>) | undefined;
         let stoppedByPerson = false;
         // set when this run stops to ask the person a question (see the ask tool below)
         let asked: Question | null = null;
@@ -457,6 +460,16 @@ async function processTasks() {
           if (aboutPicture(task.task) || (before && earlierTurns(task).some((t) => aboutPicture(t.task)))) {
             tools = withPictures(tools, pictureTool({ taskId: task.taskId, wallet: hirerWallet, paid: task.payment != null, onMade: (f) => live.say(madeLine(f)) }));
           }
+          // Using the internet. A hire that is about a website gives the agent a browser of its own for the job: it
+          // opens pages, clicks, types, scrolls and reads. A follow-up to such a job is about that website too.
+          const aboutSite = (job: string) => mayBrowse(agent, job, { viaMcp: Boolean(mcpHandler) });
+          let browserSteps = 0;
+          if (aboutSite(task.task) || (before && earlierTurns(task).some((t) => aboutSite(t.task)))) {
+            const b = browserTool({ taskId: task.taskId, paid: task.payment != null, say: (line) => live.say(line) });
+            tools = withBrowser(tools, b.tool);
+            closeBrowser = b.close;
+            browserSteps = task.payment != null ? BROWSER_STEPS.paid : BROWSER_STEPS.free;
+          }
           // It remembers you: the agent may note something about the person for the next time they hire it.
           if (memoryOf && canNote(agent, { viaMcp: Boolean(mcpHandler) })) {
             tools = withRemember(tools, rememberTool({ owner: memoryOf, agentId: agent.agentId, taskId: task.taskId, onNoted: (line) => live.say(`Noted for next time: ${line.text}`) }));
@@ -512,7 +525,8 @@ async function processTasks() {
                       onToolCall,
                       ...(live.on ? { onLive: live.onLive } : {}),
                       signal: abort.signal,
-                      maxSteps: depth.toolSteps,
+                      // a job with a browser needs a round for each thing it does there, and a couple to think and answer
+                      maxSteps: browserSteps ? Math.max(depth.toolSteps, browserSteps + 3) : depth.toolSteps,
                       maxToolResultChars: depth.toolResultChars,
                       attachments: handed.attachments,
                       sandbox,
@@ -602,6 +616,7 @@ async function processTasks() {
         } finally {
           if (timeoutTimer) clearTimeout(timeoutTimer);
           if (stopWatch) clearInterval(stopWatch);
+          if (closeBrowser) void closeBrowser().catch(() => undefined);
         }
       }));
     }

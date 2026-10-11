@@ -239,11 +239,19 @@ export interface BrowserSession {
   step(): { ok: true } | { ok: false; reason: string };
   /** Send a command of the browser's own. For the tools built on this session. */
   command(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>>;
+  /** Hear what the job's window reports (a page starting to load, a request ending). For the tools built on this. */
+  listen(event: string, fn: (params: Record<string, unknown>) => void): void;
+  /** The status the page now in the window was answered with, where it is known. */
+  lastStatus(): number | null;
+  /** Why the guard refused this host, in plain words, or null if it did not. */
+  whyRefused(host: string): string | null;
   left(): { steps: number; seconds: number; megabytes: number };
   /** What the pages said in dialogs, and what the guard refused. */
   notes(): { dialogs: string[]; refused: { host: string; why: string }[] };
   readonly sandboxed: boolean;
   readonly version: string;
+  /** The folder this browser keeps its own things in. Deleted when it is closed. */
+  readonly home: string;
   close(): Promise<void>;
 }
 
@@ -317,6 +325,9 @@ export async function openBrowser(o: OpenOptions = {}): Promise<{ ok: true; sess
       if (sid !== sessionId || p.type !== "Document" || p.frameId !== mainFrame) return;
       mainStatus = Number((p.response as { status?: number } | undefined)?.status ?? 0) || null;
     });
+    // a page that would open a second window is taken there in the one it has: a second window is closed on sight
+    await page("Page.addScriptToEvaluateOnNewDocument", { source: `window.open = (u) => { try { if (u) location.assign(u); } catch {} return null; };` }).catch(() => undefined);
+    await page("Page.setInterceptFileChooserDialog", { enabled: true }).catch(() => undefined);
 
     await page("Page.enable");
     await page("Network.enable");
@@ -365,10 +376,14 @@ export async function openBrowser(o: OpenOptions = {}): Promise<{ ok: true; sess
     const session: BrowserSession = {
       sandboxed: sandbox,
       version,
+      home: profile,
       step,
       left,
       where,
       command: (method, params, timeoutMs) => (usable() ? Promise.reject(new Error(usable()!)) : page(method, params, timeoutMs)),
+      listen: (event, fn) => pipe.on(event, (p, sid) => { if (sid === sessionId) fn(p); }),
+      lastStatus: () => mainStatus,
+      whyRefused: (host) => { const why = guard!.whyRefused(host); return why ? plainWhy(why) : null; },
       notes: () => ({ dialogs: [...dialogs], refused: guard!.refused().map((r) => ({ host: r.host, why: plainWhy(r.why) })) }),
       async goto(rawUrl) {
         const checked = checkBrowserUrl(rawUrl);

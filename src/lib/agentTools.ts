@@ -141,6 +141,12 @@ export interface LocalTool {
   /** Label used in the receipt trace — readable, not the internal id. */
   label: string;
   run(args: Record<string, unknown>): Promise<string>;
+  /**
+   * What an earlier result of this tool is cut down to once the agent has a newer one. For a tool whose every result
+   * is a fresh look at the same thing (a page in a browser): the old looks are dead weight in every later call, and
+   * the agent is told where it was rather than shown it all again. Absent, results are kept as they are.
+   */
+  shrink?(result: string): string;
 }
 
 export interface ResolvedTools {

@@ -633,6 +633,8 @@ class AnthropicProvider implements ProviderClient {
     let containerId: string | null = null;
     // a step in the sandbox that was cut off at the length limit is asked for again, once
     let cutOnce = false;
+    // results of this round that a later round's results will replace (see LocalTool.shrink)
+    const looks: { block: Anthropic.ToolResultBlockParam; tool: LocalTool }[] = [];
 
     // One extra pass past the cap, with tools switched off, so a loop that runs
     // long still ends with a real deliverable instead of a dangling tool call.
@@ -741,6 +743,20 @@ class AnthropicProvider implements ProviderClient {
       const results = await Promise.all(
         toolUses.map((use) => runLocalTool(use, byName, onToolCall, maxResultChars)),
       );
+      // A tool whose results are each a fresh look at the same thing: once it has given a newer look, the earlier
+      // ones are cut down. Until then they stay whole, so an agent that turns to another tool still has its page.
+      const fresh = toolUses.flatMap((use, i) => (byName.get(use.name)?.shrink && !results[i].is_error ? [{ tool: byName.get(use.name)!, block: results[i] }] : []));
+      for (let i = looks.length - 1; i >= 0; i--) {
+        const old = looks[i];
+        if (!fresh.some((f) => f.tool === old.tool)) continue;
+        if (typeof old.block.content === "string") old.block.content = old.tool.shrink!(old.block.content);
+        looks.splice(i, 1);
+      }
+      // several looks in one round: only the last of them is the page as it is now
+      fresh.forEach((f, i) => {
+        const last = !fresh.slice(i + 1).some((g) => g.tool === f.tool);
+        if (last) looks.push(f); else if (typeof f.block.content === "string") f.block.content = f.tool.shrink!(f.block.content);
+      });
       // a note from the person goes back with the results, after them
       const said = readNotes(notes);
       messages.push({ role: "user", content: said ? [...results, { type: "text" as const, text: said }] : results });

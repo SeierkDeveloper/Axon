@@ -346,3 +346,79 @@ describe("runWithProviderTools", () => {
     expect(provider.completeWithTools).toBeUndefined();
   });
 });
+
+// ── A tool whose every result is a fresh look at the same thing ───────────────
+
+describe("completeWithTools: earlier looks are cut down once there is a newer one", () => {
+  const look = (run: (args: Record<string, unknown>) => Promise<string>): LocalTool => ({
+    name: "browser", label: "browser", description: "A browser", inputSchema: { type: "object", properties: {} },
+    run, shrink: (r) => `[was: ${r.slice(0, 6)}]`,
+  });
+  // the loop keeps one list of messages and changes it as it goes: what each call was sent is read at the call
+  const sent: { role: string; content: unknown }[][] = [];
+  const answer = (content: unknown[], stop = "end_turn") => (req: { messages: unknown }) => { sent.push(JSON.parse(JSON.stringify(req.messages))); return turn(content, stop); };
+  const use = (id: string, name: string, input: Record<string, unknown> = {}) => ({ type: "tool_use", id, name, input });
+  const resultOf = (call: number, id: string): unknown => sent[call].flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((b) => (b as { tool_use_id?: string }).tool_use_id === id);
+  beforeEach(() => { sent.length = 0; });
+
+  it("the look before is cut down when the same tool looks again; the newest is whole", async () => {
+    const pages = ["PAGE ONE with a great deal on it", "PAGE TWO with a great deal on it", "PAGE THREE with a great deal on it"];
+    let n = 0;
+    mockStream
+      .mockImplementationOnce(answer([use("a", "browser")], "tool_use"))
+      .mockImplementationOnce(answer([use("b", "browser")], "tool_use"))
+      .mockImplementationOnce(answer([use("c", "browser")], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "text", text: "done" }]));
+    const out = await getProvider(makeAgent()).completeWithTools!("sys", "go", 1000, makeTools({ localTools: [look(async () => pages[n++])] }));
+    expect(out).toBe("done");
+    expect(resultOf(1, "a")).toMatchObject({ content: pages[0] });          // the round after: still whole
+    expect(resultOf(2, "a")).toMatchObject({ content: "[was: PAGE O]" });   // a newer look exists
+    expect(resultOf(2, "b")).toMatchObject({ content: pages[1] });
+    expect(resultOf(3, "a")).toMatchObject({ content: "[was: PAGE O]" });   // cut down once, not again
+    expect(resultOf(3, "b")).toMatchObject({ content: "[was: PAGE T]" });
+    expect(resultOf(3, "c")).toMatchObject({ content: pages[2] });
+  });
+
+  it("a look stays whole while the agent uses another tool: it still has its page", async () => {
+    mockRun.mockResolvedValue("looked up");
+    mockStream
+      .mockImplementationOnce(answer([use("a", "browser")], "tool_use"))
+      .mockImplementationOnce(answer([use("x", "mcp_srv1_lookup", { q: "1" })], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "text", text: "done" }]));
+    await getProvider(makeAgent()).completeWithTools!("sys", "go", 1000, makeTools({ localTools: [look(async () => "THE PAGE in full"), localTool()] }));
+    expect(resultOf(2, "a")).toMatchObject({ content: "THE PAGE in full" });
+    expect(resultOf(2, "x")).toMatchObject({ content: "looked up" });
+  });
+
+  it("of several looks asked for at once only the last is the page as it is now", async () => {
+    const pages = ["FIRST page", "SECOND page"];
+    let n = 0;
+    mockStream
+      .mockImplementationOnce(answer([use("a", "browser"), use("b", "browser")], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "text", text: "done" }]));
+    await getProvider(makeAgent()).completeWithTools!("sys", "go", 1000, makeTools({ localTools: [look(async () => pages[n++])] }));
+    expect(resultOf(1, "a")).toMatchObject({ content: "[was: FIRST ]" });
+    expect(resultOf(1, "b")).toMatchObject({ content: "SECOND page" });
+  });
+
+  it("a refusal is not a look: it is left as it is and cuts nothing down", async () => {
+    let n = 0;
+    mockStream
+      .mockImplementationOnce(answer([use("a", "browser")], "tool_use"))
+      .mockImplementationOnce(answer([use("b", "browser")], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "text", text: "done" }]));
+    await getProvider(makeAgent()).completeWithTools!("sys", "go", 1000, makeTools({ localTools: [look(async () => { if (n++ === 1) throw new Error("That is a password field."); return "THE PAGE in full"; })] }));
+    expect(resultOf(2, "a")).toMatchObject({ content: "THE PAGE in full" });
+    expect(resultOf(2, "b")).toMatchObject({ content: "Error: That is a password field.", is_error: true });
+  });
+
+  it("a tool without the rule is never touched", async () => {
+    mockRun.mockResolvedValueOnce("first").mockResolvedValueOnce("second");
+    mockStream
+      .mockImplementationOnce(answer([use("a", "mcp_srv1_lookup")], "tool_use"))
+      .mockImplementationOnce(answer([use("b", "mcp_srv1_lookup")], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "text", text: "done" }]));
+    await getProvider(makeAgent()).completeWithTools!("sys", "go", 1000, makeTools());
+    expect(resultOf(2, "a")).toMatchObject({ content: "first" });
+  });
+});

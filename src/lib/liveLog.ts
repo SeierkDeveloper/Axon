@@ -109,6 +109,8 @@ export function lineFor(ev: LiveEvent): string | null {
   if (ev.tool === "ask_person") return "Asked you a question";
   // what it noted is said in its own line, with the words, once it is kept
   if (ev.tool === "remember") return null;
+  // each thing it does in its browser is said by the browser itself, with the name of what it clicked or typed into
+  if (ev.tool === "browser") return null;
   if (ev.tool === "make_picture") return typeof input.prompt === "string" && input.prompt.trim() ? oneLine(`Drawing: ${input.prompt.trim()}`, 110) : "Drawing a picture";
   // a tool of the agent's own (an MCP server's, or one Axon gives it): its name is what there is to say
   const name = ev.tool.split("/").pop() ?? ev.tool;
