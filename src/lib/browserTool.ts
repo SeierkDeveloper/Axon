@@ -362,7 +362,7 @@ export function browserTool(ctx: BrowserToolContext): { tool: LocalTool; close: 
     if (!/^https?:/i.test(at.url) || at.url.split("#")[0] === lastPage) return;
     lastPage = at.url.split("#")[0];
     const name = pageName(at.url);
-    if (name && visited.at(-1) !== name && visited.length < 40) visited.push(name);
+    if (name && !visited.includes(name) && visited.length < 40) visited.push(name);
     try { ctx.onPage?.({ url: at.url, title: at.title }); } catch { /* the job's list of pages is not worth a failed step */ }
   };
   /** Write something in the notebook, with the page the browser is on. Returns why not, when it cannot. */

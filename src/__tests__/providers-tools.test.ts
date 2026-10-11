@@ -390,15 +390,21 @@ describe("completeWithTools: earlier looks are cut down once there is a newer on
     expect(resultOf(2, "x")).toMatchObject({ content: "looked up" });
   });
 
-  it("of several looks asked for at once only the last is the page as it is now", async () => {
-    const pages = ["FIRST page", "SECOND page"];
+  it("several looks asked for at once all stay whole until the agent has seen them, then all are cut down together", async () => {
+    const pages = ["FIRST page", "SECOND page", "THIRD page"];
     let n = 0;
     mockStream
       .mockImplementationOnce(answer([use("a", "browser"), use("b", "browser")], "tool_use"))
+      .mockImplementationOnce(answer([use("c", "browser")], "tool_use"))
       .mockImplementationOnce(answer([{ type: "text", text: "done" }]));
     await getProvider(makeAgent()).completeWithTools!("sys", "go", 1000, makeTools({ localTools: [look(async () => pages[n++])] }));
-    expect(resultOf(1, "a")).toMatchObject({ content: "[was: FIRST ]" });
+    // the call after the round that asked for both: the agent sees both in full
+    expect(resultOf(1, "a")).toMatchObject({ content: "FIRST page" });
     expect(resultOf(1, "b")).toMatchObject({ content: "SECOND page" });
+    // a newer look came: both earlier ones are cut down
+    expect(resultOf(2, "a")).toMatchObject({ content: "[was: FIRST ]" });
+    expect(resultOf(2, "b")).toMatchObject({ content: "[was: SECOND]" });
+    expect(resultOf(2, "c")).toMatchObject({ content: "THIRD page" });
   });
 
   it("a refusal is not a look: it is left as it is and cuts nothing down", async () => {

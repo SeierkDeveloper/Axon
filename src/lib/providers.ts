@@ -760,8 +760,9 @@ class AnthropicProvider implements ProviderClient {
       const results = await Promise.all(
         toolUses.map((use) => runLocalTool(use, byName, onToolCall, maxResultChars)),
       );
-      // A tool whose results are each a fresh look at the same thing: once it has given a newer look, the earlier
-      // ones are cut down. Until then they stay whole, so an agent that turns to another tool still has its page.
+      // A tool whose results are each a fresh look at the same thing: once it has given a newer look, the looks of
+      // EARLIER rounds are cut down. Until then they stay whole, so an agent that turns to another tool still has its
+      // page; and everything it asked for in this round stays whole too, since it has not been shown any of it yet.
       const fresh = toolUses.flatMap((use, i) => (byName.get(use.name)?.shrink && !results[i].is_error ? [{ tool: byName.get(use.name)!, block: results[i] }] : []));
       for (let i = looks.length - 1; i >= 0; i--) {
         const old = looks[i];
@@ -769,11 +770,7 @@ class AnthropicProvider implements ProviderClient {
         old.block.content = old.tool.shrink!(wordsOf(old.block));
         looks.splice(i, 1);
       }
-      // several looks in one round: only the last of them is the page as it is now
-      fresh.forEach((f, i) => {
-        const last = !fresh.slice(i + 1).some((g) => g.tool === f.tool);
-        if (last) looks.push(f); else f.block.content = f.tool.shrink!(wordsOf(f.block));
-      });
+      looks.push(...fresh);
       // a note from the person goes back with the results, after them
       const said = readNotes(notes);
       messages.push({ role: "user", content: said ? [...results, { type: "text" as const, text: said }] : results });

@@ -14,13 +14,14 @@ describe("the pages a job's browser was on", () => {
     expect(pagesOf("t1")[0].at).toMatch(/^\d{4}-\d\d-\d\dT/);
   });
 
-  it("the page it is already on is not written twice, a place on the same page is the same page, coming back is a new visit", () => {
+  it("a page is one page however often the browser is on it, and a place on the same page is the same page", () => {
     recordPage("t1", { url: "https://a.example/docs" });
     expect(recordPage("t1", { url: "https://a.example/docs" })).toBe(false);
     expect(recordPage("t1", { url: "https://a.example/docs#install" })).toBe(false);
     recordPage("t1", { url: "https://b.example/" });
-    expect(recordPage("t1", { url: "https://a.example/docs" })).toBe(true);
-    expect(pagesOf("t1").map((p) => p.url)).toEqual(["https://a.example/docs", "https://b.example/", "https://a.example/docs"]);
+    expect(recordPage("t1", { url: "https://a.example/docs" })).toBe(false);
+    expect(recordPage("t1", { url: "https://a.example/docs?page=2" })).toBe(true);
+    expect(pagesOf("t1").map((p) => [p.n, p.url])).toEqual([[1, "https://a.example/docs"], [2, "https://b.example/"], [3, "https://a.example/docs?page=2"]]);
   });
 
   it.each(["file:///etc/passwd", "javascript:alert(1)", "chrome://version", "about:blank", "not an address", "", "https://user:secret@a.example/"])("never keeps %s", (url) => {
