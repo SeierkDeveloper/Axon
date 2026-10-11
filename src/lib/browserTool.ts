@@ -125,7 +125,7 @@ const LOOK = String.raw`(() => {
   }
   window.__axonRefs = refs;
   // the words in the window, in reading order, a new line where a new block starts
-  const parts = []; let size = 0, lastBlock = null;
+  const parts = []; let size = 0, lastBlock = null, lastParent = null;
   const tw = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
   const range = document.createRange();
   for (let n = tw.nextNode(); n && size < 3600; n = tw.nextNode()) {
@@ -134,9 +134,12 @@ const LOOK = String.raw`(() => {
     range.selectNodeContents(n); const r = range.getBoundingClientRect();
     if (r.width < 1 || r.height < 1 || r.bottom <= 0 || r.top >= H || r.right <= 0 || r.left >= W) continue;
     const st = getComputedStyle(p); if (st.visibility === "hidden" || st.display === "none" || Number(st.opacity) < 0.05) continue;
-    const block = p.closest("p, li, h1, h2, h3, h4, h5, h6, td, th, tr, div, section, article, header, footer, nav, label, button, a, summary, dt, dd, blockquote, pre, figcaption") || p;
+    const block = p.closest("p, li, h1, h2, h3, h4, h5, h6, td, th, tr, div, section, article, header, footer, nav, summary, dt, dd, blockquote, pre, figcaption, form, fieldset") || p;
     const piece = t.replace(/\s+/g, " ");
-    parts.push(block !== lastBlock && parts.length ? "\n" + piece.trimStart() : piece); lastBlock = block; size += piece.length;
+    // a new line where a new block starts; a space between two pieces of one line that the page sets apart by its layout
+    const prev = parts.length ? parts[parts.length - 1] : "";
+    parts.push(block !== lastBlock && parts.length ? "\n" + piece.trimStart() : p !== lastParent && prev && !/\s$/.test(prev) && !/^\s/.test(piece) ? " " + piece : piece);
+    lastBlock = block; lastParent = p; size += piece.length;
   }
   const doc = document.documentElement, full = Math.max(doc.scrollHeight, document.body ? document.body.scrollHeight : 0);
   return { url: location.href, title: clean(document.title, 160), text: parts.join("").replace(/[ \t]+\n/g, "\n").replace(/\n{2,}/g, "\n").trim().slice(0, 3600), cut: size >= 3600, items, more,
@@ -331,7 +334,15 @@ export function browserTool(ctx: BrowserToolContext): { tool: LocalTool; close: 
     }
     if (!/^https?:/i.test(at.url)) return `${extra ? `${extra} ` : ""}No page is open. Use action "open" with an address.\n\nBrowser steps left in this job: ${s.left().steps}.`;
     const said = s.notes().dialogs.at(-1);
-    const look = await evaluate<Look>(s, LOOK);
+    // a page that is still counting up, fading in or filling a list is looked at again until it holds still
+    let look = await evaluate<Look>(s, LOOK);
+    for (let i = 0; i < 6; i++) {
+      await sleep(300);
+      const again = await evaluate<Look>(s, LOOK);
+      const same = again.text === look.text && again.items.length === look.items.length;
+      look = again;
+      if (same) break;
+    }
     return pageView(look, { left: s.left().steps, note: [extra, said && !note?.includes(said) ? `The page showed a message: "${said}" (dismissed).` : ""].filter(Boolean).join(" ") || undefined });
   };
 
