@@ -5,7 +5,7 @@
 // must never reach from here: this server itself, the private network it sits in, and the hosting provider's own
 // address. Every one of those must fail. It calls no model and costs nothing but a few seconds.
 
-import { browserStatus, openBrowser } from "./browserSession";
+import { browserLeftovers, browserLoad, browserStatus, openBrowser } from "./browserSession";
 
 type Env = Record<string, string | undefined>;
 export interface Check { name: string; ok: boolean; detail?: string }
@@ -18,6 +18,17 @@ function forbidden(env: Env): string[] {
 }
 
 export async function browserSelfTest(o: { url?: string; env?: Env } = {}): Promise<SelfTest> {
+  const env = o.env ?? process.env;
+  const r = await runChecks(o);
+  // after it is closed: nothing of it may be left on the machine
+  await new Promise((done) => setTimeout(done, 400));
+  const left = browserLeftovers(env);
+  r.checks.push({ name: "its place is free again", ok: browserLoad().open === 0, detail: `${browserLoad().open} open` });
+  if (left !== null) r.checks.push({ name: "it leaves no process behind", ok: left === 0, detail: `${left} left` });
+  return { ...r, ok: r.checks.every((c) => c.ok), status: browserStatus(env) };
+}
+
+async function runChecks(o: { url?: string; env?: Env }): Promise<SelfTest> {
   const env = o.env ?? process.env, t0 = Date.now(), checks: Check[] = [];
   const add = (name: string, ok: boolean, detail?: string) => { checks.push({ name, ok, ...(detail ? { detail: detail.slice(0, 300) } : {}) }); };
   const done = (extra: Partial<SelfTest> = {}): SelfTest => ({ ok: checks.length > 0 && checks.every((c) => c.ok), ms: Date.now() - t0, status: browserStatus(env), checks, ...extra });
@@ -41,11 +52,11 @@ export async function browserSelfTest(o: { url?: string; env?: Env } = {}): Prom
       const ua = String((await s.command("Runtime.evaluate", { expression: "navigator.userAgent", returnByValue: true }) as { result?: { value?: string } }).result?.value ?? "");
       add("it says who is driving", /AxonAgent/.test(ua) && !/Headless/i.test(ua), ua);
 
-      // 2. from inside a page: what a hostile script would try
+      // 2. from inside a page: what a hostile script would try. Asked from an empty page, so that no rule of the
+      // site just visited stops the attempts before they leave the browser: the guard is what has to stop them.
+      await s.command("Page.navigate", { url: "about:blank" });
       const port = Number(env.PORT) || 3000;
-      // asked for over https, so the browser's own rule against plain http inside a secure page does not stop
-      // them first: the guard is what has to
-      const tries = [...new Set(forbidden(env).map((u) => u.replace(/^http:/, "https:"))), `https://127.0.0.1:${port}/api/health`, `https://localhost:${port}/api/health`];
+      const tries = [...new Set([...forbidden(env), ...forbidden(env).map((u) => u.replace(/^http:/, "https:"))]), `http://127.0.0.1:${port}/api/health`, `https://localhost:${port}/api/health`];
       await s.command("Runtime.evaluate", {
         expression: `Promise.all(${JSON.stringify(tries)}.map((u) => fetch(u, { mode: "no-cors" }).then(() => 0, () => 0))).then(() => new Promise((r) => { try { const w = new WebSocket("wss://127.0.0.1:${port}/"); w.onopen = w.onerror = w.onclose = () => r(0); } catch { r(0); } }))`,
         awaitPromise: true,

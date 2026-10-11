@@ -79,9 +79,9 @@ RUN apk add --no-cache curl \
 # A browser for agents (AGENT_BROWSER=on; off, nothing ever starts it). Chromium, the fonts a page needs to be
 # readable in a picture of it, and a user of its own with no rights: the server runs as root, the browser never does.
 # Retried for the same reason as curl above.
-RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto font-noto-emoji \
-    || (echo "apk chromium retry 1 (transient Alpine index)…" && sleep 8 && apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto font-noto-emoji) \
-    || (echo "apk chromium retry 2…" && sleep 20 && apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto font-noto-emoji)
+RUN apk add --no-cache tini chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto font-noto-emoji \
+    || (echo "apk chromium retry 1 (transient Alpine index)…" && sleep 8 && apk add --no-cache tini chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto font-noto-emoji) \
+    || (echo "apk chromium retry 2…" && sleep 20 && apk add --no-cache tini chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto font-noto-emoji)
 RUN addgroup -g 10001 axbrowser && adduser -D -H -u 10001 -G axbrowser -s /sbin/nologin axbrowser
 ENV AXON_BROWSER_UID=10001
 ENV AXON_BROWSER_GID=10001
@@ -95,4 +95,8 @@ ENV HOSTNAME="0.0.0.0"
 ENV DATABASE_PATH=/data/axon.db
 ENV NODE_OPTIONS="--max-old-space-size=512"
 
+# tini is the container's first process and node its child. A browser that ends leaves processes of its own behind;
+# they pass to the first process, and tini clears them away where node, sitting first, never would. It hands every
+# signal on to node, so a deploy stops the server exactly as before.
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "server.js"]

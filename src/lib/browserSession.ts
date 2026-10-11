@@ -172,7 +172,7 @@ function flags(o: { profile: string; guardPort: number; limits: BrowserLimits; s
     "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "--disable-sync", "--disable-component-update",
     "--disable-default-apps", "--disable-extensions", "--disable-component-extensions-with-background-pages", "--disable-domain-reliability", "--disable-client-side-phishing-detection",
     "--disable-features=Translate,MediaRouter,OptimizationHints,AutofillServerCommunication,InterestFeedContentSuggestions,CertificateTransparencyComponentUpdater",
-    "--metrics-recording-only", "--password-store=basic", "--use-mock-keychain",
+    "--metrics-recording-only", "--password-store=basic", "--use-mock-keychain", "--disable-breakpad", "--disable-crash-reporter",
     // a small footprint on a server
     "--disable-gpu", "--disable-dev-shm-usage", "--mute-audio", "--hide-scrollbars", "--force-color-profile=srgb", "--js-flags=--max-old-space-size=256",
     ...(o.sandbox ? [] : ["--no-sandbox"]),
@@ -328,7 +328,10 @@ export async function openBrowser(o: OpenOptions = {}): Promise<{ ok: true; sess
       if (closed) return;
       closed = true;
       clearTimeout(deadline);
+      // asked to close, and given a moment to: a browser that ends by itself takes its own processes with it
+      const gone = new Promise<void>((done) => { if (proc.exitCode !== null || proc.signalCode !== null) done(); else proc.once("exit", () => done()); });
       await pipe.send("Browser.close", {}, undefined, 2_000).catch(() => undefined);
+      await Promise.race([gone, new Promise((r) => setTimeout(r, 3_000))]);
       await cleanup();
       logger.info("browser.closed", "A job's browser was closed", { taskId: o.taskId, steps, ms: Date.now() - t0, bytes: guard?.bytes() ?? 0, sandbox });
     };
@@ -434,8 +437,25 @@ export async function openBrowser(o: OpenOptions = {}): Promise<{ ok: true; sess
   }
 }
 
+/**
+ * Processes of the browser's own user that are still on this machine, running or dead but not cleared away. Null
+ * where that cannot be told (no such user here, or not Linux). After a job this should be none.
+ */
+export function browserLeftovers(env: Env = process.env): number | null {
+  const uid = Number(env.AXON_BROWSER_UID);
+  if (process.platform !== "linux" || !Number.isInteger(uid) || uid <= 0) return null;
+  try {
+    let n = 0;
+    for (const d of fs.readdirSync("/proc")) {
+      if (!/^\d+$/.test(d)) continue;
+      try { if (fs.statSync(`/proc/${d}`).uid === uid) n++; } catch { /* gone in between */ }
+    }
+    return n;
+  } catch { return null; }
+}
+
 /** What this server can say about its browser without starting one. */
-export function browserStatus(env: Env = process.env): { enabled: boolean; installed: boolean; path: string | null; ownUser: boolean; load: { open: number; waiting: number }; limits: BrowserLimits; sandbox: boolean | null } {
+export function browserStatus(env: Env = process.env): { enabled: boolean; installed: boolean; path: string | null; ownUser: boolean; load: { open: number; waiting: number }; leftovers: number | null; limits: BrowserLimits; sandbox: boolean | null } {
   const bin = findChromium(env);
-  return { enabled: browserEnabled(env), installed: Boolean(bin), path: bin, ownUser: Boolean(runAs(env)), load: browserLoad(), limits: browserLimits(env), sandbox: sandboxWorks };
+  return { enabled: browserEnabled(env), installed: Boolean(bin), path: bin, ownUser: Boolean(runAs(env)), load: browserLoad(), leftovers: browserLeftovers(env), limits: browserLimits(env), sandbox: sandboxWorks };
 }
