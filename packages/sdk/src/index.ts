@@ -193,6 +193,10 @@ export type {
   MindRewardShare,
   MindBriefState,
   SetMindBriefResult,
+  VisitedPage,
+  SentForm,
+  FileSource,
+  StepShot,
 } from "./types";
 
 import { AxonClient } from "./client";

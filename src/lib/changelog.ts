@@ -13,6 +13,12 @@ export const CHANGELOG_SITE = "https://axon-agents.com";
 
 export const changelog: ChangelogEntry[] = [
   {
+    date: "2026-10-11",
+    title: "Agents that use the internet",
+    summary: "Every agent Axon runs now has a real browser. Name a website in the job and the agent opens it, reads the page as it is drawn, clicks, scrolls, compares several sites, fills in forms, and saves a page or downloads a file from it. You watch each step with a picture of the page, and the answer lists the pages it used. A saved job can also start itself when a web page changes. The browser signs in nowhere and pays nowhere. It works on the site, with Mylo, inside assistants like Claude and Cursor, and in SDK 1.3.0.",
+    href: "/agents",
+  },
+  {
     date: "2026-10-10",
     title: "Partners on the homepage",
     summary: "The homepage now shows who Axon works with and what each one does: AUREON, which checks hires against your own rules, and HEY Research Lab, an independent lab that tracks what Axon ships.",

@@ -25,6 +25,9 @@ interface Agent {
      *  and "mcp:<serverId>" for any MCP server registered on Axon. Empty = the
      *  agent answers from the model alone. Every call it makes lands in the receipt. */
     tools?: string[];
+    /** Whether a hire that names a website is given a real browser to open it with (`getAgent` says so). Absent
+     *  where agents have no browser, and for an agent that runs on its own server. */
+    browses?: boolean;
     /** One line saying what this agent does, written from the name and capabilities it declared.
      *  Generated rather than typed, because anyone can register an agent and asking people to write
      *  copy about themselves produces either nothing or marketing. Absent until it has been written. */
@@ -164,11 +167,19 @@ interface TaskRequest {
     followUp?: FollowUpInfo;
     /** The files the agent handed back, each with the token that downloads it. */
     outputFiles?: TaskFile[];
-    /** What the agent has done so far, one line a step. */
+    /** What the agent has done so far, one line a step. A step taken in its browser carries a picture of the page
+     *  as it stood then (`shot`), read with `downloadFile`. */
     steps?: {
         n: number;
         text: string;
+        at?: string;
+        shot?: StepShot;
     }[];
+    /** The pages its browser opened, in the order it got there. Empty for a job that used no browser. */
+    pages?: VisitedPage[];
+    /** The forms its browser sent, each with every field and what was typed into it. A form is sent only when the
+     *  task asks for that in words. */
+    sent?: SentForm[];
     /** The question the job is waiting on, and every question it has asked. */
     question?: TaskQuestion;
     questions?: TaskQuestion[];
@@ -219,6 +230,40 @@ interface TaskFile {
         name: string;
         taskId: string;
     };
+    /** For a file the agent's browser saved or downloaded: the page it came from, and how it was taken. */
+    from?: FileSource;
+}
+/** A page a job's browser opened. */
+interface VisitedPage {
+    n: number;
+    url: string;
+    title: string;
+    at?: string;
+}
+/** A form a job's browser sent: the page it was on, the button that sent it, and what was in each field. */
+interface SentForm {
+    n: number;
+    url: string;
+    button: string;
+    fields: {
+        label: string;
+        value: string;
+    }[];
+    at?: string;
+}
+/** Where a file the browser brought back came from. */
+interface FileSource {
+    url: string;
+    title: string;
+    kind: "picture" | "whole-page picture" | "pdf" | "text" | "download";
+    at: string;
+}
+/** The picture of the page after one step in the browser. `token` reads it, as with any file of the job. */
+interface StepShot {
+    id: string;
+    token: string;
+    path: string;
+    size: number;
 }
 /** A file handed over with a hire: what `uploadFile` returned. */
 interface FileRef {
@@ -358,6 +403,8 @@ interface ConversationTurn {
     createdAt: string;
     completedAt: string | null;
     outputFiles: TaskFile[];
+    /** The pages the agent's browser opened on this turn. */
+    pages?: VisitedPage[];
     receipt: string;
 }
 interface LibraryFile extends TaskFile {
@@ -1377,6 +1424,10 @@ interface HireResult {
     status: TaskStatus;
     /** The files the agent handed back, when there are any. */
     files?: TaskFile[];
+    /** The pages the agent's browser opened, when it used one. */
+    pages?: VisitedPage[];
+    /** The forms its browser sent, when the task asked for that. */
+    sent?: SentForm[];
     /** For a hire made without signing in: what reads the job again and follows it up (`followUp`). */
     claimToken?: string;
     /** The agent's output, when completed. */
@@ -2154,4 +2205,4 @@ interface MindRewardShare {
     endAt: number;
 }
 
-export type { LibraryOptions as $, ApprovalRequest as A, AgentMetrics as B, CreateProfileOptions as C, DelegateOptions as D, Receipt as E, FindAgentsOptions as F, GrantMandateOptions as G, HirerOptions as H, HireOptions as I, HireResult as J, RunOptions as K, ListPurchasesOptions as L, RunResult as M, AxonToolsOptions as N, AxonTool as O, PurchasesView as P, QuorumTask as Q, RegisterOptions as R, SignMandate as S, TaskRequest as T, UpdateAgentOptions as U, VerifyOptions as V, WatchPurchasesOptions as W, X402PayFunction as X, FollowUpOptions as Y, WaitOptions as Z, TaskNote as _, CommerceProfile as a, X402Requirements as a$, AgentMemory as a0, Conversation as a1, ConversationTurn as a2, LibraryFile as a3, UploadedFile as a4, FileVersion as a5, AllowanceStatus as a6, CreateAllowanceKeyOptions as a7, CreatedAllowanceKey as a8, AllowanceKey as a9, GatewayCallResult as aA, X402Currency as aB, RegisterWebhookOptions as aC, Webhook as aD, WebhookDelivery as aE, CreateOpenTaskOptions as aF, OpenTask as aG, ListOpenTasksOptions as aH, Bid as aI, SplitRecipient as aJ, TaskSplitsView as aK, CreateWorkflowTemplateOptions as aL, WorkflowTemplate as aM, InstantiateTemplateOptions as aN, AttestCapabilityOptions as aO, CapabilityAttestation as aP, DefineSlaOptions as aQ, TaskSla as aR, FileAbuseReportOptions as aS, AbuseReport as aT, FeePolicy as aU, ProtocolInfo as aV, ProtocolNegotiation as aW, ExplorerFeed as aX, SystemStatus as aY, SubmitBidOptions as aZ, AcceptBidOptions as a_, CreateRetainerOptions as aa, Retainer as ab, RetainerLimits as ac, UpdateRetainerOptions as ad, RetainerRun as ae, ListTokenMindsOptions as af, TokenMindPage as ag, TokenMind as ah, ListMindThoughtsOptions as ai, MindThought as aj, MindRewardShare as ak, MindBriefState as al, SetMindBriefResult as am, AgentRetainers as an, RouteHireOptions as ao, RoutingInfo as ap, PlanOptions as aq, PlanResult as ar, SubcontractOptions as as, SubcontractResult as at, OptimizeResult as au, PaymentNote as av, GetTaskHistoryOptions as aw, RegisterGatewayProviderOptions as ax, GatewayProvider as ay, GatewayCallOptions as az, SpendMandate as b, TokenMindSummary as b$, RegisterMcpServerOptions as b0, McpServer as b1, McpToolRecord as b2, CallMcpToolOptions as b3, StartMissionOptions as b4, Mission as b5, OpenChannelOptions as b6, OpenChannelResult as b7, PaymentChannel as b8, ReproductionProof as b9, MindMove as bA, MindOrder as bB, MindPlan as bC, MindPromises as bD, MindReport as bE, MindState as bF, MindTrackRecord as bG, MindTreasury as bH, MissionStatus as bI, OpenTaskStatus as bJ, PaymentHandlerDescriptor as bK, PaymentInstrument as bL, PaymentNoteKind as bM, PaymentStatus as bN, PlanView as bO, PlannedStep as bP, PurchaseStatus as bQ, QuorumStatus as bR, ReceiptDelivery as bS, RetainerSchedule as bT, Review as bU, SlaStatus as bV, SpendSummary as bW, SplitPayout as bX, TaskSplit as bY, TaskStatus as bZ, TokenMindEvent as b_, WorkerMetrics as ba, X402PaymentOption as bb, AgentRuntimeOptions as bc, AxonAgent as bd, AbuseReason as be, AbuseStatus as bf, AgentContext as bg, AgentRating as bh, AgentRunHandler as bi, AllowanceAccount as bj, AllowanceKeyLimitsView as bk, ApiErrorBody as bl, ApiErrorCode as bm, BidStatus as bn, ComponentStatus as bo, DefineSplitsOptions as bp, DelegationResult as bq, DelegationStep as br, EndpointUptime as bs, ExplorerSettlement as bt, ExplorerTask as bu, FeeTier as bv, MindActionKind as bw, MindBooks as bx, MindBrief as by, MindFees as bz, PurchaseIntent as c, TokenMindTotals as c0, WebhookEventType as c1, WorkflowStep as c2, PaymentOptionsView as d, ApproveOptions as e, ApproveResult as f, WatchHandle as g, AutoApprovePolicy as h, ParsedAuthorisation as i, PurchaseExpectation as j, AxonConfig as k, AuthChallenge as l, AuthVerifyResult as m, Agent as n, CapabilitySummary as o, SendTaskOptions as p, TaskProgress as q, TaskHandler as r, TaskResult as s, CreateQuorumOptions as t, QuorumResult as u, Workflow as v, GetTransactionsOptions as w, Transaction as x, AgentBalance as y, Reputation as z };
+export type { LibraryOptions as $, ApprovalRequest as A, AgentMetrics as B, CreateProfileOptions as C, DelegateOptions as D, Receipt as E, FindAgentsOptions as F, GrantMandateOptions as G, HirerOptions as H, HireOptions as I, HireResult as J, RunOptions as K, ListPurchasesOptions as L, RunResult as M, AxonToolsOptions as N, AxonTool as O, PurchasesView as P, QuorumTask as Q, RegisterOptions as R, SignMandate as S, TaskRequest as T, UpdateAgentOptions as U, VerifyOptions as V, WatchPurchasesOptions as W, X402PayFunction as X, FollowUpOptions as Y, WaitOptions as Z, TaskNote as _, CommerceProfile as a, X402Requirements as a$, AgentMemory as a0, Conversation as a1, ConversationTurn as a2, LibraryFile as a3, UploadedFile as a4, FileVersion as a5, AllowanceStatus as a6, CreateAllowanceKeyOptions as a7, CreatedAllowanceKey as a8, AllowanceKey as a9, GatewayCallResult as aA, X402Currency as aB, RegisterWebhookOptions as aC, Webhook as aD, WebhookDelivery as aE, CreateOpenTaskOptions as aF, OpenTask as aG, ListOpenTasksOptions as aH, Bid as aI, SplitRecipient as aJ, TaskSplitsView as aK, CreateWorkflowTemplateOptions as aL, WorkflowTemplate as aM, InstantiateTemplateOptions as aN, AttestCapabilityOptions as aO, CapabilityAttestation as aP, DefineSlaOptions as aQ, TaskSla as aR, FileAbuseReportOptions as aS, AbuseReport as aT, FeePolicy as aU, ProtocolInfo as aV, ProtocolNegotiation as aW, ExplorerFeed as aX, SystemStatus as aY, SubmitBidOptions as aZ, AcceptBidOptions as a_, CreateRetainerOptions as aa, Retainer as ab, RetainerLimits as ac, UpdateRetainerOptions as ad, RetainerRun as ae, ListTokenMindsOptions as af, TokenMindPage as ag, TokenMind as ah, ListMindThoughtsOptions as ai, MindThought as aj, MindRewardShare as ak, MindBriefState as al, SetMindBriefResult as am, AgentRetainers as an, RouteHireOptions as ao, RoutingInfo as ap, PlanOptions as aq, PlanResult as ar, SubcontractOptions as as, SubcontractResult as at, OptimizeResult as au, PaymentNote as av, GetTaskHistoryOptions as aw, RegisterGatewayProviderOptions as ax, GatewayProvider as ay, GatewayCallOptions as az, SpendMandate as b, TaskSplit as b$, RegisterMcpServerOptions as b0, McpServer as b1, McpToolRecord as b2, CallMcpToolOptions as b3, StartMissionOptions as b4, Mission as b5, OpenChannelOptions as b6, OpenChannelResult as b7, PaymentChannel as b8, ReproductionProof as b9, MindFees as bA, MindMove as bB, MindOrder as bC, MindPlan as bD, MindPromises as bE, MindReport as bF, MindState as bG, MindTrackRecord as bH, MindTreasury as bI, MissionStatus as bJ, OpenTaskStatus as bK, PaymentHandlerDescriptor as bL, PaymentInstrument as bM, PaymentNoteKind as bN, PaymentStatus as bO, PlanView as bP, PlannedStep as bQ, PurchaseStatus as bR, QuorumStatus as bS, ReceiptDelivery as bT, RetainerSchedule as bU, Review as bV, SentForm as bW, SlaStatus as bX, SpendSummary as bY, SplitPayout as bZ, StepShot as b_, WorkerMetrics as ba, X402PaymentOption as bb, AgentRuntimeOptions as bc, AxonAgent as bd, AbuseReason as be, AbuseStatus as bf, AgentContext as bg, AgentRating as bh, AgentRunHandler as bi, AllowanceAccount as bj, AllowanceKeyLimitsView as bk, ApiErrorBody as bl, ApiErrorCode as bm, BidStatus as bn, ComponentStatus as bo, DefineSplitsOptions as bp, DelegationResult as bq, DelegationStep as br, EndpointUptime as bs, ExplorerSettlement as bt, ExplorerTask as bu, FeeTier as bv, FileSource as bw, MindActionKind as bx, MindBooks as by, MindBrief as bz, PurchaseIntent as c, TaskStatus as c0, TokenMindEvent as c1, TokenMindSummary as c2, TokenMindTotals as c3, VisitedPage as c4, WebhookEventType as c5, WorkflowStep as c6, PaymentOptionsView as d, ApproveOptions as e, ApproveResult as f, WatchHandle as g, AutoApprovePolicy as h, ParsedAuthorisation as i, PurchaseExpectation as j, AxonConfig as k, AuthChallenge as l, AuthVerifyResult as m, Agent as n, CapabilitySummary as o, SendTaskOptions as p, TaskProgress as q, TaskHandler as r, TaskResult as s, CreateQuorumOptions as t, QuorumResult as u, Workflow as v, GetTransactionsOptions as w, Transaction as x, AgentBalance as y, Reputation as z };
