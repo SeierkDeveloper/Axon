@@ -686,7 +686,13 @@ export function browserTool(ctx: BrowserToolContext): { tool: LocalTool; close: 
       if (a.clear) await mouse(s, a.x, a.y);
       if (!(await evaluate<boolean>(s, FOCUS(Number(args.ref))))) throw new Error("The field could not be typed into just now. Click it first, then type.");
       // what is typed replaces what was there, the way a person selects a field's words and types over them
-      if (text) await s.command("Input.insertText", { text }); else await press(s, "Tab");
+      if (text) {
+        await s.command("Input.insertText", { text });
+        // The words went in at once, as when pasted. A page's own widgets (a date picker, a search-as-you-type box)
+        // often wait for a key to be let go before they read the field, so a key that types nothing is tapped.
+        await s.command("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
+        await s.command("Input.dispatchKeyEvent", { type: "keyUp", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
+      } else await press(s, "Tab");
       typedHere++;
       if (args.submit !== true) { await hands.settle(2_500); return view(s, noteProblem ?? undefined); }
       // what the form holds now, read before it goes

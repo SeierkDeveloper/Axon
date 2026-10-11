@@ -219,6 +219,8 @@ beforeAll(async () => {
       return html(page("Newsletter", `<h1>Newsletter</h1><label>Your email <input type="email" id="e"></label> <div role="button" tabindex="0" id="go" style="display:inline-block;padding:6px;border:1px solid #333" onclick="fetch('/news',{method:'POST',body:document.getElementById('e').value}).then(()=>{document.getElementById('out').textContent='You are on the list.'})">Subscribe</div><p id="out"></p>`));
     }
     if (u.pathname === "/human") return html(page("Are you human", `<h1>One more step</h1><form method="post" action="/contact"><label>Message <textarea name="msg"></textarea></label><div class="g-recaptcha" style="width:300px;height:70px;border:1px solid #999">I am not a robot</div><button>Send</button></form>`));
+    // a field with a widget of the page's own: it reads the field only when a key is let go, and puts back what it last read when the field is left
+    if (u.pathname === "/widget") return html(page("Widget", `<h1>Pick a day</h1><form><label>Day <input name="day" id="day"></label> <label>Name <input name="who"></label></form><script>const d=document.getElementById("day");let seen="";d.addEventListener("keyup",()=>{seen=d.value});d.addEventListener("blur",()=>{d.value=seen});</script>`));
     if (u.pathname === "/wrapped") return html(page("Wrapped labels", `<h1>Wrapped</h1><form><label>Size <select name="size"><option>Small</option><option>Large</option></select></label> <label>Colour <input name="colour" value="red"> <button type="button">Pick</button></label></form>`));
     if (u.pathname === "/prices") return html(page(q.headers.host === "rival.test" ? "Rival Teas prices" : "Tea shop prices", q.headers.host === "rival.test" ? "<h1>Rival Teas</h1><p>Green tea 5.20 per 100 g. Delivery 4.00.</p>" : "<h1>Tea shop</h1><p>Green tea 4.50 per 100 g. Delivery 2.90.</p>"));
     if (u.pathname === "/cards") return html(page("Cards", `<h1>Our growers</h1><a href="/tea/green" style="display:block;border:1px solid #ccc;padding:12px"><span>ESTATE</span> <span>Verified grower</span> <span>Rating 4.8</span><h3>Misty Hill Estate</h3><p>Three generations growing green tea on the north slope, picked by hand every spring.</p></a>`));
@@ -743,6 +745,15 @@ describe.skipIf(!findChromium({}))("forms: when one may be sent", () => {
     const v = await drive(b, { action: "open", url: "http://shop.test/wrapped" });
     expect(v).toMatch(/\[\d+\] list "Size" now: "Small" choices: Small \| Large/);
     expect(v).toMatch(/\[\d+\] field "Colour" now: "red"/);
+    await b.close();
+  }, 60_000);
+
+  it("what is typed is still there when the field is left, on a page whose widget reads a field only on a key", async () => {
+    const b = browserTool({ taskId: "job-28", paid: true, env, open: start() });
+    let v = await drive(b, { action: "open", url: "http://shop.test/widget" });
+    v = await drive(b, { action: "type", ref: ref(v, "Day"), text: "11/05/2026" });
+    v = await drive(b, { action: "type", ref: ref(v, "Name"), text: "Ada" });
+    expect(v).toMatch(/field "Day" now: "11\/05\/2026"/);
     await b.close();
   }, 60_000);
 
