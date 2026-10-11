@@ -267,13 +267,50 @@ describe("completeWithTools: truncation", () => {
   });
 
   it("fails the task rather than settling payment for an empty answer", async () => {
-    mockStream.mockReturnValueOnce(
+    // cut off with nothing said, and again when asked to take the step shorter
+    mockStream.mockReturnValue(
       turn([{ type: "tool_use", id: "tu_1", name: "mcp_srv1_lookup", input: {} }], "max_tokens"),
     );
     const provider = getProvider(makeAgent());
     await expect(provider.completeWithTools!("sys", "go", 1000, makeTools())).rejects.toThrow(
       /no answer|No text response/i,
     );
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(mockStream).toHaveBeenCalledTimes(2); // asked again once, never a third time
+  });
+
+  it("a tool call cut off with nothing said is asked for again, shorter, and the job goes on", async () => {
+    mockStream
+      .mockReturnValueOnce(turn([{ type: "tool_use", id: "tu_1", name: "mcp_srv1_lookup", input: {} }], "max_tokens"))
+      .mockReturnValueOnce(turn([{ type: "text", text: "Here is the answer." }]));
+    const provider = getProvider(makeAgent());
+    expect(await provider.completeWithTools!("sys", "go", 1000, makeTools())).toBe("Here is the answer.");
+    expect(mockRun).not.toHaveBeenCalled(); // the half call never ran
+    const second = mockStream.mock.calls[1][0].messages as { role: string; content: unknown }[];
+    expect(second.slice(-2)).toEqual([
+      { role: "assistant", content: "(My last step was cut off before it could run.)" },
+      { role: "user", content: expect.stringMatching(/cut off at the length limit before it could run.*one action, a shorter note/) },
+    ]);
+  });
+
+  it("a round that ran out of room on thinking alone is asked again, and the job does not fail", async () => {
+    mockStream
+      .mockReturnValueOnce(turn([{ type: "thinking", thinking: "Ten pages, eight steps, so..." }], "max_tokens"))
+      .mockReturnValueOnce(turn([{ type: "text", text: "I got through eight pages. Here they are." }]));
+    const provider = getProvider(makeAgent());
+    expect(await provider.completeWithTools!("sys", "go", 1000, makeTools())).toBe("I got through eight pages. Here they are.");
+    const second = mockStream.mock.calls[1][0].messages as { role: string; content: unknown }[];
+    expect(second.slice(-2)).toEqual([
+      { role: "assistant", content: "(I ran out of room before I said or did anything.)" },
+      { role: "user", content: expect.stringMatching(/ran out of room before you said or did anything\. Do not plan at length/) },
+    ]);
+  });
+
+  it("but only once: a second empty round fails the job as before", async () => {
+    mockStream.mockReturnValue(turn([{ type: "thinking", thinking: "..." }], "max_tokens"));
+    const provider = getProvider(makeAgent());
+    await expect(provider.completeWithTools!("sys", "go", 1000, makeTools())).rejects.toThrow(/no answer|No text response/i);
+    expect(mockStream).toHaveBeenCalledTimes(2);
   });
 });
 

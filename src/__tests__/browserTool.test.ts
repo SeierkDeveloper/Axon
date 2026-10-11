@@ -5,7 +5,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import http from "node:http";
 import net from "node:net";
 
-import { browserTool, mayBrowse, asksToSend, withBrowser, canBrowse, pageView, shrinkView, footOf, pageName, refusalLine, dailyBrowsing, BROWSER_STEPS, BROWSER_SAVES, BROWSER_DOWNLOADS, asksForFile, MAX_NOTES, NOTE_CHARS, SET_FIELDS } from "@/lib/browserTool";
+import { browserTool, fileNotPage, mayBrowse, asksToSend, withBrowser, canBrowse, pageView, shrinkView, footOf, pageName, refusalLine, dailyBrowsing, BROWSER_STEPS, BROWSER_SAVES, BROWSER_DOWNLOADS, asksForFile, MAX_NOTES, NOTE_CHARS, SET_FIELDS } from "@/lib/browserTool";
 import { publicHttpFetch } from "@/lib/urlSecurity";
 import fs from "node:fs";
 import os from "node:os";
@@ -235,6 +235,9 @@ beforeAll(async () => {
     // files a page offers
     const pdf = (pages: number) => Buffer.from(`%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count ${pages}>>endobj\n${Array.from({ length: pages }, (_, i) => `${i + 3} 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj`).join("\n")}\ntrailer<</Root 1 0 R>>\n%%EOF\n`, "latin1");
     const file = (type: string, body: Buffer | string, name?: string) => { r.writeHead(200, { "content-type": type, ...(name ? { "content-disposition": `attachment; filename="${name}"` } : {}) }); r.end(body); };
+    // a file served the way a code host serves it: as bare words in the window, with nothing that offers it
+    if (u.pathname === "/raw/tips.csv") return file("text/plain; charset=utf-8", "total_bill,tip,day\n16.99,1.01,Sun\n10.34,1.66,Sun\n21.01,3.50,Sat\n");
+    if (u.pathname === "/raw/notes") return file("text/plain", "Just a page of plain words, with no file's name.");
     if (u.pathname === "/files") return html(page("Reports", `<h1>Reports and data</h1>
       <a href="/files/sales.csv">Sales data (CSV)</a> <a href="/files/report.pdf">Annual report (PDF)</a> <a href="/files/long.pdf">The long report</a> <a href="/files/logo.png">Our logo</a>
       <a href="/files/moved">Last year's data</a> <a href="/files/huge.csv">Everything we have</a> <a href="/files/tool.zip">Our tool</a> <a href="/files/gone.csv">Old data</a> <a href="http://localhost/secret.csv">Internal</a>
@@ -1017,6 +1020,64 @@ describe.skipIf(!findChromium({}))("downloads: a file a page offers", () => {
     await expect(drive(off, { action: "download", url: "http://shop.test/files/sales.csv" })).rejects.toThrow(/Files cannot be kept here/);
     await off.close();
   }, 90_000);
+
+  it("an address that is a file says so when it is opened, and download then takes it", async () => {
+    const taskId = job(), forCode: { name: string }[] = [];
+    const b = tool({ taskId, hasSandbox: true, onTaken: (f) => forCode.push(f) });
+    const opened = await drive(b, { action: "open", url: "http://shop.test/raw/tips.csv" });
+    expect(opened).toContain("This address is a file, not a page. Do not copy it out by hand: take it with action download and url set to this address. It is then put in your sandbox, where code reads all of it.");
+    const out = await drive(b, { action: "download", url: "http://shop.test/raw/tips.csv" });
+    expect(out).toMatch(/^Took tips\.csv \(a text file/);
+    expect(out).toContain("It is also in your sandbox as tips.csv");
+    expect(forCode.map((f) => f.name)).toEqual(["tips.csv"]);
+    await b.close();
+    // without a sandbox the hint stops at how to take it
+    const c = tool({ taskId: job() });
+    const plain = await drive(c, { action: "open", url: "http://shop.test/raw/tips.csv" });
+    expect(plain).toContain("take it with action download and url set to this address.");
+    expect(plain).not.toContain("sandbox");
+    // a page is a page, and plain words without a file's name are read like one
+    expect(await drive(c, { action: "open", url: "http://shop.test/", note: "none" })).not.toContain("is a file, not a page");
+    expect(await drive(c, { action: "open", url: "http://shop.test/raw/notes", note: "none" })).not.toContain("is a file, not a page");
+    await c.close();
+  }, 90_000);
+
+  it("once its files are taken, an opened file is not pointed at download again", async () => {
+    const b = tool({ taskId: job(), paid: false }); // a free hire has two
+    try {
+      await drive(b, { action: "open", url: "http://shop.test/files" });
+      await drive(b, { action: "download", url: "http://shop.test/files/sales.csv" });
+      await drive(b, { action: "download", url: "http://shop.test/files/logo.png" });
+      expect(await drive(b, { action: "open", url: "http://shop.test/raw/tips.csv", note: "none" })).not.toContain("is a file, not a page");
+    } finally { await b.close(); }
+  }, 90_000);
+
+  it("an agent with a sandbox is told its code cannot reach the web, and others are told nothing of it", () => {
+    const withBox = tool({ hasSandbox: true }), without = tool({});
+    expect(withBox.tool.description).toContain("Your code sandbox has no internet: code there cannot fetch anything from the web. A file the job needs from the web is taken with download");
+    expect(without.tool.description).not.toContain("sandbox has no internet");
+  });
+});
+
+describe("a file or a page", () => {
+  it.each([
+    ["text/plain; charset=utf-8", "https://raw.githubusercontent.com/mwaskom/seaborn-data/master/tips.csv"],
+    ["text/csv", "https://data.example/export?id=4"],
+    ["application/json", "https://api.example/v1/prices"],
+    ["text/plain", "https://example.com/robots.txt"],
+    ["application/xml", "https://example.com/sitemap.xml"],
+    ["text/tab-separated-values", "https://data.example/t"],
+  ])("%s at %s is a file", (type, url) => { expect(fileNotPage(type, url)).toBe(true); });
+
+  it.each([
+    ["text/html; charset=utf-8", "https://example.com/data.csv"],
+    ["application/xhtml+xml", "https://example.com/"],
+    ["text/plain", "https://example.com/notes"],
+    ["image/png", "https://example.com/logo.png"],
+    ["application/pdf", "https://example.com/report.pdf"],
+    ["", "https://example.com/x.csv"],
+    ["text/csv", "not an address"],
+  ])("%s at %s is not", (type, url) => { expect(fileNotPage(type, url)).toBe(false); });
 });
 
 describe.skipIf(!findChromium({}))("the limits of one hire", () => {

@@ -23,7 +23,7 @@ import { approvedNote, approveOverdue, keepPlan, parkForPlan, planEnabled, planN
 import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
-import { asksForFile, asksToSend, BROWSER_STEPS, browserTool, mayBrowse, refusalLine, withBrowser } from "../lib/browserTool";
+import { asksForFile, asksToSend, BROWSER_MAX_TOKENS, BROWSER_STEPS, browserTool, mayBrowse, refusalLine, withBrowser } from "../lib/browserTool";
 import { recordSent } from "../lib/taskSent";
 import { recordPage } from "../lib/taskPages";
 import { triggersEnabled } from "../lib/triggers";
@@ -545,7 +545,7 @@ async function processTasks() {
               mcpHandler
                 ? mcpHandler(fullMessage)
                 : hasTools(tools)
-                  ? runWithProviderTools(agent, fullMessage, Math.max(getAgentMaxTokens(agent.agentId), office ? OFFICE_MAX_TOKENS : sandbox ? CODE_MAX_TOKENS : 0), tools, {
+                  ? runWithProviderTools(agent, fullMessage, Math.max(getAgentMaxTokens(agent.agentId), office ? OFFICE_MAX_TOKENS : sandbox ? CODE_MAX_TOKENS : 0, browserSteps ? BROWSER_MAX_TOKENS : 0), tools, {
                       onToolCall,
                       ...(live.on ? { onLive: live.onLive } : {}),
                       signal: abort.signal,

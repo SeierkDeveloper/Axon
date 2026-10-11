@@ -83,6 +83,19 @@ const ASKS = new RegExp([
   String.raw`\bscreen ?shots?\b`, String.raw`\b(save|keep|capture|archive) (me )?(a copy of )?(the|this|that|their|a) (web ?)?(page|site)\b`,
   String.raw`\bon the (web|internet)\b`, String.raw`\blook (it |this |that )?up online\b`, String.raw`\bbrows(e|ing) (the|their|through|around|to)\b`,
 ].join("|"), "i");
+/**
+ * Whether what an address answered with is a file to take, not a page to read: the browser shows a CSV, a text or
+ * a data file as bare words. A page is HTML; a picture or a PDF the browser draws itself is left as it is.
+ */
+export function fileNotPage(contentType: string, url: string): boolean {
+  const type = contentType.split(";")[0].trim().toLowerCase();
+  if (!type || /html|xhtml/.test(type) || /^image\//.test(type) || type === "application/pdf") return false;
+  let path = "";
+  try { path = new URL(url).pathname.toLowerCase(); } catch { return false; }
+  // named as a file, or said to be data: plain text without a file's name is as likely a page of words
+  return /\.(csv|tsv|txt|json|jsonl|ndjson|md|xml|ya?ml|log)$/.test(path) || /csv|tab-separated|json|xml|yaml/.test(type);
+}
+
 /** Words in a job that ask for something to be sent: a form filled in and handed to a site. */
 const SEND_ASK = /\b(send|submit|sign (me |us )?up|subscribe|register|apply|book|reserve|rsvp|post (it|this|that|a|the|my)|fill (in|out|it)|complete the form|request (a|the) (quote|demo|call ?back)|contact (them|the|their|support|sales)|get in touch|leave (a|my) (comment|message|review))\b/i;
 /** Whether the person asked for something to be sent. Without that, a browser fills forms in and sends none. */
@@ -91,6 +104,13 @@ export const asksToSend = (job: string): boolean => SEND_ASK.test(job);
 const BUYS = /\b(pay( now| with| by)?|buy( now| it now)?|purchase|place (the |my |your )?order|order now|complete (the |my |your )?(order|purchase|payment)|confirm (the |my |your )?(order|purchase|payment)|donate( now)?|submit (the |my |your )?(order|payment))\b/i;
 /** What a button outside any form says when it sends what was typed on the page. */
 const SENDY = /^(send|submit|sign ?up|subscribe|register|join|apply|book|reserve|post|publish|request|rsvp)\b/i;
+
+/**
+ * The room a browsing job's model has in each round. A hire's usual room is an answer's length; a round of browsing
+ * also holds what the model thinks through, its notes and several actions at once, and the answer is often a table.
+ * It is a ceiling, not a spend: only what is written is paid for.
+ */
+export const BROWSER_MAX_TOKENS = 4_000;
 
 /** Skills that mean using websites is the agent's job. */
 const BROWSES = /brows|scrap|crawl|web[- _]?(agent|automation|research|navigation)|form[- _]?fill|site[- _]?(check|monitor|audit)/i;
@@ -691,7 +711,13 @@ export function browserTool(ctx: BrowserToolContext): { tool: LocalTool; close: 
       const r = await s.goto(checked.url);
       if (!r.ok) throw new Error(`${r.reason}${/steps|time|data|closed/.test(r.reason) ? ` ${enough()}` : ""}`);
       await hands.settle();
-      const said = [noteProblem, r.status && r.status >= 400 ? `The site answered with an error (${r.status}).` : r.slow ? "The page is slow and may not be complete yet." : ""].filter(Boolean).join(" ") || undefined;
+      // An address that is a file (a CSV, a text or data file) opens as bare words. Copying those out by hand is
+      // slow and goes wrong, so the agent is told how a file is taken.
+      const bare = await evaluate<string>(s, "document.contentType || ''").then((t) => fileNotPage(String(t), checked.url)).catch(() => false);
+      const asFile = bare && taken < downloads
+        ? `This address is a file, not a page. Do not copy it out by hand: take it with action download and url set to this address.${ctx.hasSandbox ? " It is then put in your sandbox, where code reads all of it." : ""}`
+        : "";
+      const said = [noteProblem, r.status && r.status >= 400 ? `The site answered with an error (${r.status}).` : r.slow ? "The page is slow and may not be complete yet." : "", asFile].filter(Boolean).join(" ") || undefined;
       const seen = await view(s, said);
       // asked to read it straight away: the page's words in place of the window, where a page did open
       if (args.read !== true || !seen.includes("WHAT THE WINDOW SHOWS")) return seen;
@@ -941,6 +967,7 @@ export function browserTool(ctx: BrowserToolContext): { tool: LocalTool; close: 
       `If a site refuses you, asks you to prove you are human or wants you to sign in, do not fight it: leave it, say so in your answer, and use another source if there is one. ` +
       `Actions: open (url; read: true answers with the whole page's words in place of the window), note (text), save (as, whole, name), download (ref or url), click (ref), type (ref, text, and submit: true to press Enter after; for a list, text is the choice to pick), scroll (to: down, up, top or bottom), read (the whole page's words, 12,000 characters at a time, continue with from), look (the window as a picture, for what words cannot tell you: a chart, a map, a photo, how a page is laid out; this job has ${looks} of these), back, press (key: Enter, Escape, Tab, ArrowDown, ArrowUp, PageDown, PageUp). ` +
       `Saving: save keeps what the browser shows as a file the person receives with your answer: as: "picture" (the window as it is; whole: true for the whole page from top to bottom), "pdf" (the page as it prints: readable and searchable, not a likeness of the screen) or "text" (the page's words). For what a page looks like, save a picture. Use it when the person asks for a screenshot, a copy of a page, or proof of what a page said; this job has ${saves} of these. ` +
+      (ctx.hasSandbox ? `Your code sandbox has no internet: code there cannot fetch anything from the web. A file the job needs from the web is taken with download, which also puts it in the sandbox for your code. ` : "") +
       `Downloading: when a page offers a file the job needs (a report as a PDF, figures as a spreadsheet or CSV, a picture), take it with download: give the ref of the link or button that offers it, or the file's own address as url. You are given its words, the picture or the PDF itself, the person receives the file too, and this job has ${downloads} of these. Only PDFs, pictures, text files and Word, Excel or PowerPoint files, up to ${Math.round(fileCap / (1024 * 1024))} MB. A file a page offers when you only clicked is not taken. ` +
       `Forms: fill fields in with type, pick from lists with type, tick boxes and options with click. A field that shows a shape beside it (date, as 2026-10-31) takes its value in exactly that shape; every other field takes what the page itself asks for, so a plain field for a date is typed the way the page shows dates. A field marked "must be filled in" has to be before the form will go. ` +
       (ctx.maySend

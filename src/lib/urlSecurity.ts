@@ -19,7 +19,8 @@ function isPrivateIpv4(address: string): boolean {
     (a === 100 && b >= 64 && b <= 127) ||
     (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 0) ||
+    // 192.0.0.0/24 is set aside for protocols. The rest of 192.0.x.x is the ordinary public web (iana.org is there).
+    (a === 192 && b === 0 && parts[2] === 0) ||
     (a === 192 && b === 168) ||
     (a === 198 && (b === 18 || b === 19)) ||
     (a === 192 && b === 0 && parts[2] === 2) ||

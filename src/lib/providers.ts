@@ -119,6 +119,11 @@ Behavior:
 - Never pad responses with generic closing lines like "Let me know if you need anything else"
 - You are a specialist agent deployed on the Axon network, respond with the precision and directness of a domain expert, not a general-purpose assistant`;
 
+/** What a model is told when a round ran out of room before it said or did anything. */
+const CUT_BEFORE_ANYTHING = "Your last turn ran out of room before you said or did anything. Do not plan at length: take your next step now, or give your answer.";
+/** And when the step it was writing was cut off half way. */
+const CUT_MID_CALL = "Your last step was cut off at the length limit before it could run, so nothing came of it. Take it again with less in it: one action, a shorter note. Then go on.";
+
 // Per-agent token limits — build agents need much higher limits to produce
 // complete HTML5 games. All other agents use the default 2048.
 // The coder runs on claude-fable-5, whose always-on thinking bills against
@@ -743,6 +748,15 @@ class AnthropicProvider implements ProviderClient {
           messages.push({ role: "user", content: `${late ? `${late}\n\n` : ""}Your last step was cut off at the length limit before it could run, so nothing came of it. Take it again in smaller pieces: shorter code, one part at a time. Then give your answer.` });
           continue;
         }
+        // Cut off at the length limit before it said or did anything: its thinking took all the room. Once, it is
+        // told so and asked to go on, rather than the whole job failing with nothing to show.
+        if ((msg.stop_reason as string) === "max_tokens" && !text && !cutStep && !exhausted && !cutOnce) {
+          cutOnce = true;
+          logger.warn("provider.tool_round_cut", "A round was cut off at the length limit before anything was said or done; asking again", { model, step, maxTokens });
+          messages.push({ role: "assistant", content: "(I ran out of room before I said or did anything.)" });
+          messages.push({ role: "user", content: `${late ? `${late}\n\n` : ""}${CUT_BEFORE_ANYTHING}` });
+          continue;
+        }
         if (!late) return { text: requireText(lastText), refused: false };
         messages.push({ role: "assistant", content: msg.content as Anthropic.ContentBlockParam[] });
         messages.push({ role: "user", content: late });
@@ -750,8 +764,18 @@ class AnthropicProvider implements ProviderClient {
       }
 
       // Truncation can cut a tool call off mid-arguments. Running it would call
-      // the tool with the wrong input, so stop here and deliver what we have.
-      if ((msg.stop_reason as string) === "max_tokens") return { text: requireText(lastText), refused: false };
+      // the tool with the wrong input, so it is never run. With words already written, those are delivered.
+      // With none, it is asked once to take the step again, shorter: half a call is not shown back to it.
+      if ((msg.stop_reason as string) === "max_tokens") {
+        if (!text && !exhausted && !cutOnce) {
+          cutOnce = true;
+          logger.warn("provider.tool_call_cut", "A tool call was cut off at the length limit; asking for it again, shorter", { model, step, maxTokens });
+          messages.push({ role: "assistant", content: "(My last step was cut off before it could run.)" });
+          messages.push({ role: "user", content: CUT_MID_CALL });
+          continue;
+        }
+        return { text: requireText(lastText), refused: false };
+      }
 
       messages.push({ role: "assistant", content: msg.content as Anthropic.ContentBlockParam[] });
       // Parallel tool calls arrive in one message and all results must go back in
