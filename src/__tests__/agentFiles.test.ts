@@ -172,7 +172,8 @@ describe("reading a file back", () => {
     expect(mayRead(row, { wallet: me.toUpperCase().replace("0X", "0x") })).toBe(true);
     expect(mayRead(row, { wallet: other })).toBe(false);
     expect(mayRead(row, { token: mine.token })).toBe(true);
-    expect(mayRead(row, { token: `${mine.token.slice(0, -1)}0` })).toBe(false);
+    // the same token with its last character changed (to whatever it is not: one token in sixteen ends in 0)
+    expect(mayRead(row, { token: `${mine.token.slice(0, -1)}${mine.token.endsWith("0") ? "1" : "0"}` })).toBe(false);
     expect(mayRead(row, {})).toBe(false);
     // a visitor's file has no wallet: only its token opens it
     const theirs = got(storeFile({ bytes: TEXT, name: "a.csv" }, { now: T0 }));
