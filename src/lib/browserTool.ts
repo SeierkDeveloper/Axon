@@ -356,6 +356,12 @@ export function browserTool(ctx: BrowserToolContext): { tool: LocalTool; close: 
   const notebook: Note[] = [];
   const visited: string[] = [];
   let lastPage = "";
+  // The pages the agent has been shown since it last wrote something down, and the round of calls the latest of
+  // them was opened in. A page it has been shown is not left for another address without a note: what it does not
+  // write down is gone with its next look. (Pages opened together, in one round, are all shown before any is left.)
+  let unnoted: string[] = [];
+  let landedIn = 0, round = 0, pending = 0, now = 0;
+  const NOTHING = /^(none|nothing|nothing needed|nothing to keep|n\/?a|-+)\.?$/i;
   const foot = (left: number): string => footOf({ notes: notebook, visited, left });
   /** The browser is on this page now. Written down once, however long it stays. */
   const landed = (at: { url: string; title: string }): void => {
@@ -363,14 +369,19 @@ export function browserTool(ctx: BrowserToolContext): { tool: LocalTool; close: 
     lastPage = at.url.split("#")[0];
     const name = pageName(at.url);
     if (name && !visited.includes(name) && visited.length < 40) visited.push(name);
+    if (name && !unnoted.includes(name)) unnoted.push(name);
+    landedIn = now;
     try { ctx.onPage?.({ url: at.url, title: at.title }); } catch { /* the job's list of pages is not worth a failed step */ }
   };
   /** Write something in the notebook, with the page the browser is on. Returns why not, when it cannot. */
   const noteDown = (raw: unknown, at: string): string | null => {
     const text = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
     if (!text) return "A note needs words: what you found, with its figures.";
-    if (notebook.length >= MAX_NOTES) return `Your notebook is full (${MAX_NOTES} notes). Work from what is in it.`;
+    // "none": the agent has looked and there is nothing here to keep. Nothing is written, and it may move on.
+    if (NOTHING.test(text)) { unnoted = []; return null; }
+    if (notebook.length >= MAX_NOTES) { unnoted = []; return `Your notebook is full (${MAX_NOTES} notes). Work from what is in it.`; }
     notebook.push({ at: pageName(at), text: text.slice(0, NOTE_CHARS) });
+    unnoted = [];
     ctx.say?.(`Noted: ${text}`);
     return null;
   };
@@ -474,6 +485,11 @@ export function browserTool(ctx: BrowserToolContext): { tool: LocalTool; close: 
       return `Noted.\n\n${foot(s.left().steps)}`;
     }
     if (typeof args.note === "string" && args.note.trim()) noteProblem = noteDown(args.note, here.url);
+    // Leaving for another address a page it has been shown, with nothing written down: stopped once, and told why.
+    // (In the round a page was opened in, the agent has not seen it yet, so there is nothing it could have noted.)
+    if ((action === "open" || action === "back") && unnoted.length && landedIn !== now && /^https?:/i.test(here.url)) {
+      throw new Error(`Not done yet: you would leave ${unnoted.length === 1 ? unnoted[0] : `the ${unnoted.length} pages you were just shown (${unnoted.join(", ")})`} with nothing written down, and what you do not note is cut from your next look. Repeat this action with note: "..." saying what you need from ${unnoted.length === 1 ? "it" : "each of them"}, figures included. If there is nothing to keep, use note: "none".`);
+    }
 
     if (action === "open") {
       const raw = typeof args.url === "string" ? args.url : "";
@@ -579,10 +595,17 @@ export function browserTool(ctx: BrowserToolContext): { tool: LocalTool; close: 
     throw new Error(`Unknown action. Use one of: open, read, look, note, click, type, scroll, back, press.`);
   };
 
-  const turn = (args: Record<string, unknown>) => inTurn(async () => {
-    try { return await run(args); }
-    finally { if (hands.started && !hands.closed) used = limits.steps - (await hands.session()).left().steps; }
-  });
+  const turn = (args: Record<string, unknown>) => {
+    // calls that arrive together are one round: the model asked for all of them before seeing any answer
+    if (pending === 0) round++;
+    pending++;
+    const mine = round;
+    return inTurn(async () => {
+      now = mine;
+      try { return await run(args); }
+      finally { pending--; if (hands.started && !hands.closed) used = limits.steps - (await hands.session()).left().steps; }
+    });
+  };
   const tool: LocalTool = {
     name: "browser",
     label: "browser",
@@ -591,7 +614,8 @@ export function browserTool(ctx: BrowserToolContext): { tool: LocalTool; close: 
       `For a plain lookup, a search or a page you can simply fetch, use your other tools if you have them: each browser action is slow and this job has only ${limits.steps} of them. ` +
       `After every action you are shown the page as it is now: its words, and a numbered list of what can be clicked or typed into. Name a thing by its number (ref); the numbers change whenever the page does, so always use the latest list. The numbers are yours alone: never mention one to the person, name the thing by its words. ` +
       `Only your latest look or read is kept in full; every earlier one is cut down to its address. What stays is your notebook: before you leave a page, write down what you need from it, with its figures (add note: "..." to your next action, or use action note). Your notes are shown back to you with every look. ` +
-      `A job across several sites goes: open the first (with read: true to get its words at once), note what you found, open the next with that note, and so on; then answer from your notes. You may ask for several actions in one go; they are done in order. ` +
+      `open and back will not leave a page you have been shown until something is written down: give them a note, or note: "none" when the page had nothing you need. ` +
+      `A job across several sites goes: open them all in one go (each with read: true to get its words at once), then write one note with what you found on each, then open whatever else you need with a note, and answer from your notes. You may ask for several actions in one go; they are done in order and you are shown every result. ` +
       `When the job compares things, answer with a table: a row for each thing, a column for each fact, and the address each row came from. ` +
       `If a site refuses you, asks you to prove you are human or wants you to sign in, do not fight it: leave it, say so in your answer, and use another source if there is one. ` +
       `Actions: open (url; read: true answers with the whole page's words in place of the window), note (text), click (ref), type (ref, text, and submit: true to press Enter after; for a list, text is the choice to pick), scroll (to: down, up, top or bottom), read (the whole page's words, 12,000 characters at a time, continue with from), look (the window as a picture, for what words cannot tell you: a chart, a map, a photo, how a page is laid out; this job has ${looks} of these), back, press (key: Enter, Escape, Tab, ArrowDown, ArrowUp, PageDown, PageUp). ` +

@@ -88,7 +88,7 @@ describe("which hires get a browser", () => {
     expect(b.used()).toBe(0);
     await b.close();
     expect(browserLoad().open).toBe(0);
-    await expect(b.tool.run({ action: "open", url: "https://example.com" })).rejects.toThrow(/closed/);
+    await expect(drive(b, { action: "open", url: "https://example.com" })).rejects.toThrow(/closed/);
   });
 });
 
@@ -202,12 +202,18 @@ afterAll(async () => { site.closeAllConnections?.(); await new Promise<void>((ok
 
 const env = { ...on, PATH: process.env.PATH };
 const start = (limits = browserLimits({})) => (o: Parameters<typeof openBrowser>[0]) => openBrowser({ ...o, env, resolve, limits: { ...limits, steps: o?.limits?.steps ?? limits.steps } });
+/**
+ * The tool, driven as an agent that keeps the rule about leaving a page: where a test does not say what to write
+ * down, it says there is nothing to keep. The rule itself is tested with the tool called directly.
+ */
+type Held = ReturnType<typeof browserTool>;
+const drive = (b: Held, args: Record<string, unknown>) => b.tool.run((args.action === "open" || args.action === "back") && args.note === undefined ? { ...args, note: "none" } : args);
 const ref = (view: string, name: string): number => { const m = new RegExp(`\\[(\\d+)\\] [a-z ]+ "${name}"`).exec(view); if (!m) throw new Error(`"${name}" is not in:\n${view}`); return Number(m[1]); };
 
 describe.skipIf(!findChromium({}))("the tool on a real browser", () => {
   const said: string[] = [];
   const b = browserTool({ taskId: "job-1", paid: true, env, say: (l) => { said.push(l); }, open: start() });
-  const go = (args: Record<string, unknown>) => b.tool.run(args);
+  const go = (args: Record<string, unknown>) => drive(b, args);
   afterAll(async () => { await b.close(); });
 
   it("opens a page and shows its words and what can be used", async () => {
@@ -280,7 +286,7 @@ describe.skipIf(!findChromium({}))("the tool on a real browser", () => {
 describe.skipIf(!findChromium({}))("forms, lists and what is refused", () => {
   const said: string[] = [];
   const b = browserTool({ taskId: "job-2", paid: true, env, say: (l) => { said.push(l); }, open: start() });
-  const go = (args: Record<string, unknown>) => b.tool.run(args);
+  const go = (args: Record<string, unknown>) => drive(b, args);
   afterAll(async () => { await b.close(); });
 
   it("fills in a form, replacing what a field held, and sends it", async () => {
@@ -364,9 +370,9 @@ describe.skipIf(!findChromium({}))("how things on a page are named", () => {
   it("a link that wraps a whole card is named by the card's heading, in the list and in the live log", async () => {
     const said: string[] = [];
     const b = browserTool({ taskId: "job-8", paid: true, env, say: (l) => { said.push(l); }, open: start() });
-    const v = await b.tool.run({ action: "open", url: "http://shop.test/cards" });
+    const v = await drive(b, { action: "open", url: "http://shop.test/cards" });
     expect(v).toMatch(/\[\d+\] link "Misty Hill Estate"/);
-    await b.tool.run({ action: "click", ref: ref(v, "Misty Hill Estate") });
+    await drive(b, { action: "click", ref: ref(v, "Misty Hill Estate") });
     expect(said.at(-1)).toBe(`Clicking "Misty Hill Estate"`);
     await b.close();
   }, 60_000);
@@ -378,10 +384,10 @@ describe.skipIf(!findChromium({}))("pictures: for the person watching, and for t
   it("every thing it does there comes with a picture of the page as it then was, for the line just said", async () => {
     const log: { line: string; shots: Buffer[] }[] = [];
     const b = browserTool({ taskId: "job-9", paid: true, env, open: start(), say: (line) => { const row = { line, shots: [] as Buffer[] }; log.push(row); return (jpeg) => { row.shots.push(jpeg); }; } });
-    const v = await b.tool.run({ action: "open", url: "http://shop.test/" });
-    await b.tool.run({ action: "type", ref: ref(v, "Search teas"), text: "tea", submit: true });
-    await b.tool.run({ action: "scroll", to: "down" });
-    await b.tool.run({ action: "back" });
+    const v = await drive(b, { action: "open", url: "http://shop.test/" });
+    await drive(b, { action: "type", ref: ref(v, "Search teas"), text: "tea", submit: true });
+    await drive(b, { action: "scroll", to: "down" });
+    await drive(b, { action: "back" });
     expect(log.map((r) => r.line)).toEqual(["Opening shop.test", `Typing into "Search teas"`, "Scrolling down", "Going back"]);
     for (const r of log) { expect(r.shots.length).toBe(1); expect(isJpeg(r.shots[0])).toBe(true); }
     // the picture is of the page after the step: the results page is not the home page
@@ -392,10 +398,10 @@ describe.skipIf(!findChromium({}))("pictures: for the person watching, and for t
   it("reading takes no picture, and a refused thing leaves no picture waiting for the next line", async () => {
     const log: { line: string; shots: number }[] = [];
     const b = browserTool({ taskId: "job-10", paid: true, env, open: start(), say: (line) => { const row = { line, shots: 0 }; log.push(row); return () => { row.shots++; }; } });
-    const v = await b.tool.run({ action: "open", url: "http://shop.test/account" });
-    await b.tool.run({ action: "read" });
-    await expect(b.tool.run({ action: "type", ref: ref(v, "Password"), text: "x" })).rejects.toThrow(/signs in nowhere/);
-    await b.tool.run({ action: "scroll", to: "down" });
+    const v = await drive(b, { action: "open", url: "http://shop.test/account" });
+    await drive(b, { action: "read" });
+    await expect(drive(b, { action: "type", ref: ref(v, "Password"), text: "x" })).rejects.toThrow(/signs in nowhere/);
+    await drive(b, { action: "scroll", to: "down" });
     expect(log).toEqual([{ line: "Opening shop.test", shots: 1 }, { line: "Reading shop.test", shots: 0 }, { line: "Scrolling down", shots: 1 }]);
     await b.close();
   }, 60_000);
@@ -403,7 +409,7 @@ describe.skipIf(!findChromium({}))("pictures: for the person watching, and for t
   it("the agent can look at the window as a picture, a few times in a job", async () => {
     const seen: Buffer[] = [];
     const b = browserTool({ taskId: "job-11", paid: false, env, open: start(), say: () => (jpeg) => { seen.push(jpeg); } });
-    await b.tool.run({ action: "open", url: "http://shop.test/" });
+    await drive(b, { action: "open", url: "http://shop.test/" });
     const stepsBefore = b.used();
     const look = await b.tool.runRich!({ action: "look" });
     expect(look.text).toContain("ADDRESS: http://shop.test/");
@@ -415,7 +421,7 @@ describe.skipIf(!findChromium({}))("pictures: for the person watching, and for t
     expect(b.used()).toBe(stepsBefore); // looking is not a step in the browser
     expect(seen.length).toBe(2);        // the person sees what the agent looked at
     // the plain call gives the words alone
-    expect(typeof (await b.tool.run({ action: "look" }))).toBe("string");
+    expect(typeof (await drive(b, { action: "look" }))).toBe("string");
     await expect(b.tool.runRich!({ action: "look" })).rejects.toThrow(/has had its 2 looks/);
     // everything else answers in words, with no picture for the model
     expect((await b.tool.runRich!({ action: "scroll", to: "down" })).images).toBeUndefined();
@@ -425,7 +431,7 @@ describe.skipIf(!findChromium({}))("pictures: for the person watching, and for t
   it("a paid hire has more looks, and nothing can be looked at before a page is open", async () => {
     const b = browserTool({ taskId: "job-12", paid: true, env, open: start() });
     expect(b.tool.description).toMatch(/this job has 6 of these/);
-    await expect(b.tool.run({ action: "look" })).rejects.toThrow(/No page is open yet/);
+    await expect(drive(b, { action: "look" })).rejects.toThrow(/No page is open yet/);
     await b.close();
   }, 60_000);
 });
@@ -435,16 +441,16 @@ describe.skipIf(!findChromium({}))("a job across several sites", () => {
     const said: string[] = [], pages: { url: string; title: string }[] = [];
     const b = browserTool({ taskId: "job-13", paid: true, env, open: start(), say: (l) => { said.push(l); }, onPage: (p) => pages.push(p) });
     // the first site, read at once
-    let v = await b.tool.run({ action: "open", url: "http://shop.test/prices", read: true });
+    let v = await drive(b, { action: "open", url: "http://shop.test/prices", read: true });
     expect(v).toContain("THE PAGE'S WORDS");
     expect(v).toContain("Green tea 4.50 per 100 g. Delivery 2.90.");
     expect(v).toMatch(/YOUR NOTES: none yet/);
     // the next site, with what the first one said written down on the way
-    v = await b.tool.run({ action: "open", url: "http://rival.test/prices", read: true, note: "Tea shop: green tea 4.50 per 100 g, delivery 2.90" });
+    v = await drive(b, { action: "open", url: "http://rival.test/prices", read: true, note: "Tea shop: green tea 4.50 per 100 g, delivery 2.90" });
     expect(v).toContain("Green tea 5.20 per 100 g. Delivery 4.00.");
     expect(v).toContain("1. [shop.test/prices] Tea shop: green tea 4.50 per 100 g, delivery 2.90");
     expect(v).toContain("PAGES VISITED: shop.test/prices, rival.test/prices");
-    v = await b.tool.run({ action: "note", text: "Rival Teas: green tea 5.20 per 100 g, delivery 4.00" });
+    v = await drive(b, { action: "note", text: "Rival Teas: green tea 5.20 per 100 g, delivery 4.00" });
     expect(v).toMatch(/^Noted\./);
     expect(v).toContain("2. [rival.test/prices] Rival Teas: green tea 5.20 per 100 g, delivery 4.00");
     expect(b.used()).toBe(2); // two opens; reading and noting cost no step
@@ -456,25 +462,68 @@ describe.skipIf(!findChromium({}))("a job across several sites", () => {
   it("a page is written down once however long the browser stays on it, and again when it comes back to it", async () => {
     const pages: string[] = [];
     const b = browserTool({ taskId: "job-14", paid: true, env, open: start(), onPage: (p) => pages.push(p.url) });
+    const v = await drive(b, { action: "open", url: "http://shop.test/" });
+    await drive(b, { action: "scroll", to: "down" });
+    await drive(b, { action: "scroll", to: "top" });
+    await drive(b, { action: "click", ref: ref(v, "All teas") });
+    await drive(b, { action: "back" });
+    expect(pages).toEqual(["http://shop.test/", "http://shop.test/teas", "http://shop.test/"]);
+    await b.close();
+  }, 60_000);
+
+  it("a page it has been shown is not left for another address with nothing written down", async () => {
+    const b = browserTool({ taskId: "job-18", paid: true, env, open: start() });
+    await b.tool.run({ action: "open", url: "http://shop.test/prices", read: true });
+    const stepsBefore = b.used();
+    await expect(b.tool.run({ action: "open", url: "http://rival.test/prices" })).rejects.toThrow(/you would leave shop\.test\/prices with nothing written down.*note: "none"/);
+    await expect(b.tool.run({ action: "back" })).rejects.toThrow(/nothing written down/);
+    expect(b.used()).toBe(stepsBefore); // being stopped costs no step
+    // with a note it goes; and the note is there on the next page
+    const v = await b.tool.run({ action: "open", url: "http://rival.test/prices", note: "Tea shop green tea is 4.50" });
+    expect(v).toContain("1. [shop.test/prices] Tea shop green tea is 4.50");
+    // "none" lets it go and writes nothing
+    const w = await b.tool.run({ action: "open", url: "http://shop.test/", note: "none" });
+    expect(w).toContain("PAGE: Tea shop");
+    expect(w).not.toMatch(/\n2\. /);
+    // a note written on its own counts too
+    await b.tool.run({ action: "note", text: "Home page lists five links" });
+    expect(await b.tool.run({ action: "open", url: "http://shop.test/teas" })).toContain("PAGE: All teas");
+    await b.close();
+  }, 60_000);
+
+  it("pages opened together are all shown before any must be noted, then one note covers them", async () => {
+    const b = browserTool({ taskId: "job-19", paid: true, env, open: start() });
+    // one round: the model asks for both before it has seen either
+    const [a, c] = await Promise.all([b.tool.run({ action: "open", url: "http://shop.test/prices", read: true }), b.tool.run({ action: "open", url: "http://rival.test/prices", read: true })]);
+    expect(a).toContain("Green tea 4.50");
+    expect(c).toContain("Green tea 5.20");
+    // the next round: it has seen both and noted neither
+    await expect(b.tool.run({ action: "open", url: "http://shop.test/" })).rejects.toThrow(/the 2 pages you were just shown \(shop\.test\/prices, rival\.test\/prices\).*each of them/);
+    const v = await b.tool.run({ action: "open", url: "http://shop.test/", note: "Tea shop 4.50, Rival 5.20 per 100 g" });
+    expect(v).toContain("1. [rival.test/prices] Tea shop 4.50, Rival 5.20 per 100 g");
+    await b.close();
+  }, 60_000);
+
+  it("clicking, scrolling, reading and looking are never held up: only leaving for another address is", async () => {
+    const b = browserTool({ taskId: "job-20", paid: true, env, open: start() });
     const v = await b.tool.run({ action: "open", url: "http://shop.test/" });
     await b.tool.run({ action: "scroll", to: "down" });
+    await b.tool.run({ action: "read" });
     await b.tool.run({ action: "scroll", to: "top" });
-    await b.tool.run({ action: "click", ref: ref(v, "All teas") });
-    await b.tool.run({ action: "back" });
-    expect(pages).toEqual(["http://shop.test/", "http://shop.test/teas", "http://shop.test/"]);
+    expect(await b.tool.run({ action: "click", ref: ref(v, "All teas") })).toContain("PAGE: All teas");
     await b.close();
   }, 60_000);
 
   it("a note needs words, is cut at its length, and the notebook holds only so many", async () => {
     const b = browserTool({ taskId: "job-15", paid: true, env, open: start() });
-    await b.tool.run({ action: "open", url: "http://shop.test/prices" });
-    await expect(b.tool.run({ action: "note", text: "   " })).rejects.toThrow(/A note needs words/);
-    const long = await b.tool.run({ action: "note", text: "x".repeat(NOTE_CHARS + 200) });
+    await drive(b, { action: "open", url: "http://shop.test/prices" });
+    await expect(drive(b, { action: "note", text: "   " })).rejects.toThrow(/A note needs words/);
+    const long = await drive(b, { action: "note", text: "x".repeat(NOTE_CHARS + 200) });
     expect(long).toContain(`1. [shop.test/prices] ${"x".repeat(NOTE_CHARS)}\n`);
-    for (let i = 2; i <= MAX_NOTES; i++) await b.tool.run({ action: "note", text: `finding ${i}` });
-    await expect(b.tool.run({ action: "note", text: "one too many" })).rejects.toThrow(/notebook is full/);
+    for (let i = 2; i <= MAX_NOTES; i++) await drive(b, { action: "note", text: `finding ${i}` });
+    await expect(drive(b, { action: "note", text: "one too many" })).rejects.toThrow(/notebook is full/);
     // a note that could not be kept does not stop the action it came with: the agent is told, and the page is shown
-    const v = await b.tool.run({ action: "open", url: "http://shop.test/", note: "one too many" });
+    const v = await drive(b, { action: "open", url: "http://shop.test/", note: "one too many" });
     expect(v).toMatch(/^Your notebook is full/);
     expect(v).toContain("PAGE: Tea shop");
     await b.close();
@@ -482,9 +531,9 @@ describe.skipIf(!findChromium({}))("a job across several sites", () => {
 
   it("when its steps run out it is told to answer, with its notes in hand", async () => {
     const b = browserTool({ taskId: "job-16", paid: false, env, open: start() });
-    await b.tool.run({ action: "open", url: "http://shop.test/prices", read: true });
-    for (let i = 1; i < BROWSER_STEPS.free; i++) await b.tool.run({ action: "open", url: "http://rival.test/prices", ...(i === 1 ? { note: "Tea shop delivery is 2.90" } : {}) });
-    const out = await b.tool.run({ action: "open", url: "http://shop.test/" }).catch((e: Error) => e.message);
+    await drive(b, { action: "open", url: "http://shop.test/prices", read: true });
+    for (let i = 1; i < BROWSER_STEPS.free; i++) await drive(b, { action: "open", url: "http://rival.test/prices", ...(i === 1 ? { note: "Tea shop delivery is 2.90" } : {}) });
+    const out = await drive(b, { action: "open", url: "http://shop.test/" }).catch((e: Error) => e.message);
     expect(out).toMatch(/all 8 of its browser steps\. Write your answer now, from your notes and what you have\./);
     expect(out).toContain("1. [shop.test/prices] Tea shop delivery is 2.90");
     await b.close();
@@ -493,7 +542,7 @@ describe.skipIf(!findChromium({}))("a job across several sites", () => {
   it("a site that answers with an error is said to, and the visit still counts as a page it went to", async () => {
     const pages: string[] = [];
     const b = browserTool({ taskId: "job-17", paid: true, env, open: start(), onPage: (p) => pages.push(p.url) });
-    const v = await b.tool.run({ action: "open", url: "http://rival.test/gone", read: true });
+    const v = await drive(b, { action: "open", url: "http://rival.test/gone", read: true });
     expect(v).toMatch(/^The site answered with an error \(404\)\./);
     expect(v).toContain("THE PAGE'S WORDS");
     expect(pages).toEqual(["http://rival.test/gone"]);
@@ -504,7 +553,7 @@ describe.skipIf(!findChromium({}))("a job across several sites", () => {
 describe.skipIf(!findChromium({}))("the limits of one hire", () => {
   it("several things asked at once are done one after the other, in order", async () => {
     const b = browserTool({ taskId: "job-3", paid: true, env, open: start() });
-    const [a, c] = await Promise.all([b.tool.run({ action: "open", url: "http://shop.test/" }), b.tool.run({ action: "open", url: "http://shop.test/teas" })]);
+    const [a, c] = await Promise.all([drive(b, { action: "open", url: "http://shop.test/" }), drive(b, { action: "open", url: "http://shop.test/teas" })]);
     expect(a).toContain("PAGE: Tea shop");
     expect(c).toContain("PAGE: All teas");
     expect(b.used()).toBe(2);
@@ -514,17 +563,17 @@ describe.skipIf(!findChromium({}))("the limits of one hire", () => {
 
   it("a free hire stops at its steps and is told to write its answer; reading costs no step", async () => {
     const b = browserTool({ taskId: "job-4", paid: false, env, open: start() });
-    for (let i = 0; i < BROWSER_STEPS.free; i++) await b.tool.run({ action: "open", url: "http://shop.test/" });
-    expect(await b.tool.run({ action: "read" })).toContain("Browser steps left in this job: 0.");
-    await expect(b.tool.run({ action: "open", url: "http://shop.test/teas" })).rejects.toThrow(/all 8 of its browser steps.*Write your answer/);
-    await expect(b.tool.run({ action: "scroll" })).rejects.toThrow(/all 8/);
+    for (let i = 0; i < BROWSER_STEPS.free; i++) await drive(b, { action: "open", url: "http://shop.test/" });
+    expect(await drive(b, { action: "read" })).toContain("Browser steps left in this job: 0.");
+    await expect(drive(b, { action: "open", url: "http://shop.test/teas" })).rejects.toThrow(/all 8 of its browser steps.*Write your answer/);
+    await expect(drive(b, { action: "scroll" })).rejects.toThrow(/all 8/);
     expect(b.used()).toBe(8);
     await b.close();
   }, 120_000);
 
   it("nothing is clicked before a page is open", async () => {
     const b = browserTool({ taskId: "job-5", paid: true, env, open: start() });
-    await expect(b.tool.run({ action: "click", ref: 1 })).rejects.toThrow(/No page is open yet/);
+    await expect(drive(b, { action: "click", ref: 1 })).rejects.toThrow(/No page is open yet/);
     await b.close();
   }, 60_000);
 
