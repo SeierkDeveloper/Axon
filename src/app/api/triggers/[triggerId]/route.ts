@@ -4,6 +4,8 @@ import { requireApiKey } from "@/lib/apiAuth";
 import { withRequestContext } from "@/lib/withRequestContext";
 import { deleteTrigger, fireUrl, reachedAt, listTriggerRuns, ownTrigger, pauseTrigger, resumeTrigger, rotateSecret, triggerJson, triggersEnabled, TriggerError } from "@/lib/triggers";
 import { chainHead } from "@/lib/triggerChain";
+import { lookAt } from "@/lib/triggerPage";
+import { checkRateLimit, tooManyRequests } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 type Params = { params: Promise<{ triggerId: string }> };
@@ -30,7 +32,7 @@ export async function GET(req: NextRequest, { params }: Params) {
   });
 }
 
-// PATCH /api/triggers/:id { action: "pause" | "resume" | "rotate" }
+// PATCH /api/triggers/:id { action: "pause" | "resume" | "rotate" | "look" }
 export async function PATCH(req: NextRequest, { params }: Params) {
   return withRequestContext(req, async () => {
     if (!triggersEnabled()) return apiError("NOT_FOUND", "Not found", 404);
@@ -49,7 +51,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         const { trigger, secret } = rotateSecret(triggerId, wallet);
         return NextResponse.json({ trigger: { ...triggerJson(trigger), url: fireUrl(trigger.triggerId, reachedAt(req.headers)) }, secret, note: "The old secret no longer works. This one is shown once." }, { headers: { "Cache-Control": "no-store" } });
       }
-      return apiError("VALIDATION_ERROR", 'action is "pause", "resume" or "rotate"', 400);
+      // look: read a watched page now, without waiting for its next turn
+      if (body?.action === "look") {
+        const t = ownTrigger(triggerId, wallet);
+        if (t.kind !== "page") return apiError("VALIDATION_ERROR", "Only a trigger that watches a page can be asked to look now.", 400);
+        if (t.status !== "active") return apiError("CONFLICT", "The trigger is paused. Resume it first.", 409);
+        const rl = checkRateLimit(`trigger-look:${t.triggerId}`, 6, 3_600_000);
+        if (!rl.allowed) return tooManyRequests(rl);
+        const result = await lookAt(t);
+        return NextResponse.json({ trigger: triggerJson(ownTrigger(triggerId, wallet)), look: result });
+      }
+      return apiError("VALIDATION_ERROR", 'action is "pause", "resume", "rotate" or "look"', 400);
     } catch (err) {
       return refuse(err);
     }

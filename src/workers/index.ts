@@ -28,6 +28,7 @@ import { recordSent } from "../lib/taskSent";
 import { recordPage } from "../lib/taskPages";
 import { triggersEnabled } from "../lib/triggers";
 import { runChainTriggers } from "../lib/triggerChain";
+import { runPageTriggers } from "../lib/triggerPage";
 import { retryFileCommitments } from "../lib/outputCommitment";
 import type { SandboxFile } from "../lib/providers";
 import { runWithProvider, runWithProviderTools, getAgentMaxTokens } from "../lib/providers";
@@ -137,7 +138,9 @@ let allowanceTimer: NodeJS.Timeout | null = null;
 let allowanceRunning = false;
 let retainerTimer: NodeJS.Timeout | null = null;
 let triggerTimer: NodeJS.Timeout | null = null;
+let pageTimer: NodeJS.Timeout | null = null;
 let triggerRunning = false;
+let pageRunning = false;
 let commitTimer: NodeJS.Timeout | null = null;
 let commitRunning = false;
 let myloTimer: NodeJS.Timeout | null = null;
@@ -747,6 +750,10 @@ function clearTimers(): void {
     clearInterval(mindsTimer);
     mindsTimer = null;
   }
+  if (pageTimer) {
+    clearInterval(pageTimer);
+    pageTimer = null;
+  }
   if (triggerTimer) {
     clearInterval(triggerTimer);
     triggerTimer = null;
@@ -969,6 +976,17 @@ export async function startWorkerLoops(): Promise<void> {
       .then((r) => { if (r.started > 0) logger.info("trigger.tick", "Chain triggers fired", { ...r }); })
       .catch((err) => logger.error("trigger.tick_failed", "Chain trigger tick failed", { err }))
       .finally(() => { triggerRunning = false; });
+  }, RETAINER_INTERVAL_MS);
+
+  // And the web pages that triggers watch: once a minute, the few that are due a look are read in a browser, and a
+  // page that changed hires its agent. Does nothing while triggers or browsers are off or no page is watched.
+  pageTimer = setInterval(() => {
+    if (pageRunning || shutdownRequested || !triggersEnabled()) return;
+    pageRunning = true;
+    runPageTriggers()
+      .then((r) => { if (r.changed > 0) logger.info("trigger.page_tick", "Watched pages changed", { ...r }); })
+      .catch((err) => logger.error("trigger.page_tick_failed", "Page trigger tick failed", { err }))
+      .finally(() => { pageRunning = false; });
   }, RETAINER_INTERVAL_MS);
 
   // Mylo: what happened, for its public feed and people's inboxes. Reads the database only; never throws out of the loop.

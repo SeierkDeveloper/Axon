@@ -1,9 +1,10 @@
 // Jobs that start themselves.
 //
-// A trigger is a saved job waiting for something to happen: an agent, what to ask it, and an event. Two kinds of
+// A trigger is a saved job waiting for something to happen: an agent, what to ask it, and an event. Three kinds of
 // event set one off. Something arrives at the trigger's own address: another system calls it, or a file is sent to
-// it. Or something happens on chain: a contract writes a log. When the event comes the agent is hired with it, by
-// the same path a person hires it, so the run has a task, a receipt and a price like any other.
+// it. Something happens on chain: a contract writes a log. Or a page on the web changes (see ./triggerPage). When
+// the event comes the agent is hired with it, by the same path a person hires it, so the run has a task, a receipt
+// and a price like any other.
 //
 // What holds it:
 //
@@ -33,6 +34,7 @@ import { agentUnavailable } from "./retainers";
 import { agentReads, attachFiles, filesEnabled, fitForHire, listFiles, CONTEXT_KEY, REPORT_KEY, type FileRow } from "./agentFiles";
 import { getMcpServerByAgentId } from "./mcp";
 import { scrubSecrets } from "./scrubSecrets";
+import { browserEnabled, checkBrowserUrl } from "./agentBrowser";
 
 type Env = Record<string, string | undefined>;
 
@@ -56,8 +58,12 @@ export const FAILURES_BEFORE_PAUSE = 3;
 /** The ERC-20 Transfer event, which "transfer" stands for. */
 export const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
-export type TriggerKind = "inbound" | "chain";
-export type PauseReason = "owner" | "failures" | "agent_unavailable" | "allowance_expired";
+export type TriggerKind = "inbound" | "chain" | "page";
+export type PauseReason = "owner" | "failures" | "agent_unavailable" | "allowance_expired" | "page_unreachable";
+/** How often a watched page may be looked at, in minutes: the least, what is set when nothing is said, and the most. */
+export const PAGE_EVERY = { min: 15, default: 60, max: 7 * 24 * 60 } as const;
+/** The least can be lowered for a deployment (a test site that wants to see a change within a minute). */
+export const pageEveryMin = (env: Env = process.env): number => { const n = Number(env.AXON_PAGE_WATCH_MIN_MINUTES); return Number.isInteger(n) && n >= 1 && n <= PAGE_EVERY.min ? n : PAGE_EVERY.min; };
 export type SkipReason = "paused" | "daily_limit" | "free_limit" | "agent_unavailable" | "price_above_max" | "allowance_refused" | "payment_unavailable" | "no_allowance";
 
 export const SKIP_TEXT: Record<SkipReason, string> = {
@@ -81,6 +87,16 @@ export interface Trigger {
   chainAddress: string | null;
   chainTopic0: string | null;
   lastBlock: number | null;
+  /** page: the address watched, the words watched for on it, how often it is looked at, and what the last look saw */
+  pageUrl: string | null;
+  pageWatch: string | null;
+  pageEveryMin: number | null;
+  pageLastHash: string | null;
+  pageLastText: string | null;
+  pageCheckedAt: string | null;
+  pageChangedAt: string | null;
+  pageChanges: number;
+  pageFailures: number;
   maxPriceWei: bigint | null;
   payIn: "ETH" | "AXON";
   apiKeyId: string | null;
@@ -101,10 +117,14 @@ interface Row {
   max_price_wei: string | null; pay_in: string; api_key_id: string | null; max_runs_per_day: number; report_file: number;
   status: "active" | "paused"; pause_reason: PauseReason | null; consecutive_failures: number; runs_done: number;
   last_fired_at: string | null; created_at: string; updated_at: string;
+  page_url: string | null; page_watch: string | null; page_every_min: number | null; page_last_hash: string | null; page_last_text: string | null;
+  page_checked_at: string | null; page_changed_at: string | null; page_changes: number | null; page_failures: number | null;
 }
 const fromRow = (r: Row): Trigger => ({
   triggerId: r.trigger_id, ownerWallet: r.owner_wallet, agentId: r.agent_id, name: r.name, kind: r.kind, instructions: r.instructions,
   chainAddress: r.chain_address, chainTopic0: r.chain_topic0, lastBlock: r.last_block,
+  pageUrl: r.page_url, pageWatch: r.page_watch, pageEveryMin: r.page_every_min, pageLastHash: r.page_last_hash, pageLastText: r.page_last_text,
+  pageCheckedAt: r.page_checked_at, pageChangedAt: r.page_changed_at, pageChanges: r.page_changes ?? 0, pageFailures: r.page_failures ?? 0,
   maxPriceWei: r.max_price_wei ? BigInt(r.max_price_wei) : null, payIn: r.pay_in === "AXON" ? "AXON" : "ETH", apiKeyId: r.api_key_id,
   maxRunsPerDay: r.max_runs_per_day, reportFile: r.report_file === 1, status: r.status, pauseReason: r.pause_reason,
   consecutiveFailures: r.consecutive_failures, runsDone: r.runs_done, lastFiredAt: r.last_fired_at, createdAt: r.created_at, updatedAt: r.updated_at,
@@ -115,6 +135,8 @@ export function triggerJson(t: Trigger) {
   return {
     triggerId: t.triggerId, agentId: t.agentId, name: t.name, kind: t.kind, instructions: t.instructions,
     ...(t.kind === "chain" ? { chain: { address: t.chainAddress, topic0: t.chainTopic0, readUpToBlock: t.lastBlock } } : {}),
+    // what the page said is the owner's to read in a run, not here: only that it was looked at, and when it last changed
+    ...(t.kind === "page" ? { page: { url: t.pageUrl, watch: t.pageWatch, everyMinutes: t.pageEveryMin, lookedAt: t.pageCheckedAt, changedAt: t.pageChangedAt, changes: t.pageChanges } } : {}),
     maxPriceEth: t.maxPriceWei !== null ? weiToDecimalString(t.maxPriceWei) : null, payIn: t.payIn, maxRunsPerDay: t.maxRunsPerDay, reportFile: t.reportFile,
     status: t.status, pauseReason: t.pauseReason, runsDone: t.runsDone, lastFiredAt: t.lastFiredAt, createdAt: t.createdAt,
   };
@@ -179,6 +201,8 @@ export interface CreateInput {
   maxRunsPerDay?: number;
   reportFile?: boolean;
   chain?: { address?: string; event?: string; topic0?: string };
+  /** page: the address to watch, the words to watch for on it (optional), and the minutes between two looks */
+  page?: { url?: string; watch?: string; everyMinutes?: number };
   apiKeyId?: string | null;
   /** chain: the block to read from, which is the chain's head when the trigger is made */
   headBlock?: number;
@@ -193,7 +217,7 @@ export function createTrigger(input: CreateInput, nowMs = Date.now()): { trigger
   const instructions = (input.instructions ?? "").trim();
   if (instructions.length < 3) throw new TriggerError("Say what the agent should do when the trigger fires");
   if (instructions.length > 8000) throw new TriggerError("The instructions are too long: at most 8,000 characters");
-  if (input.kind !== "inbound" && input.kind !== "chain") throw new TriggerError('kind is "inbound" (a webhook call or a file) or "chain" (a contract\'s log)');
+  if (input.kind !== "inbound" && input.kind !== "chain" && input.kind !== "page") throw new TriggerError('kind is "inbound" (a webhook call or a file), "chain" (a contract\'s log) or "page" (a web page that changes)');
   const have = (getDb().prepare("SELECT COUNT(*) n FROM triggers WHERE owner_wallet = ?").get(owner) as { n: number }).n;
   if (have >= MAX_TRIGGERS) throw new TriggerError(`A wallet keeps at most ${MAX_TRIGGERS} triggers. Delete one first.`, 409);
 
@@ -223,17 +247,33 @@ export function createTrigger(input: CreateInput, nowMs = Date.now()): { trigger
     lastBlock = Number.isInteger(input.headBlock) && (input.headBlock as number) >= 0 ? (input.headBlock as number) : null;
   }
 
+  let pageUrl: string | null = null, pageWatch: string | null = null, pageEvery: number | null = null;
+  if (input.kind === "page") {
+    if (!browserEnabled()) throw new TriggerError("Watching a page is not switched on here.", 404);
+    const checked = checkBrowserUrl(String(input.page?.url ?? ""));
+    if (!checked.ok) throw new TriggerError(`page.url is the address to watch. ${checked.reason}`);
+    pageUrl = checked.url;
+    const watch = String(input.page?.watch ?? "").replace(/\s+/g, " ").trim();
+    if (watch.length > 120) throw new TriggerError("page.watch is a word or a short phrase to watch for on the page: at most 120 characters");
+    pageWatch = watch || null;
+    const least = pageEveryMin();
+    const every = input.page?.everyMinutes === undefined ? Math.max(least, PAGE_EVERY.default) : Math.floor(Number(input.page.everyMinutes));
+    if (!Number.isFinite(every) || every < least || every > PAGE_EVERY.max) throw new TriggerError(`page.everyMinutes is how often the page is looked at: between ${least} minutes and ${PAGE_EVERY.max / 1440} days`);
+    pageEvery = every;
+  }
+
   const id = `trg_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
   const secret = input.kind === "inbound" ? newSecret() : null;
-  const name = (input.name ?? "").trim().slice(0, 80) || `${agent.name} ${input.kind === "chain" ? "on chain" : "on call"}`;
+  const name = (input.name ?? "").trim().slice(0, 80) || `${agent.name} ${input.kind === "chain" ? "on chain" : input.kind === "page" ? "on a page" : "on call"}`;
   getDb()
     .prepare(
       `INSERT INTO triggers (trigger_id, owner_wallet, agent_id, name, kind, instructions, secret_hash, chain_address, chain_topic0, last_block,
-         max_price_wei, pay_in, api_key_id, max_runs_per_day, report_file, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+         max_price_wei, pay_in, api_key_id, max_runs_per_day, report_file, status, created_at, updated_at, page_url, page_watch, page_every_min)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
     )
     .run(id, owner, agent.agentId, name, input.kind, instructions, secret ? sha(secret) : null, chainAddress, topic0, lastBlock,
-      maxPriceWei !== null ? maxPriceWei.toString() : null, input.payIn === "AXON" ? "AXON" : "ETH", input.apiKeyId ?? null, perDay, input.reportFile ? 1 : 0, iso(nowMs), iso(nowMs));
+      maxPriceWei !== null ? maxPriceWei.toString() : null, input.payIn === "AXON" ? "AXON" : "ETH", input.apiKeyId ?? null, perDay, input.reportFile ? 1 : 0, iso(nowMs), iso(nowMs),
+      pageUrl, pageWatch, pageEvery);
   logger.info("trigger.created", "A trigger was made", { triggerId: id, kind: input.kind, agentId: agent.agentId });
   return { trigger: getTrigger(id)!, secret };
 }
@@ -253,7 +293,8 @@ export function resumeTrigger(triggerId: string, wallet: string, o: { headBlock?
   const t = ownTrigger(triggerId, wallet);
   if (agentUnavailable(t.agentId)) throw new TriggerError("The agent is not available any more. Delete the trigger and make one for another agent.", 409);
   // null means "from the chain's head at the next reading", which is what resuming when the chain cannot be read gets
-  set(t.triggerId, { status: "active", pause_reason: null, consecutive_failures: 0, ...(t.kind === "chain" ? { last_block: Number.isInteger(o.headBlock) ? (o.headBlock as number) : null } : {}) }, nowMs);
+  // a page trigger starts again from how the page is at its next look: what changed while it was paused does not fire it
+  set(t.triggerId, { status: "active", pause_reason: null, consecutive_failures: 0, ...(t.kind === "chain" ? { last_block: Number.isInteger(o.headBlock) ? (o.headBlock as number) : null } : {}), ...(t.kind === "page" ? { page_last_hash: null, page_last_text: null, page_checked_at: null, page_failures: 0 } : {}) }, nowMs);
   return getTrigger(triggerId)!;
 }
 /** A new secret for an inbound trigger: the old address stops working at once. */
@@ -317,6 +358,20 @@ export function limitReached(t: Trigger, nowMs = Date.now(), env: Env = process.
   const charges = agent?.price ? parsePaymentAmount(agent.price)?.wei ?? null : null;
   if (charges === null && runsSince("t.owner_wallet = ? AND r.price_wei IS NULL", [t.ownerWallet], dayAgo) >= freeRunsPerDay(env)) return "free_limit";
   return null;
+}
+
+/**
+ * A line in a trigger's list of runs for something that did not start a job and is not one of the usual refusals: a
+ * page that could not be read, say. One line per `key`, however often it happens.
+ */
+export function noteSkipped(triggerId: string, key: string, summary: string, why: string, nowMs = Date.now()): void {
+  getDb().prepare("INSERT INTO trigger_runs (run_id, trigger_id, event_key, summary, status, error, created_at) VALUES (?, ?, ?, ?, 'skipped', ?, ?) ON CONFLICT (trigger_id, event_key) DO NOTHING")
+    .run(`trun_${randomUUID().replace(/-/g, "").slice(0, 20)}`, triggerId, key.slice(0, 200), summary.replace(/\s+/g, " ").trim().slice(0, 200), why.slice(0, 500), iso(nowMs));
+}
+
+/** Pause a trigger for a reason of its own (not the owner's doing). */
+export function pauseFor(triggerId: string, reason: PauseReason, nowMs = Date.now()): void {
+  set(triggerId, { status: "paused", pause_reason: reason }, nowMs);
 }
 
 export interface TriggerEvent {

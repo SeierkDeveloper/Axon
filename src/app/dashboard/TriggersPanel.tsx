@@ -1,6 +1,6 @@
 "use client";
 // Triggers, on the dashboard: jobs that start themselves. Save an agent and what to ask it, and say what sets it off:
-// a call or a file sent to its own address, or a contract doing something on chain. See what each run returned, and
+// a call or a file sent to its own address, a contract doing something on chain, or a web page changing. See what each run returned, and
 // pause, resume or delete.
 //
 // It shows nothing at all until the server says triggers are on, so the dashboard is unchanged while they are off.
@@ -12,10 +12,11 @@ interface Trigger {
   triggerId: string;
   agentId: string;
   name: string;
-  kind: "inbound" | "chain";
+  kind: "inbound" | "chain" | "page";
   instructions: string;
   url?: string;
   chain?: { address: string | null; topic0: string | null; readUpToBlock: number | null };
+  page?: { url: string | null; watch: string | null; everyMinutes: number | null; lookedAt: string | null; changedAt: string | null; changes: number };
   maxPriceEth: string | null;
   maxRunsPerDay: number;
   status: "active" | "paused";
@@ -33,7 +34,7 @@ interface Run {
   receiptUrl: string | null;
   at: string;
 }
-interface Limits { triggers: number; runsPerDay: { default: number; max: number }; freeRunsPerDay: number }
+interface Limits { triggers: number; runsPerDay: { default: number; max: number }; freeRunsPerDay: number; page?: { everyMinutes: { min: number; default: number; max: number } } }
 interface AgentLite { agentId: string; name: string; price?: string }
 
 const input =
@@ -54,7 +55,10 @@ const PAUSED: Record<string, string> = {
   failures: "Paused itself: the payment was refused three times in a row.",
   agent_unavailable: "Paused itself: the agent is not available any more.",
   allowance_expired: "Paused itself: your allowance has expired.",
+  page_unreachable: "Paused itself: the page could not be read five times in a row.",
 };
+/** How often a page is looked at, in words. */
+const every = (minutes: number): string => (minutes < 60 ? `${minutes} minutes` : minutes === 60 ? "hour" : minutes < 1440 ? `${+(minutes / 60).toFixed(1)} hours` : minutes === 1440 ? "day" : `${+(minutes / 1440).toFixed(1)} days`);
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 export default function TriggersPanel({ apiKey, onToast }: { apiKey: string; onToast: (type: "success" | "error", message: string) => void }) {
@@ -72,7 +76,11 @@ export default function TriggersPanel({ apiKey, onToast }: { apiKey: string; onT
   // the form
   const [agentId, setAgentId] = useState("");
   const [instructions, setInstructions] = useState("");
-  const [kind, setKind] = useState<"inbound" | "chain">("inbound");
+  const [kind, setKind] = useState<"inbound" | "chain" | "page">("inbound");
+  // a page to watch: its address, the words to watch for on it, and how often to look
+  const [pageUrl, setPageUrl] = useState("");
+  const [pageWatch, setPageWatch] = useState("");
+  const [pageEvery, setPageEvery] = useState("60");
   const [address, setAddress] = useState("");
   const [event, setEvent] = useState<"transfer" | "any">("transfer");
   const [maxPrice, setMaxPrice] = useState("");
@@ -134,6 +142,7 @@ export default function TriggersPanel({ apiKey, onToast }: { apiKey: string; onT
         body: JSON.stringify({
           agentId, instructions, kind,
           ...(kind === "chain" ? { chain: { address: address.trim(), event } } : {}),
+          ...(kind === "page" ? { page: { url: pageUrl.trim(), ...(pageWatch.trim() ? { watch: pageWatch.trim() } : {}), everyMinutes: Number(pageEvery) } } : {}),
           ...(charges ? { maxPriceEth: maxPrice.trim() } : {}),
           ...(perDay.trim() ? { maxRunsPerDay: Number(perDay) } : {}),
         }),
@@ -141,7 +150,7 @@ export default function TriggersPanel({ apiKey, onToast }: { apiKey: string; onT
       if (made.secret && made.trigger.url) setSecret({ triggerId: made.trigger.triggerId, url: made.trigger.url, secret: made.secret });
       onToast("success", "Trigger saved");
       setCreating(false);
-      setInstructions(""); setAddress(""); setMaxPrice(""); setPerDay("");
+      setInstructions(""); setAddress(""); setMaxPrice(""); setPerDay(""); setPageUrl(""); setPageWatch("");
       reload();
     } catch (e) {
       onToast("error", e instanceof Error ? e.message : "Could not save the trigger");
@@ -171,7 +180,7 @@ export default function TriggersPanel({ apiKey, onToast }: { apiKey: string; onT
       </div>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
         Jobs that start themselves. Save an agent and what to ask it, and it is hired the moment something happens: your
-        own system calls it, a file is sent to it, or a contract does something on chain. An agent that charges is paid from
+        own system calls it, a file is sent to it, a contract does something on chain, or a web page changes. An agent that charges is paid from
         your allowance.
       </p>
       {limits && (
@@ -210,17 +219,43 @@ export default function TriggersPanel({ apiKey, onToast }: { apiKey: string; onT
             </div>
             <div>
               <label className={label} htmlFor="trg-kind">Starts when</label>
-              <select id="trg-kind" value={kind} onChange={(e) => setKind(e.target.value as "inbound" | "chain")} className={input}>
+              <select id="trg-kind" value={kind} onChange={(e) => setKind(e.target.value as "inbound" | "chain" | "page")} className={input}>
                 <option value="inbound">A call or a file arrives</option>
                 <option value="chain">Something happens on chain</option>
+                {limits?.page && <option value="page">A web page changes</option>}
               </select>
             </div>
           </div>
           <div>
             <label className={label} htmlFor="trg-task">What to ask it</label>
-            <textarea id="trg-task" value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={3} placeholder={kind === "chain" ? "Say in two lines what this transfer is and whether it looks unusual." : "Summarise what arrived and list anything I need to act on."} className={input} />
+            <textarea id="trg-task" value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={3} placeholder={kind === "page" ? "Tell me what changed and whether it matters. Open the page if you need more." : kind === "chain" ? "Say in two lines what this transfer is and whether it looks unusual." : "Summarise what arrived and list anything I need to act on."} className={input} />
             <p className="mt-1 text-[11px] text-gray-400">What arrives is added under this as the event. The agent is told it is data, not instructions.</p>
           </div>
+          {kind === "page" && limits?.page && (
+            <div className="space-y-3">
+              <div>
+                <label className={label} htmlFor="trg-page">The page to watch</label>
+                <input id="trg-page" value={pageUrl} onChange={(e) => setPageUrl(e.target.value)} placeholder="https://example.com/pricing" className={input} inputMode="url" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={label} htmlFor="trg-watch">Words to watch for (optional)</label>
+                  <input id="trg-watch" value={pageWatch} onChange={(e) => setPageWatch(e.target.value)} placeholder="Price" className={input} maxLength={120} />
+                </div>
+                <div>
+                  <label className={label} htmlFor="trg-every">Look every</label>
+                  <select id="trg-every" value={pageEvery} onChange={(e) => setPageEvery(e.target.value)} className={input}>
+                    {[1, 5, 15, 30, 60, 180, 360, 720, 1440].filter((m) => m >= limits.page!.everyMinutes.min && m <= limits.page!.everyMinutes.max).map((m) => (
+                      <option key={m} value={m}>{m < 60 ? `${m} minutes` : m === 60 ? "hour" : m < 1440 ? `${m / 60} hours` : "day"}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="text-[11px] text-gray-400">
+                The page is read in a real browser. With words to watch for, only the lines that mention them count, so a clock or an advert changing does not start a job. The first look only notes how the page is.
+              </p>
+            </div>
+          )}
           {kind === "chain" && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -249,7 +284,7 @@ export default function TriggersPanel({ apiKey, onToast }: { apiKey: string; onT
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => void create()} disabled={busy === "new" || !agentId || instructions.trim().length < 3 || (kind === "chain" && !address.trim()) || (charges && !maxPrice.trim())} className={button}>
+            <button onClick={() => void create()} disabled={busy === "new" || !agentId || instructions.trim().length < 3 || (kind === "chain" && !address.trim()) || (kind === "page" && pageUrl.trim().length < 4) || (charges && !maxPrice.trim())} className={button}>
               {busy === "new" ? "Saving…" : "Save trigger"}
             </button>
             <button onClick={() => setCreating(false)} className={button}>Cancel</button>
@@ -265,7 +300,7 @@ export default function TriggersPanel({ apiKey, onToast }: { apiKey: string; onT
             <div className="flex flex-wrap items-center gap-2">
               <p className="font-medium text-sm text-gray-900 dark:text-white">{nameOf(t.agentId)}</p>
               <span className={chip(t.status === "active")}>{t.status === "active" ? "waiting" : "paused"}</span>
-              <span className="text-[11px] text-gray-400">{t.kind === "chain" ? "on chain" : "call or file"}</span>
+              <span className="text-[11px] text-gray-400">{t.kind === "chain" ? "on chain" : t.kind === "page" ? "a page changes" : "call or file"}</span>
               <span className="ml-auto text-[11px] text-gray-400">{t.runsDone} {t.runsDone === 1 ? "run" : "runs"}{t.lastFiredAt ? `, last ${when(t.lastFiredAt)}` : ""}</span>
             </div>
             <p className="mt-1.5 text-sm text-gray-600 dark:text-gray-300 break-words">{t.instructions}</p>
@@ -273,6 +308,12 @@ export default function TriggersPanel({ apiKey, onToast }: { apiKey: string; onT
             {t.kind === "chain" && t.chain && (
               <p className="mt-1.5 break-all font-mono text-[11px] text-gray-400">
                 {t.chain.topic0 ? "transfers" : "every log"} of {t.chain.address}{t.chain.readUpToBlock !== null ? `, read to block ${t.chain.readUpToBlock.toLocaleString("en-US")}` : ""}
+              </p>
+            )}
+            {t.kind === "page" && t.page && (
+              <p className="mt-1.5 break-words text-[11px] text-gray-400">
+                Watching <span className="break-all font-mono">{t.page.url}</span>{t.page.watch ? <> for &ldquo;{t.page.watch}&rdquo;</> : null}, every {every(t.page.everyMinutes ?? 60)}.{" "}
+                {t.page.lookedAt ? `Last looked ${when(t.page.lookedAt)}` : "Not looked at yet"}{t.page.changedAt ? `, last changed ${when(t.page.changedAt)}` : t.page.lookedAt ? ", no change seen yet" : ""}.
               </p>
             )}
             {t.status === "paused" && <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">{PAUSED[t.pauseReason ?? "owner"] ?? "Paused."}</p>}
@@ -285,6 +326,27 @@ export default function TriggersPanel({ apiKey, onToast }: { apiKey: string; onT
                 <button disabled={busy === t.triggerId} onClick={() => void act(t.triggerId, () => authed(`/api/triggers/${t.triggerId}`, { method: "PATCH", body: JSON.stringify({ action: "pause" }) }), "Paused")} className={button}>Pause</button>
               ) : (
                 <button disabled={busy === t.triggerId} onClick={() => void act(t.triggerId, () => authed(`/api/triggers/${t.triggerId}`, { method: "PATCH", body: JSON.stringify({ action: "resume" }) }), "Waiting again")} className={button}>Resume</button>
+              )}
+              {t.kind === "page" && t.status === "active" && (
+                <button
+                  disabled={busy === t.triggerId}
+                  onClick={() => void (async () => {
+                    setBusy(t.triggerId);
+                    try {
+                      const d = (await authed(`/api/triggers/${t.triggerId}`, { method: "PATCH", body: JSON.stringify({ action: "look" }) })) as { look: { looked: boolean; changed?: boolean; first?: boolean; fired?: boolean; message?: string; reason?: string } };
+                      const l = d.look;
+                      onToast(l.looked ? "success" : "error", !l.looked ? `The page could not be read: ${l.reason ?? "try again later"}` : l.changed ? l.message ?? "The page changed." : l.first ? "Looked. This is how the page is now; the next change starts the job." : "Looked. Nothing has changed.");
+                      reload();
+                    } catch (e) {
+                      onToast("error", e instanceof Error ? e.message : "Could not look at the page");
+                    } finally {
+                      setBusy(null);
+                    }
+                  })()}
+                  className={button}
+                >
+                  {busy === t.triggerId ? "Looking…" : "Look now"}
+                </button>
               )}
               {t.kind === "inbound" && (
                 <button
