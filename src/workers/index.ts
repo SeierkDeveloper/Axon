@@ -24,6 +24,7 @@ import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
 import { BROWSER_STEPS, browserTool, mayBrowse, withBrowser } from "../lib/browserTool";
+import { recordPage } from "../lib/taskPages";
 import { triggersEnabled } from "../lib/triggers";
 import { runChainTriggers } from "../lib/triggerChain";
 import { retryFileCommitments } from "../lib/outputCommitment";
@@ -466,7 +467,7 @@ async function processTasks() {
           let browserSteps = 0;
           if (aboutSite(task.task) || (before && earlierTurns(task).some((t) => aboutSite(t.task)))) {
             // each thing it does there is a line in the live log, with a picture of the page as it then was
-            const b = browserTool({ taskId: task.taskId, paid: task.payment != null, say: (line) => live.show(line, hirerWallet) });
+            const b = browserTool({ taskId: task.taskId, paid: task.payment != null, say: (line) => live.show(line, hirerWallet), onPage: (page) => { recordPage(task.taskId, page); } });
             tools = withBrowser(tools, b.tool);
             closeBrowser = b.close;
             browserSteps = task.payment != null ? BROWSER_STEPS.paid : BROWSER_STEPS.free;
@@ -526,8 +527,8 @@ async function processTasks() {
                       onToolCall,
                       ...(live.on ? { onLive: live.onLive } : {}),
                       signal: abort.signal,
-                      // a job with a browser needs a round for each thing it does there, and a couple to think and answer
-                      maxSteps: browserSteps ? Math.max(depth.toolSteps, browserSteps + 3) : depth.toolSteps,
+                      // a job with a browser needs a round for each thing it does there, and a few to read, note and answer
+                      maxSteps: browserSteps ? Math.max(depth.toolSteps, browserSteps + 5) : depth.toolSteps,
                       maxToolResultChars: depth.toolResultChars,
                       attachments: handed.attachments,
                       sandbox,

@@ -85,6 +85,33 @@ function EarlierTurn({ n, turn, named }: { n: number; turn: Turn; named: boolean
 }
 
 interface StepLine { n: number; text: string; shot?: StepShot }
+interface Visited { n: number; url: string; title: string }
+
+/** An address as a person would say it: the site and the path. */
+const pageLabel = (url: string): string => { try { const u = new URL(url); return `${u.hostname.replace(/^www\./, "")}${u.pathname === "/" ? "" : u.pathname}`; } catch { return url; } };
+
+/**
+ * Where the agent's browser went to find this answer, in the order it got there. Each is a link to the page itself,
+ * so what the agent says can be checked against where it says it found it. Shows nothing for a job without a browser.
+ */
+function PagesVisited({ pages }: { pages: Visited[] }) {
+  const web = pages.filter((p) => /^https?:\/\//i.test(p.url));
+  if (!web.length) return null;
+  return (
+    <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+      <p className="text-gray-700 dark:text-gray-300">{web.length === 1 ? "The page it used" : `The ${web.length} pages it used`}</p>
+      <ol className="mt-1 space-y-0.5">
+        {web.map((p) => (
+          <li key={p.n} className="flex min-w-0 items-baseline gap-2">
+            <span className="shrink-0 tabular-nums text-gray-400 dark:text-gray-500">{p.n}.</span>
+            <a href={p.url} target="_blank" rel="noopener noreferrer nofollow" title={p.url} className="min-w-0 truncate text-teal-600 hover:underline dark:text-teal-400">{pageLabel(p.url)}</a>
+            {p.title && <span className="hidden min-w-0 truncate text-gray-400 sm:inline dark:text-gray-500">{p.title}</span>}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
 
 /**
  * The steps of a hire, oldest first. While it runs the last one is the one happening now. A step an agent took in
@@ -161,6 +188,8 @@ export default function HirePanel({
   const [outFiles, setOutFiles] = useState<OutputFile[]>([]);
   // what the agent has done so far, one line a step, while it runs and after
   const [steps, setSteps] = useState<StepLine[]>([]);
+  // where the agent's browser went on this job, when it used one
+  const [pages, setPages] = useState<Visited[]>([]);
   const cancelled = useRef(false);
   // the hire's own token: what reads its answer, and what has that answer read aloud
   const [claim, setClaim] = useState<string | null>(null);
@@ -267,9 +296,10 @@ export default function HirePanel({
         setPhase("error");
         return;
       }
-      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: StepLine[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[]; plan?: OpenPlan; steer?: { open?: boolean; stoppable?: boolean; notesLeft?: number }; notes?: SentNote[]; remembered?: { id: string; text: string }[] };
+      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: StepLine[]; pages?: Visited[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[]; plan?: OpenPlan; steer?: { open?: boolean; stoppable?: boolean; notesLeft?: number }; notes?: SentNote[]; remembered?: { id: string; text: string }[] };
       if (cancelled.current) return;
       if (Array.isArray(t.steps)) setSteps((had) => (t.steps!.length >= had.length ? t.steps! : had));
+      if (Array.isArray(t.pages)) setPages((had) => (t.pages!.length >= had.length ? t.pages! : had));
       if (Array.isArray(t.questions)) setAsked(t.questions.filter((q) => q.answeredAt));
       setSteer(t.steer ? { open: Boolean(t.steer.open), stoppable: Boolean(t.steer.stoppable), notesLeft: Number(t.steer.notesLeft) || 0 } : null);
       if (Array.isArray(t.notes)) setNotes(t.notes);
@@ -346,7 +376,7 @@ export default function HirePanel({
         setTaskId(data.taskId);
         setClaim(data.claimToken);
         setFiles([]); // they belong to this hire now
-        setSteps([]);
+        setSteps([]); setPages([]);
         setPhase("running");
         poll(data.taskId, data.claimToken, 0);
         return;
@@ -468,7 +498,7 @@ export default function HirePanel({
         setClaim(data.claimToken);
         setOutput(null);
         setOutFiles([]);
-        setSteps([]);
+        setSteps([]); setPages([]);
         setFiles([]);
         setFollow(null);
         setAsked([]);
@@ -643,7 +673,7 @@ export default function HirePanel({
     setTask("");
     setOutFiles([]);
     setReport(false);
-    setSteps([]);
+    setSteps([]); setPages([]);
     setClaim(null);
   }
 
@@ -1017,6 +1047,7 @@ export default function HirePanel({
               ))}
             </div>
           )}
+          <PagesVisited pages={pages} />
           {steps.length > 0 && (
             <details className="mt-3 group">
               <summary className="cursor-pointer select-none text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
