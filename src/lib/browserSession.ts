@@ -215,7 +215,7 @@ function endAll(proc: ChildProcess): void {
 // ── one job's browser ────────────────────────────────────────────────────────
 
 /** The guard's reason, in the words an agent and its hirer are told. */
-export function plainWhy(why: string): string {
+function plainWhy(why: string): string {
   if (/could not be resolved/.test(why)) return "no site answers at that name";
   if (/port/.test(why)) return "it is not on a web port";
   if (/used up its data/.test(why)) return "this job has used up its data";
