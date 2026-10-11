@@ -76,6 +76,16 @@ RUN apk add --no-cache curl \
     || (echo "apk curl retry 1 (transient Alpine index)…" && sleep 8 && apk add --no-cache curl) \
     || (echo "apk curl retry 2…" && sleep 20 && apk add --no-cache curl)
 
+# A browser for agents (AGENT_BROWSER=on; off, nothing ever starts it). Chromium, the fonts a page needs to be
+# readable in a picture of it, and a user of its own with no rights: the server runs as root, the browser never does.
+# Retried for the same reason as curl above.
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto font-noto-emoji \
+    || (echo "apk chromium retry 1 (transient Alpine index)…" && sleep 8 && apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto font-noto-emoji) \
+    || (echo "apk chromium retry 2…" && sleep 20 && apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto font-noto-emoji)
+RUN addgroup -g 10001 axbrowser && adduser -D -H -u 10001 -G axbrowser -s /sbin/nologin axbrowser
+ENV AXON_BROWSER_UID=10001
+ENV AXON_BROWSER_GID=10001
+
 # SQLite data directory — mount a Railway Volume at /data in production
 RUN mkdir -p /data
 

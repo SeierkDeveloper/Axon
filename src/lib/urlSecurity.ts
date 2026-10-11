@@ -65,20 +65,15 @@ interface ResolvedPublicUrl {
   family: 4 | 6;
 }
 
-async function resolvePublicHttpUrl(rawUrl: string): Promise<ResolvedPublicUrl | string> {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    return "endpoint must be a valid URL";
-  }
-
-  if (!["http:", "https:"].includes(url.protocol)) {
-    return "endpoint must use http or https";
-  }
-
-  const hostname = url.hostname.toLowerCase();
+/**
+ * A host name (or a literal address) to the one public address a connection to it may use. Anything on this machine,
+ * on a private network or reserved is refused with the reason, and so is a name that answers with even one such
+ * address. Whoever connects must connect to the address returned here, not look the name up again.
+ */
+export async function resolvePublicHost(rawHost: string): Promise<{ address: string; family: 4 | 6 } | string> {
+  const hostname = rawHost.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
   if (
+    !hostname ||
     BLOCKED_HOSTS.has(hostname) ||
     hostname.endsWith(".localhost") ||
     hostname.endsWith(".local") ||
@@ -90,7 +85,7 @@ async function resolvePublicHttpUrl(rawUrl: string): Promise<ResolvedPublicUrl |
   if (isIP(hostname)) {
     return isBlockedAddress(hostname)
       ? "endpoint host is not allowed"
-      : { url, address: hostname, family: isIP(hostname) as 4 | 6 };
+      : { address: hostname, family: isIP(hostname) as 4 | 6 };
   }
 
   let records: Array<{ address: string; family: number }>;
@@ -108,7 +103,23 @@ async function resolvePublicHttpUrl(rawUrl: string): Promise<ResolvedPublicUrl |
   if (!record || (record.family !== 4 && record.family !== 6)) {
     return "endpoint host could not be resolved";
   }
-  return { url, address: record.address, family: record.family };
+  return { address: record.address, family: record.family };
+}
+
+async function resolvePublicHttpUrl(rawUrl: string): Promise<ResolvedPublicUrl | string> {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return "endpoint must be a valid URL";
+  }
+
+  if (!["http:", "https:"].includes(url.protocol)) {
+    return "endpoint must use http or https";
+  }
+
+  const resolved = await resolvePublicHost(url.hostname);
+  return typeof resolved === "string" ? resolved : { url, ...resolved };
 }
 
 export async function validatePublicHttpUrl(rawUrl: string): Promise<string | null> {
