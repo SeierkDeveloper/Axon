@@ -90,6 +90,43 @@ interface Visited { n: number; url: string; title: string }
 /** An address as a person would say it: the site and the path. */
 const pageLabel = (url: string): string => { try { const u = new URL(url); return `${u.hostname.replace(/^www\./, "")}${u.pathname === "/" ? "" : u.pathname}`; } catch { return url; } };
 
+interface Sent { n: number; url: string; button: string; fields: { label: string; value: string }[] }
+
+/**
+ * What the agent's browser sent on this job: each form, the page it was on and every field with what was in it. A
+ * form sent in the person's name is theirs to see in full, so it is shown open, above everything else about how the
+ * job went. Shows nothing for a job that sent nothing.
+ */
+function FormsSent({ sent }: { sent: Sent[] }) {
+  if (!sent.length) return null;
+  return (
+    <div className="mt-3 rounded-md border border-teal-200 bg-teal-50/50 p-3 text-xs dark:border-teal-900/50 dark:bg-teal-950/20">
+      <p className="font-semibold text-gray-900 dark:text-white">{sent.length === 1 ? "It sent a form for you" : `It sent ${sent.length} forms for you`}</p>
+      {sent.map((f) => (
+        <div key={f.n} className="mt-2">
+          <p className="break-all text-gray-600 dark:text-gray-300">
+            To <a href={f.url} target="_blank" rel="noopener noreferrer nofollow" className="text-teal-700 hover:underline dark:text-teal-400">{pageLabel(f.url)}</a>
+            {f.button ? <> with the button &ldquo;{f.button}&rdquo;</> : null}
+          </p>
+          {f.fields.length > 0 ? (
+            <dl className="mt-1.5 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-1">
+              {f.fields.map((x, i) => (
+                <div key={i} className="contents">
+                  <dt className="truncate text-gray-500 dark:text-gray-400">{x.label || "A field"}</dt>
+                  <dd className="break-words text-gray-900 dark:text-white">{x.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <p className="mt-1 text-gray-500 dark:text-gray-400">Nothing was filled in.</p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
 /**
  * Where the agent's browser went to find this answer, in the order it got there. Each is a link to the page itself,
  * so what the agent says can be checked against where it says it found it. Shows nothing for a job without a browser.
@@ -190,6 +227,8 @@ export default function HirePanel({
   const [steps, setSteps] = useState<StepLine[]>([]);
   // where the agent's browser went on this job, when it used one
   const [pages, setPages] = useState<Visited[]>([]);
+  // and what it sent there: each form, field by field
+  const [sent, setSent] = useState<Sent[]>([]);
   const cancelled = useRef(false);
   // the hire's own token: what reads its answer, and what has that answer read aloud
   const [claim, setClaim] = useState<string | null>(null);
@@ -296,10 +335,11 @@ export default function HirePanel({
         setPhase("error");
         return;
       }
-      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: StepLine[]; pages?: Visited[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[]; plan?: OpenPlan; steer?: { open?: boolean; stoppable?: boolean; notesLeft?: number }; notes?: SentNote[]; remembered?: { id: string; text: string }[] };
+      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: StepLine[]; pages?: Visited[]; sent?: Sent[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[]; plan?: OpenPlan; steer?: { open?: boolean; stoppable?: boolean; notesLeft?: number }; notes?: SentNote[]; remembered?: { id: string; text: string }[] };
       if (cancelled.current) return;
       if (Array.isArray(t.steps)) setSteps((had) => (t.steps!.length >= had.length ? t.steps! : had));
       if (Array.isArray(t.pages)) setPages((had) => (t.pages!.length >= had.length ? t.pages! : had));
+      if (Array.isArray(t.sent)) setSent((had) => (t.sent!.length >= had.length ? t.sent! : had));
       if (Array.isArray(t.questions)) setAsked(t.questions.filter((q) => q.answeredAt));
       setSteer(t.steer ? { open: Boolean(t.steer.open), stoppable: Boolean(t.steer.stoppable), notesLeft: Number(t.steer.notesLeft) || 0 } : null);
       if (Array.isArray(t.notes)) setNotes(t.notes);
@@ -376,7 +416,7 @@ export default function HirePanel({
         setTaskId(data.taskId);
         setClaim(data.claimToken);
         setFiles([]); // they belong to this hire now
-        setSteps([]); setPages([]);
+        setSteps([]); setPages([]); setSent([]);
         setPhase("running");
         poll(data.taskId, data.claimToken, 0);
         return;
@@ -498,7 +538,7 @@ export default function HirePanel({
         setClaim(data.claimToken);
         setOutput(null);
         setOutFiles([]);
-        setSteps([]); setPages([]);
+        setSteps([]); setPages([]); setSent([]);
         setFiles([]);
         setFollow(null);
         setAsked([]);
@@ -673,7 +713,7 @@ export default function HirePanel({
     setTask("");
     setOutFiles([]);
     setReport(false);
-    setSteps([]); setPages([]);
+    setSteps([]); setPages([]); setSent([]);
     setClaim(null);
   }
 
@@ -1047,6 +1087,7 @@ export default function HirePanel({
               ))}
             </div>
           )}
+          <FormsSent sent={sent} />
           <PagesVisited pages={pages} />
           {steps.length > 0 && (
             <details className="mt-3 group">

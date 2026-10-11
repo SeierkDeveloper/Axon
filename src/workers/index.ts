@@ -23,7 +23,8 @@ import { approvedNote, approveOverdue, keepPlan, parkForPlan, planEnabled, planN
 import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
-import { BROWSER_STEPS, browserTool, mayBrowse, refusalLine, withBrowser } from "../lib/browserTool";
+import { asksToSend, BROWSER_STEPS, browserTool, mayBrowse, refusalLine, withBrowser } from "../lib/browserTool";
+import { recordSent } from "../lib/taskSent";
 import { recordPage } from "../lib/taskPages";
 import { triggersEnabled } from "../lib/triggers";
 import { runChainTriggers } from "../lib/triggerChain";
@@ -467,7 +468,11 @@ async function processTasks() {
           let browserSteps = 0;
           if (aboutSite(task.task) || (before && earlierTurns(task).some((t) => aboutSite(t.task)))) {
             // each thing it does there is a line in the live log, with a picture of the page as it then was
-            const b = browserTool({ taskId: task.taskId, paid: task.payment != null, say: (line) => live.show(line, hirerWallet), onPage: (page) => { recordPage(task.taskId, page); } });
+            const b = browserTool({ taskId: task.taskId, paid: task.payment != null, say: (line) => live.show(line, hirerWallet), onPage: (page) => { recordPage(task.taskId, page); },
+              // a form is sent only when the person asked for something to be sent, in this turn or one before it
+              maySend: asksToSend(task.task) || Boolean(before && earlierTurns(task).some((t) => asksToSend(t.task))),
+              onSent: (sent) => { recordSent(task.taskId, sent); },
+            });
             tools = withBrowser(tools, b.tool);
             closeBrowser = b.close;
             browserSteps = task.payment != null ? BROWSER_STEPS.paid : BROWSER_STEPS.free;
