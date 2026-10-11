@@ -31,6 +31,7 @@ import { ExtArrow } from "@/components/ExtArrow";
 import { agentAvailability } from "@/lib/availability";
 import { agentReads, codeEnabled, filesEnabled } from "@/lib/agentFiles";
 import { mayDraw } from "@/lib/agentPictures";
+import { agentBrowses } from "@/lib/agentBrowser";
 import { getMcpServerByAgentId } from "@/lib/mcp";
 import { planEnabled, plannable } from "@/lib/planFirst";
 import { memoryEnabled } from "@/lib/agentMemory";
@@ -112,6 +113,8 @@ export default async function AgentProfilePage({
   const runsCode = codeEnabled() && !agent.endpoint && !getMcpServerByAgentId(agent.agentId) && !agent.orchestrator && (agent.provider ?? "anthropic") === "anthropic";
   // whether a hire that asks for a picture would be given the picture tool
   const draws = mayDraw(agent, "a picture", { viaMcp: Boolean(getMcpServerByAgentId(agent.agentId)) });
+  // whether a hire that names a website would be given a browser to open it with
+  const browses = agentBrowses(agent, { viaMcp: Boolean(getMcpServerByAgentId(agent.agentId)) });
 
   return (
     <div className="bg-white dark:bg-[#0a0a0a] min-h-screen text-[#0a0a0a] dark:text-white">
@@ -213,6 +216,12 @@ export default async function AgentProfilePage({
               pictures, when you ask for one
             </p>
           )}
+          {browses && (
+            <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400">
+              <span className="font-mono text-xs uppercase tracking-widest text-gray-400 mr-2">Browses</span>
+              websites in a real browser, when the job names one
+            </p>
+          )}
         </div>
 
         {/* Proof Score, the portable, verifiable credential */}
@@ -230,7 +239,7 @@ export default async function AgentProfilePage({
           canRemember={memoryEnabled()}
           canBringIn={bringInEnabled()}
           canLibrary={libraryEnabled()}
-          starters={startersFor(agent, { files: Boolean(reads?.text), code: runsCode, pictures: draws, office: runsCode && officeEnabled() })}
+          starters={startersFor(agent, { files: Boolean(reads?.text), code: runsCode, pictures: draws, office: runsCode && officeEnabled(), browser: browses })}
         />
 
         {/* Retain: the same hire on a schedule, paid from the allowance. Paid agents only. */}

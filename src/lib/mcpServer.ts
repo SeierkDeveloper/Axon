@@ -25,6 +25,10 @@
 
 import { filesEnabled, filesOfTask, outputFileFor } from "./agentFiles";
 import { liveLogEnabled, stepsOf } from "./liveLog";
+import { agentBrowses, browserEnabled } from "./agentBrowser";
+import { pagesOf } from "./taskPages";
+import { sentOf } from "./taskSent";
+import { getMcpServerByAgentId } from "./mcp";
 import { claimTokenFor, claimTokenValid } from "./claimToken";
 import { NextRequest } from "next/server";
 import { getAgentById, searchAgents, toPublicAgent } from "./agents";
@@ -256,6 +260,11 @@ const RESULT_WITH_STEPS = " While the job is still running, steps lists what the
 /** What get_task_result says about itself while files are on: it also lists what the agent handed back. */
 const RESULT_WITH_FILES = " When the agent handed back files (a chart, a table, the answer as a file), they are listed under files, each with its SHA-256 and a url that downloads it.";
 
+/** And while agents have a browser: where it went, and what it sent. */
+const RESULT_WITH_BROWSER = " When the agent used its browser, the pages it opened are listed under pages (each with its address and title), a form it sent is listed under sent with what was typed into it, and a file it saved or downloaded from a page says where it came from under from.";
+/** What the hire tool says while agents have a browser. */
+const HIRE_WITH_BROWSER = " An agent Axon runs can open websites in a real browser when the task names one or asks it to go somewhere: it reads the page as it is drawn, clicks, scrolls, fills in forms, compares pages, and saves a page or downloads a file from it. It signs in nowhere, pays nowhere, and sends a form only when the task asks for that. get_agent says whether an agent browses.";
+
 /**
  * The tools on offer right now: the standing list, plus files while they are switched on, plus what working with
  * an agent adds (follow-ups, questions, plans, notes, the library), each by its own switch.
@@ -276,7 +285,11 @@ export function mcpTools(): readonly McpTool[] {
 function toolsWithFiles(): readonly McpTool[] {
   const standing = MCP_TOOLS as unknown as McpTool[];
   // while the live log is on, reading a result also says what the agent has done so far
-  const base = liveLogEnabled() ? standing.map((t) => (t.name === "get_task_result" ? { ...t, description: t.description + RESULT_WITH_STEPS } : t)) : standing;
+  const logged = liveLogEnabled() ? standing.map((t) => (t.name === "get_task_result" ? { ...t, description: t.description + RESULT_WITH_STEPS } : t)) : standing;
+  // while agents have a browser, hiring says so and reading a result says where the browser went
+  const base = browserEnabled()
+    ? logged.map((t) => (t.name === "hire_agent" ? { ...t, description: t.description + HIRE_WITH_BROWSER } : t.name === "get_task_result" ? { ...t, description: t.description + RESULT_WITH_BROWSER } : t))
+    : logged;
   if (!filesEnabled()) return base;
   const out: McpTool[] = [];
   for (const t of base) {
@@ -370,6 +383,8 @@ function toolGetAgent(args: Record<string, unknown>) {
   const proof = computeProofScore(agentId);
   return {
     agent: agentSummary(agent),
+    // whether a task that names a website is given a browser to open it with
+    ...(agentBrowses(agent, { viaMcp: Boolean(getMcpServerByAgentId(agentId)) }) ? { browses: true } : {}),
     proofScore: proof
       ? { score: proof.score, tier: proof.tier, verify: `${BASE_URL}/api/agents/${agentId}/proof-score?verify=1` }
       : null,
@@ -654,11 +669,14 @@ function toolGetTaskResult(args: Record<string, unknown>) {
   const files = filesEnabled() && task.status === "completed"
     ? filesOfTask(taskId, "out").map((f) => {
         const o = outputFileFor(f);
-        return { name: o.name, type: o.type, size: o.size, sha256: o.sha256, url: `${BASE_URL}${o.path}?token=${o.token}`, ...(o.madeBy ? { madeBy: o.madeBy.name } : {}), ...(o.version ? { version: o.version } : {}) };
+        return { name: o.name, type: o.type, size: o.size, sha256: o.sha256, url: `${BASE_URL}${o.path}?token=${o.token}`, ...(o.madeBy ? { madeBy: o.madeBy.name } : {}), ...(o.version ? { version: o.version } : {}), ...(o.from ? { from: { url: o.from.url, title: o.from.title, how: o.from.kind } } : {}) };
       })
     : [];
   // What the agent has done so far, one line a step: something to show while the job is still running.
   const steps = liveLogEnabled() ? stepsOf(taskId).map((x) => x.text) : [];
+  // Where the job's browser went and what it sent, for a job that used one.
+  const pages = pagesOf(taskId).map((p) => ({ url: p.url, title: p.title }));
+  const sent = sentOf(taskId).map((f) => ({ url: f.url, button: f.button, fields: f.fields }));
   // A failed TASK is a valid tool result, not a tool failure — report it as
   // `failureReason`, never `error` (the dispatcher flags isError by the presence
   // of an `error` key, so a completed result must not carry one).
@@ -669,6 +687,8 @@ function toolGetTaskResult(args: Record<string, unknown>) {
     failureReason: task.status === "failed" ? (task.error ?? null) : null,
     ...(steps.length ? { steps } : {}),
     ...(files.length ? { files } : {}),
+    ...(pages.length ? { pages } : {}),
+    ...(sent.length ? { sent } : {}),
     ...resultWork(task),
     receiptUrl: `${BASE_URL}/r/${taskId}`,
   };

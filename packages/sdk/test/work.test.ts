@@ -125,6 +125,35 @@ describe("hire()", () => {
     expect(r).toMatchObject({ status: "completed", output: "Done.", claimToken: "tok", files, timedOut: false });
   });
 
+  it("hands on where the agent's browser went and what it sent", async () => {
+    const pages = [{ n: 1, url: "https://python.org/", title: "Welcome to Python.org" }, { n: 2, url: "https://nodejs.org/en", title: "Node.js" }];
+    const sent = [{ n: 1, url: "https://example.com/contact", button: "Send", fields: [{ label: "Name", value: "Ada" }] }];
+    const files = [{ id: "f_2", name: "page.pdf", type: "application/pdf", kind: "pdf" as const, size: 9, sha256: "cd", token: "ft", path: "/api/files/f_2/content", from: { url: "https://python.org/", title: "Welcome to Python.org", kind: "pdf" as const, at: "2026-10-11T10:00:00Z" } }];
+    const c = {
+      getX402Requirements: vi.fn(async () => null),
+      sendTask: vi.fn(async () => task({ claimToken: "tok" })),
+      getTask: vi.fn(async () => task({ status: "completed", output: "Compared.", pages, sent, outputFiles: files })),
+      getReceipt: vi.fn(async () => ({ receipt: { taskId: "t1" } })),
+      answerQuestion: vi.fn(), decidePlan: vi.fn(),
+    };
+    const r = await hire(c as unknown as AxonClient, { to: "scout", task: "Open python.org and nodejs.org and compare them", pollIntervalMs: 1 });
+    expect(r).toMatchObject({ status: "completed", output: "Compared.", pages, sent, files });
+    expect(r.files?.[0].from?.url).toBe("https://python.org/");
+  });
+
+  it("a job that used no browser says nothing about pages", async () => {
+    const c = {
+      getX402Requirements: vi.fn(async () => null),
+      sendTask: vi.fn(async () => task({ claimToken: "tok" })),
+      getTask: vi.fn(async () => task({ status: "completed", output: "Done.", pages: [], sent: [] })),
+      getReceipt: vi.fn(async () => ({ receipt: { taskId: "t1" } })),
+      answerQuestion: vi.fn(), decidePlan: vi.fn(),
+    };
+    const r = await hire(c as unknown as AxonClient, { to: "quill", task: "Say hello", pollIntervalMs: 1 });
+    expect(r.pages).toBeUndefined();
+    expect(r.sent).toBeUndefined();
+  });
+
   it("a job called off is not waited on for ever", async () => {
     const c = {
       getX402Requirements: vi.fn(async () => null),

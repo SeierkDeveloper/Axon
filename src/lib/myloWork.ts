@@ -16,6 +16,7 @@ import { sendNote, steerEnabled, stopJob } from "./steer";
 import { memoryEnabled } from "./agentMemory";
 import { conversationOf, conversationsOf, libraryEnabled, libraryOwnerOf } from "./library";
 import { hiredThroughMylo } from "./myloActions";
+import { browserEnabled } from "./agentBrowser";
 
 type Input = Record<string, unknown>;
 const text = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
@@ -44,6 +45,29 @@ export function myloWorkTools(): { name: string; description: string; input_sche
   if (steerEnabled()) tools.push({ name: "steer_job", description: "While a job is running: tell the agent something it should take into account (note), or stop the job (stop: true) when the person says to. A stopped job delivers nothing and is refunded.", input_schema: { type: "object", properties: { task_id: TASK_ID, note: { type: "string" }, stop: { type: "boolean" } }, required: ["task_id"] } });
   if (libraryEnabled()) tools.push({ name: "my_work", description: "What agents have done for the person: their conversations with agents, the latest first, each with the task_id of its latest job. Give a thread to read one conversation in full. Use it to find a job to continue, or to answer what an agent told them before.", input_schema: { type: "object", properties: { thread: { type: "string", description: "A conversation from the list" } } } });
   return tools;
+}
+
+/**
+ * Added to Mylo's instructions while agents have a browser: what an agent can do with a website, what it never
+ * does, and that it is the agent that browses, not Mylo.
+ */
+export function myloBrowserNote(): string {
+  if (!browserEnabled()) return "";
+  return `\n\nAgents that use the internet:
+- An agent Axon runs can open websites in a real browser when the job names one or asks it to go somewhere. It reads
+  the page as it is drawn, clicks, scrolls, compares several pages, fills in forms, and saves a page (as a picture, a
+  PDF or text) or downloads a file from it. For a job about a website (read this page, compare these sites, get this
+  file, fill in this form), propose a hire and put the site's address in the task, as the person gave it.
+  agent_details says whether an agent browses (browses: true). You do not browse yourself: never say you opened or
+  read a page.
+- What it never does: sign in anywhere, type a password or a card number, press a button that pays or orders, or
+  solve a CAPTCHA. It sends a form only when the task asks for that in words, and the result then shows exactly what
+  was sent. Never promise any of these, and say so plainly when a job needs one of them.
+- A hire made on an agent's own page shows each step with a picture of the page while it works. A hire made through
+  you comes back with the answer and the sites it opened, and their library on /dashboard lists every page. Say what
+  the agent found, not that you saw the pages.
+- A person can have a page watched: on /dashboard, under triggers, "A web page changes" starts their agent when the
+  page changes. You cannot set that up from here; point them to /dashboard.`;
 }
 
 export const MYLO_WORK_LABELS: Record<string, string> = { answer_agent: "Passing your answer on", decide_plan: "Passing your decision on", steer_job: "Telling the agent", my_work: "Looking at your work" };

@@ -13,6 +13,7 @@
 // Off until AGENT_LIBRARY=on.
 
 import { getDb } from "./db";
+import { pagesOf } from "./taskPages";
 import { getAgentById } from "./agents";
 import { claimTokenFor } from "./claimToken";
 import { filesEnabled, filesOfTask, latestOnly, outputFileFor, type FileRow, type OutputFile } from "./agentFiles";
@@ -118,6 +119,8 @@ export interface LibraryTurn {
   createdAt: string;
   completedAt: string | null;
   outputFiles: OutputFile[];
+  /** where the job's browser went, for a job that used one */
+  pages: { n: number; url: string; title: string }[];
   /** the proof: the job's public receipt, which carries the hash of the answer and of every file */
   receipt: string;
 }
@@ -144,6 +147,7 @@ export function conversationOf(owners: string[], thread: string): { thread: stri
       createdAt: r.created_at,
       completedAt: r.completed_at,
       outputFiles: filesEnabled() ? filesOfTask(r.task_id, "out").map((f) => outputFileFor(f)) : [],
+      pages: pagesOf(r.task_id).map((p) => ({ n: p.n, url: p.url, title: p.title })),
       receipt: `/r/${r.task_id}`,
     })),
   };

@@ -28,6 +28,9 @@ export interface Agent {
    *  and "mcp:<serverId>" for any MCP server registered on Axon. Empty = the
    *  agent answers from the model alone. Every call it makes lands in the receipt. */
   tools?: string[];
+  /** Whether a hire that names a website is given a real browser to open it with (`getAgent` says so). Absent
+   *  where agents have no browser, and for an agent that runs on its own server. */
+  browses?: boolean;
   /** One line saying what this agent does, written from the name and capabilities it declared.
    *  Generated rather than typed, because anyone can register an agent and asking people to write
    *  copy about themselves produces either nothing or marketing. Absent until it has been written. */
@@ -183,8 +186,14 @@ export interface TaskRequest {
   followUp?: FollowUpInfo;
   /** The files the agent handed back, each with the token that downloads it. */
   outputFiles?: TaskFile[];
-  /** What the agent has done so far, one line a step. */
-  steps?: { n: number; text: string }[];
+  /** What the agent has done so far, one line a step. A step taken in its browser carries a picture of the page
+   *  as it stood then (`shot`), read with `downloadFile`. */
+  steps?: { n: number; text: string; at?: string; shot?: StepShot }[];
+  /** The pages its browser opened, in the order it got there. Empty for a job that used no browser. */
+  pages?: VisitedPage[];
+  /** The forms its browser sent, each with every field and what was typed into it. A form is sent only when the
+   *  task asks for that in words. */
+  sent?: SentForm[];
   /** The question the job is waiting on, and every question it has asked. */
   question?: TaskQuestion;
   questions?: TaskQuestion[];
@@ -207,7 +216,21 @@ export interface TaskFile {
   id: string; name: string; type: string; kind: "pdf" | "image" | "text" | "office"; size: number; sha256: string;
   token: string; path: string; version?: number; revises?: string; first?: { sha256: string; taskId: string | null };
   madeBy?: { agentId: string; name: string; taskId: string };
+  /** For a file the agent's browser saved or downloaded: the page it came from, and how it was taken. */
+  from?: FileSource;
 }
+
+/** A page a job's browser opened. */
+export interface VisitedPage { n: number; url: string; title: string; at?: string }
+
+/** A form a job's browser sent: the page it was on, the button that sent it, and what was in each field. */
+export interface SentForm { n: number; url: string; button: string; fields: { label: string; value: string }[]; at?: string }
+
+/** Where a file the browser brought back came from. */
+export interface FileSource { url: string; title: string; kind: "picture" | "whole-page picture" | "pdf" | "text" | "download"; at: string }
+
+/** The picture of the page after one step in the browser. `token` reads it, as with any file of the job. */
+export interface StepShot { id: string; token: string; path: string; size: number }
 
 /** A file handed over with a hire: what `uploadFile` returned. */
 export interface FileRef { id: string; token?: string }
@@ -297,6 +320,8 @@ export interface ConversationTurn {
   createdAt: string;
   completedAt: string | null;
   outputFiles: TaskFile[];
+  /** The pages the agent's browser opened on this turn. */
+  pages?: VisitedPage[];
   receipt: string;
 }
 
@@ -1459,6 +1484,10 @@ export interface HireResult {
   status: TaskStatus;
   /** The files the agent handed back, when there are any. */
   files?: TaskFile[];
+  /** The pages the agent's browser opened, when it used one. */
+  pages?: VisitedPage[];
+  /** The forms its browser sent, when the task asked for that. */
+  sent?: SentForm[];
   /** For a hire made without signing in: what reads the job again and follows it up (`followUp`). */
   claimToken?: string;
   /** The agent's output, when completed. */

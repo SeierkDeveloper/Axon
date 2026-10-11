@@ -121,6 +121,8 @@ export async function hire(client: AxonClient, opts: HireOptions): Promise<HireR
   if (current.status === "completed") {
     result.output = current.output ?? "";
     if (current.outputFiles?.length) result.files = current.outputFiles;
+    if (current.pages?.length) result.pages = current.pages;
+    if (current.sent?.length) result.sent = current.sent;
     if (withReceipt) {
       try {
         const receipt: Receipt = (await client.getReceipt(current.taskId)).receipt;

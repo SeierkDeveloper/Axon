@@ -6,6 +6,8 @@
 // Studio builds and nobody else's.
 
 import { getAgentById, searchAgents } from "./agents";
+import { getMcpServerByAgentId } from "./mcp";
+import { agentBrowses } from "./agentBrowser";
 import { semanticSearchAgents } from "./embeddings";
 import { computeProofScore } from "./proofScore";
 import { studioInfo } from "./studioPublish";
@@ -420,7 +422,9 @@ function detailsTool(input: Record<string, unknown>): Omit<ToolOutcome, "label">
   const a = getAgentById(String(input.agent_id ?? ""));
   if (!a) return { result: { error: "No agent with that id on Axon." } };
   const c = agentCard(a);
-  return { result: { ...c, capabilities: a.capabilities, page: `/agents/${a.agentId}`, builtInStudio: c.studioScore !== null }, card: { kind: "agents", title: a.name, agents: [c] } };
+  // whether a job that names a website is given a browser, where agents have one
+  const browses = agentBrowses(a, { viaMcp: Boolean(getMcpServerByAgentId(a.agentId)) });
+  return { result: { ...c, capabilities: a.capabilities, page: `/agents/${a.agentId}`, builtInStudio: c.studioScore !== null, ...(browses ? { browses: true } : {}) }, card: { kind: "agents", title: a.name, agents: [c] } };
 }
 
 function compareTool(input: Record<string, unknown>): Omit<ToolOutcome, "label"> {

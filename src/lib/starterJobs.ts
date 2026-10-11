@@ -6,7 +6,7 @@
 // about the hire, its price or its receipt.
 //
 // Which starters an agent is offered follows from what it lists as its abilities and from what it can do here
-// (read files, run code, make pictures, make Office files). Off until AGENT_STARTERS=on.
+// (read files, run code, make pictures, make Office files, use a browser). Off until AGENT_STARTERS=on.
 
 import type { Agent } from "@/sdk/types";
 
@@ -17,7 +17,7 @@ export function startersEnabled(env: Env = process.env): boolean {
 }
 
 /** What the agent can do on this server, beyond answering in words. */
-export interface StarterAbilities { files?: boolean; code?: boolean; pictures?: boolean; office?: boolean }
+export interface StarterAbilities { files?: boolean; code?: boolean; pictures?: boolean; office?: boolean; browser?: boolean }
 
 /** A sample file a starter attaches: served from /starters, uploaded like any file the person picks. */
 export interface StarterSample { name: string; path: string; type: string }
@@ -64,6 +64,11 @@ const ALL: Entry[] = [
     task: "Make a picture: a small lighthouse on a cliff at dusk, in a flat illustration style with a limited palette." },
   { id: "logo", label: "Sketch a logo", when: /image generation|picture|illustrat|logo/i, needs: ["pictures"],
     task: "Make a picture: a simple logo for a coffee roaster called Ember and Oak, black on white, one shape and the name." },
+  // each names the site it goes to, which is what gives a hire its browser
+  { id: "compare-sites", label: "Compare two websites", when: /^(research|search)$|brows|scrap|crawl|\bweb\b/i, needs: ["browser"],
+    task: "Open python.org and nodejs.org and compare the two: what each one is for, the latest version its page shows, and where to download it. Give a short table." },
+  { id: "save-page", label: "Save a page as a PDF", when: /^(research|search|summari[sz]ation)$|brows|scrap|crawl|\bweb\b/i, needs: ["browser", "files"],
+    task: "Open en.wikipedia.org/wiki/Lighthouse, save the page as a PDF, and tell me in three lines what it says." },
   { id: "chart", label: "Chart a spreadsheet", when: /^(analysis|research|trading)$|data|sql|report/i, needs: ["files", "code"], sample: SALES,
     task: "Chart revenue per month for each region from the attached spreadsheet, and tell me the three things that stand out." },
   { id: "excel", label: "Make an Excel file", when: /^(analysis|planning)$|data|report|financ/i, needs: ["code", "office"],

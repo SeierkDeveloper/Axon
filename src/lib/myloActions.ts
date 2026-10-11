@@ -21,6 +21,7 @@ import { getDb } from "./db";
 import { getAgentById } from "./agents";
 import { parsePriceToEth } from "./payments";
 import { getTaskById } from "./tasks";
+import { pagesOf } from "./taskPages";
 import { addMessage } from "./myloStore";
 import { getBuild, mayRun, mayStart, startDraft, tweakDraft, type Build } from "./studioDraft";
 import { roundsOf, runBuild, settleStale } from "./studioTest";
@@ -422,6 +423,22 @@ async function confirmImprove(a: Action, wallet: string): Promise<Action> {
 }
 
 /** What one crew step is asked: its role, the task, and from the second step on, the one before's answer. */
+/** For a job that used its browser: the sites it opened, in a line under the answer. */
+export function sitesLine(taskId: string): string {
+  const pages = pagesOf(taskId);
+  if (!pages.length) return "";
+  const hosts: string[] = [];
+  for (const p of pages) {
+    let host = "";
+    try { host = new URL(p.url).hostname.replace(/^www\./, ""); } catch { continue; }
+    // a host is letters, digits, dots and dashes: anything else is not written into the conversation
+    if (/^[a-z0-9.-]{1,80}$/i.test(host) && !hosts.includes(host)) hosts.push(host);
+  }
+  if (!hosts.length) return "";
+  const shown = hosts.slice(0, 5).join(", ") + (hosts.length > 5 ? ` and ${hosts.length - 5} more` : "");
+  return `\n\nIt opened ${pages.length === 1 ? "1 page" : `${pages.length} pages`} in its browser: ${shown}.`;
+}
+
 function crewTask(a: Action, i: number, before: { name: string; role: string; output: string } | null): string {
   const role = (a.detail as CrewDetail).roles[i];
   const head = role ? `Your part in this crew: ${role}.\n\n` : "";
@@ -579,7 +596,7 @@ export function refreshAction(id: string, owner: string): { action: Action; task
     const parts = a.hires.map((h, i) => {
       const t = tasks[i];
       if (!h.taskId) return `**${h.name}** wasn't hired: ${h.error ?? "not paid"}.`;
-      if (t.status === "completed") return `**${h.name}** finished:\n\n${(t.output ?? "").trim() || "(it returned nothing)"}\n\n[Receipt](/r/${h.taskId})`;
+      if (t.status === "completed") return `**${h.name}** finished:\n\n${(t.output ?? "").trim() || "(it returned nothing)"}${sitesLine(h.taskId)}\n\n[Receipt](/r/${h.taskId})`;
       if (t.status === "cancelled") return `**${h.name}**'s job was called off before it delivered. Whatever was paid for it is refunded. [Receipt](/r/${h.taskId})`;
       return `**${h.name}** couldn't finish: ${t.error ?? "it failed"}. [Receipt](/r/${h.taskId})`;
     });

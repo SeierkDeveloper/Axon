@@ -29,6 +29,16 @@ export function browserEnabled(env: Env = process.env): boolean {
   return (env.AGENT_BROWSER ?? "off").trim().toLowerCase() === "on";
 }
 
+/**
+ * Whether this agent is one that can be given a browser at all, whatever the job: an agent Axon runs on Claude (the
+ * loop that runs tools), not one behind its own server or a crew. It is what its page, its profile and an assistant
+ * say about it, and the first half of the test a hire goes through (the other half is the job, in ./browserTool).
+ */
+export function agentBrowses(agent: { provider?: string | null; orchestrator?: unknown; endpoint?: string | null }, o: { viaMcp?: boolean; env?: Env } = {}): boolean {
+  if (!browserEnabled(o.env) || o.viaMcp || agent.orchestrator || agent.endpoint) return false;
+  return (agent.provider ?? "anthropic") === "anthropic";
+}
+
 const num = (raw: string | undefined, fallback: number, min: number, max: number): number => {
   const n = Number(raw);
   return raw !== undefined && raw.trim() !== "" && Number.isFinite(n) && n >= min && n <= max ? Math.floor(n) : fallback;

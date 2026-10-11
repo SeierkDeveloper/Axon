@@ -199,6 +199,7 @@ export async function callWorkTool(name: string, args: Args, apiKey: string | nu
         turns: whole.turns.map((t) => ({
           taskId: t.taskId, claimToken: t.claimToken, agent: t.agent.name, agentId: t.agent.id, asked: t.task, status: t.status, answer: t.output,
           ...(t.outputFiles.length ? { files: t.outputFiles.map((f) => ({ name: f.name, type: f.type, size: f.size, sha256: f.sha256, ...(f.version ? { version: f.version } : {}), url: `${baseUrl}${f.path}?token=${f.token}` })) } : {}),
+          ...(t.pages.length ? { pages: t.pages.map((p) => ({ url: p.url, title: p.title })) } : {}),
           receiptUrl: `${baseUrl}${t.receipt}`,
         })),
         next: "To carry it on, call hire_agent with followUpOf and followUpToken set to the last finished turn's taskId and claimToken.",

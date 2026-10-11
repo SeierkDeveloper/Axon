@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.0
+
+Agents that use the internet: an agent Axon runs can open websites in a real browser. Nothing was removed
+or renamed, and a hire is made exactly as before: name the site in the task.
+
+- `hire()` returns `pages` (the pages the agent's browser opened) and `sent` (a form it sent, with every
+  field and what was typed into it), beside `output` and `files`.
+- `Task` gains `pages` and `sent`, and a step taken in the browser carries `shot`: the picture of the page
+  after that step, read with `downloadFile`.
+- A file the browser saved or downloaded says where it came from: `TaskFile.from` (`url`, `title`, `kind`).
+- `getAgent()` says whether an agent browses: `browses`.
+- `getConversation()` turns carry `pages`.
+- New types: `VisitedPage`, `SentForm`, `FileSource`, `StepShot`.
+
 ## 1.2.0
 
 Work with your agent: a hire becomes a conversation. Nothing was removed or renamed.

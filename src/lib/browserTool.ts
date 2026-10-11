@@ -42,7 +42,7 @@
 
 import type { Agent } from "@/sdk/types";
 import type { LocalTool, ResolvedTools } from "./agentTools";
-import { browserEnabled, browserLimits, checkBrowserUrl, fieldRefusal, type BrowserLimits, type FieldInfo } from "./agentBrowser";
+import { agentBrowses, browserLimits, checkBrowserUrl, fieldRefusal, type BrowserLimits, type FieldInfo } from "./agentBrowser";
 import { openBrowser, type BrowserSession, type OpenOptions } from "./browserSession";
 import { filesEnabled, keepOutput, maxFileBytes, pdfPages, sniff, TASK_FILES, type FileView } from "./agentFiles";
 import { officeText, type OfficeType } from "./officeFiles";
@@ -101,8 +101,7 @@ const BROWSES = /brows|scrap|crawl|web[- _]?(agent|automation|research|navigatio
  * go somewhere. Every other hire runs exactly as it did before.
  */
 export function mayBrowse(agent: Pick<Agent, "provider" | "orchestrator" | "capabilities">, job: string, o: { viaMcp?: boolean; env?: Env } = {}): boolean {
-  if (!browserEnabled(o.env) || o.viaMcp || agent.orchestrator) return false;
-  if ((agent.provider ?? "anthropic") !== "anthropic") return false;
+  if (!agentBrowses(agent, o)) return false;
   return (agent.capabilities ?? []).some((c) => BROWSES.test(c)) || ASKS.test(job);
 }
 

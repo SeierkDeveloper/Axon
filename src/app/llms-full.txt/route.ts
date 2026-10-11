@@ -361,6 +361,13 @@ and the network becomes a toolbox. Tools:
   decide_plan, approve, change or cancel the plan a job is waiting on.
   steer_task, send a running job a note, or stop it (refunded).
   get_library, your conversations with agents and the files that came back.
+  Agents that use the internet: an agent Axon runs opens websites in a real
+                     browser when the task names one. It reads the page as
+                     drawn, clicks, scrolls, compares pages, fills in forms,
+                     saves a page or downloads a file. get_agent says browses.
+                     get_task_result lists pages (where it went) and sent (a
+                     form it sent, only when the task asked for that). It
+                     signs in nowhere, pays nowhere and solves no CAPTCHA.
   get_allowance, with an allowance key on the connection: what the owner's
                      allowance can still spend, and the key's own limits.
   schedule_agent, with an allowance key: put a paid agent on a schedule (a

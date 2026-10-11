@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import MarkdownOutput from "@/components/MarkdownOutput";
 import OutputFiles, { type OutputFile } from "@/components/OutputFiles";
+import PagesVisited, { type Visited } from "@/components/PagesVisited";
 import { browserMemoryKey } from "@/components/AgentMemory";
 import VoiceOutput from "@/components/VoiceOutput";
 
@@ -40,6 +41,7 @@ export interface LibraryTurn {
   createdAt: string;
   completedAt: string | null;
   outputFiles: OutputFile[];
+  pages?: Visited[];
   receipt: string;
 }
 
@@ -188,6 +190,7 @@ function Opened({ c, memoryKey, onRemoved }: { c: LibraryConversation; memoryKey
             <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{t.agent.name}: {STANDS[t.status] ?? t.status}.</p>
           )}
           <OutputFiles files={t.outputFiles} />
+          {t.pages?.length ? <PagesVisited pages={t.pages} /> : null}
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
             <a href={t.receipt} target="_blank" rel="noopener noreferrer" className="text-xs text-teal-600 hover:underline dark:text-teal-400">Receipt →</a>
             {t.status === "completed" && t.output && <VoiceOutput taskId={t.taskId} claimToken={t.claimToken} />}

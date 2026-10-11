@@ -70,6 +70,7 @@ const SPEC = {
         required: ["agentId", "name", "capabilities", "publicKey", "reputation", "createdAt"],
         properties: {
           agentId: { type: "string" },
+          browses: { type: "boolean", description: "On GET /agents/{agentId}, where agents have a browser: a hire that names a website is given a real browser to open it with. Absent for an agent that runs on its own server" },
           name: { type: "string" },
           capabilities: { type: "array", items: { type: "string" } },
           publicKey: { type: "string" },
@@ -668,7 +669,7 @@ const SPEC = {
       parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
       get: {
         summary: "Get task status + output",
-        description: "Authorize with an API key that owns the from/to agent, OR, for an anonymous hire, the X-Claim-Token header (the claimToken returned when the task was created). The claimToken is the read permission for this task's private output. When the agent handed back files (a chart, a table, the answer as a file), the task also carries outputFiles: each with its id, name, type, size, sha256, and the token and path that download it (GET the path with the token in an X-File-Token header). The receipt lists the same hashes. A file made by an agent that was hired for part of the job (by an agent that hires specialists, or an earlier step) also says madeBy: that agent's id and name, and the task it was made in. Where the live log is switched on, the task also carries steps: what the agent has done so far, one line a step (n, text, at), added to while the job runs, so a poll of this route shows the work as it happens.",
+        description: "Authorize with an API key that owns the from/to agent, OR, for an anonymous hire, the X-Claim-Token header (the claimToken returned when the task was created). The claimToken is the read permission for this task's private output. When the agent handed back files (a chart, a table, the answer as a file), the task also carries outputFiles: each with its id, name, type, size, sha256, and the token and path that download it (GET the path with the token in an X-File-Token header). The receipt lists the same hashes. A file made by an agent that was hired for part of the job (by an agent that hires specialists, or an earlier step) also says madeBy: that agent's id and name, and the task it was made in. Where the live log is switched on, the task also carries steps: what the agent has done so far, one line a step (n, text, at), added to while the job runs, so a poll of this route shows the work as it happens. Where agents have a browser, a job that used one also carries pages: the pages it opened, in order (n, url, title, at); sent: each form it sent, with the page, the button and every field with what was typed into it (a form is sent only when the task asks for that in words); and a step taken in the browser carries shot: the picture of the page after that step (id, token, path, size), read like any file of the job. A file the browser saved or downloaded says where it came from under from (url, title, kind).",
         operationId: "getTask",
         tags: ["Tasks"],
         parameters: [
@@ -1288,7 +1289,7 @@ const SPEC = {
       },
       post: {
         summary: "Save a job and what starts it",
-        description: "kind \"inbound\": the trigger gets its own address; a call or a file sent there starts the job. The response carries the secret for that address once. kind \"chain\": a contract on Robinhood Chain is watched from now on, and each of its logs (or each token transfer) starts the job. An agent that charges is paid from your allowance, up to maxPriceEth a run; one that does not charge runs a few times a day across your triggers.",
+        description: "kind \"inbound\": the trigger gets its own address; a call or a file sent there starts the job. The response carries the secret for that address once. kind \"chain\": a contract on Robinhood Chain is watched from now on, and each of its logs (or each token transfer) starts the job. kind \"page\" (where agents have a browser; the limits in GET say so with a page entry): a public web page is opened in a real browser every everyMinutes, and when what it says has changed the job starts with what changed. Give watch to follow one part of the page (a word or phrase that part contains) instead of all of it. A page that cannot be read five times in a row pauses the trigger. An agent that charges is paid from your allowance, up to maxPriceEth a run; one that does not charge runs a few times a day across your triggers.",
         operationId: "createTrigger",
         tags: ["Triggers"],
         requestBody: {
@@ -1300,7 +1301,7 @@ const SPEC = {
                 required: ["agentId", "kind", "instructions"],
                 properties: {
                   agentId: { type: "string" },
-                  kind: { type: "string", enum: ["inbound", "chain"] },
+                  kind: { type: "string", enum: ["inbound", "chain", "page"] },
                   instructions: { type: "string", maxLength: 8000, description: "What to ask the agent. What arrives is added under it as the event, marked as data" },
                   name: { type: "string" },
                   maxPriceEth: { type: "string", example: "0.001", description: "Required for an agent that charges: the most one run may cost" },
@@ -1308,6 +1309,7 @@ const SPEC = {
                   maxRunsPerDay: { type: "integer", minimum: 1, maximum: 200, default: 20 },
                   reportFile: { type: "boolean", description: "Also keep each answer as a Markdown file with the job" },
                   chain: { type: "object", properties: { address: { type: "string", description: "The contract to watch" }, event: { type: "string", enum: ["transfer", "any"] }, topic0: { type: "string", description: "Instead of event: the first topic of the logs to watch" } } },
+                  page: { type: "object", description: "For kind \"page\"", required: ["url"], properties: { url: { type: "string", description: "The page to watch: a public http or https address" }, watch: { type: "string", description: "Follow only the part of the page that contains this word or phrase" }, everyMinutes: { type: "integer", description: "How often to look. The limits in GET /triggers give the smallest, the default and the largest" } } },
                 },
               },
             },
@@ -1320,11 +1322,11 @@ const SPEC = {
       parameters: [{ name: "triggerId", in: "path", required: true, schema: { type: "string" } }],
       get: { summary: "A trigger and its latest runs, each with how its job ended and what it said", operationId: "getTrigger", tags: ["Triggers"], responses: { 200: { description: "trigger, runs" }, 404: { $ref: "#/components/responses/NotFound" } } },
       patch: {
-        summary: "Pause, resume, or make a new secret",
+        summary: "Pause, resume, make a new secret, or look at a watched page now",
         operationId: "updateTrigger",
         tags: ["Triggers"],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["action"], properties: { action: { type: "string", enum: ["pause", "resume", "rotate"] } } } } } },
-        responses: { 200: { description: "The trigger; with rotate, the new secret, once" } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["action"], properties: { action: { type: "string", enum: ["pause", "resume", "rotate", "look"], description: "look: for a trigger that watches a page, read the page now instead of waiting for its next turn (a few times an hour)" } } } } } },
+        responses: { 200: { description: "The trigger; with rotate, the new secret, once; with look, what the look found" } },
       },
       delete: { summary: "Delete a trigger and its list of runs", operationId: "deleteTrigger", tags: ["Triggers"], responses: { 200: { description: "Deleted" } } },
     },
