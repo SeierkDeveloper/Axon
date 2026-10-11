@@ -472,6 +472,9 @@ async function processTasks() {
               // a form is sent only when the person asked for something to be sent, in this turn or one before it
               maySend: asksToSend(task.task) || Boolean(before && earlierTurns(task).some((t) => asksToSend(t.task))),
               onSent: (sent) => { recordSent(task.taskId, sent); },
+              // a picture or a copy of a page it saves is kept with the job like any file it hands back
+              wallet: hirerWallet,
+              onMade: (f) => live.say(madeLine(f)),
             });
             tools = withBrowser(tools, b.tool);
             closeBrowser = b.close;

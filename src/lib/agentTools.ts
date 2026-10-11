@@ -152,6 +152,11 @@ export interface LocalTool {
    * the agent is told where it was rather than shown it all again. Absent, results are kept as they are.
    */
   shrink?(result: string): string;
+  /**
+   * For a tool with `shrink`: whether this result is a fresh look at the thing, or something else the tool answered
+   * (a file saved, a note taken). Only a look takes the place of the looks before it. Absent, every result is one.
+   */
+  isLook?(result: string): boolean;
 }
 
 export interface ResolvedTools {

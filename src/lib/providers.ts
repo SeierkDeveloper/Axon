@@ -763,7 +763,10 @@ class AnthropicProvider implements ProviderClient {
       // A tool whose results are each a fresh look at the same thing: once it has given a newer look, the looks of
       // EARLIER rounds are cut down. Until then they stay whole, so an agent that turns to another tool still has its
       // page; and everything it asked for in this round stays whole too, since it has not been shown any of it yet.
-      const fresh = toolUses.flatMap((use, i) => (byName.get(use.name)?.shrink && !results[i].is_error ? [{ tool: byName.get(use.name)!, block: results[i] }] : []));
+      const fresh = toolUses.flatMap((use, i) => {
+        const tool = byName.get(use.name);
+        return tool?.shrink && !results[i].is_error && (tool.isLook?.(wordsOf(results[i])) ?? true) ? [{ tool, block: results[i] }] : [];
+      });
       for (let i = looks.length - 1; i >= 0; i--) {
         const old = looks[i];
         if (!fresh.some((f) => f.tool === old.tool)) continue;

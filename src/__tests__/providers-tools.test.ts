@@ -418,6 +418,23 @@ describe("completeWithTools: earlier looks are cut down once there is a newer on
     expect(resultOf(2, "b")).toMatchObject({ content: "Error: That is a password field.", is_error: true });
   });
 
+  it("an answer of the tool that is not a look (a file saved, a note taken) cuts nothing down and is left as it is", async () => {
+    const answers = ["THE PAGE in full", "Saved as page.png", "ANOTHER PAGE in full"];
+    let n = 0;
+    const tool: LocalTool = { ...look(async () => answers[n++]), isLook: (r) => !r.startsWith("Saved") };
+    mockStream
+      .mockImplementationOnce(answer([use("a", "browser")], "tool_use"))
+      .mockImplementationOnce(answer([use("b", "browser")], "tool_use"))
+      .mockImplementationOnce(answer([use("c", "browser")], "tool_use"))
+      .mockImplementationOnce(answer([{ type: "text", text: "done" }]));
+    await getProvider(makeAgent()).completeWithTools!("sys", "go", 1000, makeTools({ localTools: [tool] }));
+    expect(resultOf(2, "a")).toMatchObject({ content: "THE PAGE in full" });   // the save did not cut the page down
+    expect(resultOf(2, "b")).toMatchObject({ content: "Saved as page.png" });
+    expect(resultOf(3, "a")).toMatchObject({ content: "[was: THE PA]" });      // the next look did
+    expect(resultOf(3, "b")).toMatchObject({ content: "Saved as page.png" }); // and what was not a look stays
+    expect(resultOf(3, "c")).toMatchObject({ content: "ANOTHER PAGE in full" });
+  });
+
   it("a tool without the rule is never touched", async () => {
     mockRun.mockResolvedValueOnce("first").mockResolvedValueOnce("second");
     mockStream

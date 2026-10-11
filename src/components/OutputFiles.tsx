@@ -7,10 +7,31 @@ import { useEffect, useState } from "react";
  * file's token goes in a header, never in the address, so it does not end up in a log or in browser history.
  */
 
-export interface OutputFile { id: string; name: string; type: string; kind: "pdf" | "image" | "text" | "office"; size: number; sha256: string; token: string; path: string; madeBy?: { agentId: string; name: string; taskId: string }; version?: number; revises?: string; first?: { sha256: string; taskId: string | null } }
+export interface OutputFile { id: string; name: string; type: string; kind: "pdf" | "image" | "text" | "office"; size: number; sha256: string; token: string; path: string; madeBy?: { agentId: string; name: string; taskId: string }; from?: { url: string; title: string; kind: string; at: string }; version?: number; revises?: string; first?: { sha256: string; taskId: string | null } }
 
 /** One version of a file, as GET /api/files/{id}/versions lists it. */
 interface Version { version: number; id: string; name: string; size: number; sha256: string; taskId: string | null; uploaded?: boolean; token: string; path: string; current: boolean }
+
+/** An address as a person would say it: the site and the path. */
+const pageLabel = (url: string): string => { try { const u = new URL(url); return `${u.hostname.replace(/^www\./, "")}${u.pathname === "/" ? "" : u.pathname}`; } catch { return url; } };
+/** A moment as it is written beside a saved page: the day and the minute, in UTC, the same for every reader. */
+const savedAt = (iso: string): string => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : `${d.toISOString().slice(0, 10)} ${d.toISOString().slice(11, 16)} UTC`; };
+const KIND_WORDS: Record<string, string> = { picture: "A picture of", "whole-page picture": "A picture of the whole of", pdf: "A PDF copy of", text: "The words of" };
+
+/**
+ * For a file an agent saved from a web page: which page it is a copy of and when the copy was made. The file's
+ * fingerprint is on the receipt; this says what the fingerprint is of.
+ */
+function SavedFrom({ from }: { from: NonNullable<OutputFile["from"]> }) {
+  if (!/^https?:\/\//i.test(from.url)) return null;
+  return (
+    <p className="mt-1.5 break-words text-[11px] text-gray-500 dark:text-gray-400">
+      {KIND_WORDS[from.kind] ?? "Saved from"}{" "}
+      <a href={from.url} target="_blank" rel="noopener noreferrer nofollow" title={from.url} className="break-all text-teal-600 hover:underline dark:text-teal-400">{pageLabel(from.url)}</a>
+      {savedAt(from.at) ? `, as it was on ${savedAt(from.at)}` : ""}
+    </p>
+  );
+}
 
 const size = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
 
@@ -132,6 +153,7 @@ export default function OutputFiles({ files, compact = false }: { files: OutputF
               </button>
             </div>
             {f.kind === "image" && !compact && <Picture file={f} />}
+            {f.from && <SavedFrom from={f.from} />}
             {f.madeBy && <p className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400 sm:hidden">Made by {f.madeBy.name}</p>}
             <p className="mt-1.5 truncate font-mono text-[10px] text-gray-400" title={`SHA-256 ${f.sha256}`}>sha256 {f.sha256}</p>
             {f.version && f.version > 1 && <EarlierVersions file={f} onDownload={(v) => void download(v)} busy={busy} />}

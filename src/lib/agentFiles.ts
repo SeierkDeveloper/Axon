@@ -30,6 +30,7 @@ import { getDb, getDbPath } from "./db";
 import { logger } from "./logger";
 import { forModel } from "./agentImages";
 import { looksZip } from "./zip";
+import { sourceOf, type FileSource } from "./fileSources";
 import { officeEnabled, officeText, officeType, officeTypeOf, OFFICE } from "./officeFiles";
 
 export function filesEnabled(env: Record<string, string | undefined> = process.env): boolean {
@@ -589,10 +590,10 @@ export function keepOutput(input: { taskId: string; bytes: Buffer; name: string;
 }
 
 /** A returned file as the job's reader gets it: what it is, its hash, and the token and path that download it. */
-export interface OutputFile { id: string; name: string; type: string; kind: FileKind; size: number; sha256: string; token: string; path: string; madeBy?: { agentId: string; name: string; taskId: string }; version?: number; revises?: string; first?: VersionInfo["first"] }
+export interface OutputFile { id: string; name: string; type: string; kind: FileKind; size: number; sha256: string; token: string; path: string; madeBy?: { agentId: string; name: string; taskId: string }; /** for a file saved from a web page: which page, what kind of copy, and when */ from?: FileSource; version?: number; revises?: string; first?: VersionInfo["first"] }
 export const outputFileFor = (f: FileRow): OutputFile => {
-  const by = madeBy(f);
-  return { id: f.id, name: f.name, type: f.mime, kind: f.kind, size: f.size, sha256: f.sha256, token: fileTokenFor(f.id), path: `/api/files/${f.id}/content`, ...(by ? { madeBy: by } : {}), ...versionInfo(f) };
+  const by = madeBy(f), from = sourceOf(f.id);
+  return { id: f.id, name: f.name, type: f.mime, kind: f.kind, size: f.size, sha256: f.sha256, token: fileTokenFor(f.id), path: `/api/files/${f.id}/content`, ...(by ? { madeBy: by } : {}), ...(from ? { from } : {}), ...versionInfo(f) };
 };
 
 /** The key in a hire's context that asks for the answer as a file as well. Set by `reportFile` on a hire, never directly. */

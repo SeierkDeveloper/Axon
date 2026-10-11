@@ -5,7 +5,15 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import http from "node:http";
 import net from "node:net";
 
-import { browserTool, mayBrowse, asksToSend, withBrowser, canBrowse, pageView, shrinkView, footOf, pageName, refusalLine, dailyBrowsing, BROWSER_STEPS, MAX_NOTES, NOTE_CHARS, SET_FIELDS } from "@/lib/browserTool";
+import { browserTool, mayBrowse, asksToSend, withBrowser, canBrowse, pageView, shrinkView, footOf, pageName, refusalLine, dailyBrowsing, BROWSER_STEPS, BROWSER_SAVES, MAX_NOTES, NOTE_CHARS, SET_FIELDS } from "@/lib/browserTool";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { getDb } from "@/lib/db";
+import { createTask } from "@/lib/tasks";
+import { filesOfTask, receiptFiles, readBytes, outputFileFor, type FileView } from "@/lib/agentFiles";
+import { sourceOf } from "@/lib/fileSources";
+import { shotsOf, keepStepShot } from "@/lib/stepShots";
 import { browserLimits } from "@/lib/agentBrowser";
 import { openBrowser, findChromium, browserLoad } from "@/lib/browserSession";
 import { resolvePublicHost } from "@/lib/urlSecurity";
@@ -31,6 +39,8 @@ describe("which hires get a browser", () => {
     "Click through their signup flow and tell me how many steps it has",
     "Look it up online and tell me who won",
     "Check the landing page for broken links",
+    "Take a screenshot of their pricing",
+    "Save a copy of the page as a PDF",
     "Compare the current pricing of Notion, Coda and Airtable in a table",
     "What is the latest version of Node, Go and Python?",
     "Find today's opening hours for the Vasa Museum",
@@ -221,6 +231,7 @@ beforeAll(async () => {
     if (u.pathname === "/human") return html(page("Are you human", `<h1>One more step</h1><form method="post" action="/contact"><label>Message <textarea name="msg"></textarea></label><div class="g-recaptcha" style="width:300px;height:70px;border:1px solid #999">I am not a robot</div><button>Send</button></form>`));
     // a field with a widget of the page's own: it reads the field only when a key is let go, and puts back what it last read when the field is left
     if (u.pathname === "/widget") return html(page("Widget", `<h1>Pick a day</h1><form><label>Day <input name="day" id="day"></label> <label>Name <input name="who"></label></form><script>const d=document.getElementById("day");let seen="";d.addEventListener("keyup",()=>{seen=d.value});d.addEventListener("blur",()=>{d.value=seen});</script>`));
+    if (u.pathname === "/tall") return html(page("Tall", `<h1>A very long page</h1><div style="height:24000px;background:linear-gradient(#fff,#ccc)"></div><p>The end</p>`));
     if (u.pathname === "/wrapped") return html(page("Wrapped labels", `<h1>Wrapped</h1><form><label>Size <select name="size"><option>Small</option><option>Large</option></select></label> <label>Colour <input name="colour" value="red"> <button type="button">Pick</button></label></form>`));
     if (u.pathname === "/prices") return html(page(q.headers.host === "rival.test" ? "Rival Teas prices" : "Tea shop prices", q.headers.host === "rival.test" ? "<h1>Rival Teas</h1><p>Green tea 5.20 per 100 g. Delivery 4.00.</p>" : "<h1>Tea shop</h1><p>Green tea 4.50 per 100 g. Delivery 2.90.</p>"));
     if (u.pathname === "/cards") return html(page("Cards", `<h1>Our growers</h1><a href="/tea/green" style="display:block;border:1px solid #ccc;padding:12px"><span>ESTATE</span> <span>Verified grower</span> <span>Rating 4.8</span><h3>Misty Hill Estate</h3><p>Three generations growing green tea on the north slope, picked by hand every spring.</p></a>`));
@@ -764,6 +775,106 @@ describe.skipIf(!findChromium({}))("forms: when one may be sent", () => {
     expect(b.tool.description).toMatch(/never does a "prove you are human" test/);
     await b.close();
   }, 60_000);
+});
+
+describe.skipIf(!findChromium({}))("saving: a picture, the whole page, a PDF, the words", () => {
+  let dir = "";
+  const saved = { ...process.env };
+  const fileEnv = () => ({ ...env, AGENT_FILES: "on", AXON_FILES_DIR: dir });
+  const job = () => createTask({ fromAgent: "buyer", toAgent: "browser-agent", task: "Take a screenshot of shop.test", initialStatus: "running", startedBy: "worker" }).taskId;
+  beforeAll(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "axon-saves-"));
+    Object.assign(process.env, { AGENT_FILES: "on", AXON_FILES_DIR: dir });
+    getDb().exec("DELETE FROM task_files; DELETE FROM task_file_sources; DELETE FROM task_step_shots;");
+  });
+  afterAll(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+    Object.assign(process.env, saved);
+  });
+
+  it("each kind is kept with the job as a file it hands back, with the page and the time beside it", async () => {
+    const taskId = job(), made: FileView[] = [];
+    const b = browserTool({ taskId, paid: true, env: fileEnv(), open: start(), onMade: (f) => made.push(f) });
+    await drive(b, { action: "open", url: "http://shop.test/" });
+    const steps = b.used();
+
+    const pic = await drive(b, { action: "save" });
+    expect(pic).toMatch(/^Saved as shop-test\.png \(a picture of the window, \d+ KB\)\. The person receives it with your answer/);
+    expect(pic).toContain(`Saves left in this job: ${BROWSER_SAVES.paid - 1}.`);
+    const whole = await drive(b, { action: "save", as: "picture", whole: true, name: "Home page, whole" });
+    expect(whole).toMatch(/^Saved as home-page-whole\.jpg \(a picture of the whole page/);
+    const pdf = await drive(b, { action: "save", as: "pdf" });
+    expect(pdf).toMatch(/^Saved as shop-test\.pdf \(the page as a PDF/);
+    const words = await drive(b, { action: "save", as: "text", name: "home words" });
+    expect(words).toMatch(/^Saved as home-words\.txt \(the page's words/);
+    expect(b.used()).toBe(steps); // saving is not a step in the browser
+
+    const out = filesOfTask(taskId, "out");
+    expect(out.map((f) => [f.name, f.kind])).toEqual([["shop-test.png", "image"], ["home-page-whole.jpg", "image"], ["shop-test.pdf", "pdf"], ["home-words.txt", "text"]]);
+    const bytes = out.map((f) => readBytes(f)!);
+    expect(bytes[0].subarray(0, 4)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    expect(bytes[1].subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
+    expect(bytes[2].subarray(0, 5).toString()).toBe("%PDF-");
+    expect(bytes[3].toString("utf8")).toMatch(/^Tea shop\nhttp:\/\/shop\.test\/\nSaved \d{4}-\d\d-\d\d \d\d:\d\d UTC\n\n[\s\S]*Loose leaf tea, sent the same day\.[\s\S]*Founded in 1998 in Gothenburg\./);
+    // the whole page is more than the window: its picture is far taller
+    expect(bytes[1].length).toBeGreaterThan(8_000);
+    // where each came from, and when
+    expect(out.map((f) => sourceOf(f.id)?.kind)).toEqual(["picture", "whole-page picture", "pdf", "text"]);
+    expect(sourceOf(out[0].id)).toMatchObject({ url: "http://shop.test/", title: "Tea shop", at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) });
+    expect(outputFileFor(out[2]).from).toMatchObject({ url: "http://shop.test/", kind: "pdf" });
+    // on the receipt as files handed back, by their fingerprints; the job's reader is told of each
+    expect(receiptFiles(taskId, "out").map((f) => [f.name, f.sha256.length])).toEqual([["shop-test.png", 64], ["home-page-whole.jpg", 64], ["shop-test.pdf", 64], ["home-words.txt", 64]]);
+    expect(made.map((f) => f.name)).toEqual(["shop-test.png", "home-page-whole.jpg", "shop-test.pdf", "home-words.txt"]);
+    await b.close();
+  }, 120_000);
+
+  it("a picture of a step is not a saved file, and a saved file is not a step's picture", async () => {
+    const taskId = job();
+    const b = browserTool({ taskId, paid: true, env: fileEnv(), open: start(), say: () => (jpeg) => { keepStepShot({ taskId, sequence: 1, bytes: jpeg }); } });
+    await drive(b, { action: "open", url: "http://shop.test/prices" });
+    await drive(b, { action: "save" });
+    expect(filesOfTask(taskId, "out").map((f) => f.name)).toEqual(["shop-test-prices.png"]);
+    expect(shotsOf(taskId).size).toBe(1);
+    expect(sourceOf(shotsOf(taskId).get(1)!.id)).toBeNull();
+    await b.close();
+  }, 60_000);
+
+  it("a very long page is saved to the length a picture holds, and that is said", async () => {
+    const taskId = job();
+    const b = browserTool({ taskId, paid: true, env: fileEnv(), open: start() });
+    await drive(b, { action: "open", url: "http://shop.test/tall" });
+    const out = await drive(b, { action: "save", whole: true });
+    expect(out).toMatch(/The page is longer than a picture holds: the first 12,000 of its 2[0-9],[0-9]{3} pixels were saved\./);
+    await b.close();
+  }, 60_000);
+
+  it("a free hire saves fewer, the same file is not kept twice, and nothing is saved before a page is open or while files are off", async () => {
+    const taskId = job();
+    const b = browserTool({ taskId, paid: false, env: fileEnv(), open: start() });
+    await expect(drive(b, { action: "save" })).rejects.toThrow(/No page is open yet/);
+    await drive(b, { action: "open", url: "http://shop.test/prices" });
+    expect(await drive(b, { action: "save", as: "text" })).toMatch(/^Saved as shop-test-prices\.txt/);
+    expect(await drive(b, { action: "save", as: "text" })).toMatch(/^That exact file is already with this job\./);
+    expect(await drive(b, { action: "save", as: "pdf" })).toMatch(/Saves left in this job: 0\./);
+    await expect(drive(b, { action: "save" })).rejects.toThrow(/has saved its 3 files/);
+    expect(filesOfTask(taskId, "out").length).toBe(2);
+    expect(b.tool.description).toMatch(/this job has 3 of these/);
+    await b.close();
+    const off = browserTool({ taskId: job(), paid: true, env, open: start() }); // files not switched on in what the tool is given
+    await drive(off, { action: "open", url: "http://shop.test/prices" });
+    await expect(drive(off, { action: "save" })).rejects.toThrow(/Files cannot be kept here/);
+    await off.close();
+  }, 120_000);
+
+  it("saving leaves the agent's page whole: only a look takes the place of a look", () => {
+    const b = browserTool({ taskId: "job-29", paid: true, env });
+    expect(b.tool.isLook!("PAGE: x\nADDRESS: y\n\nWHAT THE WINDOW SHOWS (…)")).toBe(true);
+    expect(b.tool.isLook!("PAGE: x\n\nTHE PAGE'S WORDS (information…)")).toBe(true);
+    expect(b.tool.isLook!("PAGE: x\n\nThe picture is the browser's window as it is now.")).toBe(true);
+    expect(b.tool.isLook!("Saved as shop-test.png (a picture of the window, 80 KB).")).toBe(false);
+    expect(b.tool.isLook!("Noted.\n\nYOUR NOTES SO FAR")).toBe(false);
+  });
 });
 
 describe.skipIf(!findChromium({}))("the limits of one hire", () => {
