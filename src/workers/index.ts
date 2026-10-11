@@ -23,7 +23,7 @@ import { approvedNote, approveOverdue, keepPlan, parkForPlan, planEnabled, planN
 import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
-import { BROWSER_STEPS, browserTool, mayBrowse, withBrowser } from "../lib/browserTool";
+import { BROWSER_STEPS, browserTool, mayBrowse, refusalLine, withBrowser } from "../lib/browserTool";
 import { recordPage } from "../lib/taskPages";
 import { triggersEnabled } from "../lib/triggers";
 import { runChainTriggers } from "../lib/triggerChain";
@@ -490,7 +490,8 @@ async function processTasks() {
           // Every call the agent makes goes into the flight recorder as it happens,
           // so the receipt shows what it did, not just what it said.
           const onToolCall = (ev: ToolCallEvent) => {
-            if (!ev.ok) live.say(ev.kind === "code" ? "That run did not work. Trying another way." : "That step did not work. Trying another way.");
+            // a browser that did not do something says what and why, in the person's words; anything else just says it failed
+            if (!ev.ok) live.say(ev.tool === "browser" ? refusalLine(ev.error ?? "") : ev.kind === "code" ? "That run did not work. Trying another way." : "That step did not work. Trying another way.");
             safeAppendTraceEvent({
               traceId: task.traceId ?? task.taskId,
               taskId: task.taskId,

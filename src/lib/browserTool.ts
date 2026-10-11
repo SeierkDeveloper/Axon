@@ -646,6 +646,22 @@ export function browserTool(ctx: BrowserToolContext): { tool: LocalTool; close: 
   return { tool, close: () => hands.close(), used: () => used };
 }
 
+/**
+ * The line a job's live log gets when its browser did not do what the agent asked, or null when there is nothing
+ * worth telling the person: being asked to write a note first is between the browser and the agent.
+ */
+export function refusalLine(error: string): string | null {
+  const e = error.replace(/^Error:\s*/, "").replace(/\s+/g, " ").trim();
+  if (!e || /^Not done yet/.test(e) || /^(Name the thing|There is no thing number|Unknown action|Keys that can be pressed|A note needs words|No page is open yet)/.test(e)) return null;
+  if (/signs in nowhere/.test(e)) return "Did not type there: it is a password or sign-in code field";
+  if (/pays nowhere/.test(e)) return "Did not type there: it is a payment or secret-key field";
+  if (/not on the public web|not opened|http and https|web ports|name and password/.test(e)) return "Did not open that address: it is not a public web page";
+  if (/used all \d+ of its browser steps|used up its (time|data)|browser is closed/.test(e)) return "The browser's share for this job is used up. Writing the answer";
+  if (/No more browsing can be started today|busy right now|could not be started|no browser installed/.test(e)) return "No browser could be had. Going on without one";
+  const first = e.split(/(?<=[.!?])\s/)[0];
+  return first.length > 110 ? `${first.slice(0, 107).replace(/\s+\S*$/, "")}…` : first;
+}
+
 export const canBrowse = (t: ResolvedTools | null | undefined): boolean => Boolean(t?.localTools.some((x) => x.name === "browser"));
 /** The same tools with the browser added, if it is not there already. */
 export function withBrowser(t: ResolvedTools | null | undefined, tool: LocalTool): ResolvedTools {

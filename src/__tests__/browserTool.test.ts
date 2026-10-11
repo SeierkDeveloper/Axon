@@ -5,7 +5,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import http from "node:http";
 import net from "node:net";
 
-import { browserTool, mayBrowse, withBrowser, canBrowse, pageView, shrinkView, footOf, pageName, dailyBrowsing, BROWSER_STEPS, MAX_NOTES, NOTE_CHARS } from "@/lib/browserTool";
+import { browserTool, mayBrowse, withBrowser, canBrowse, pageView, shrinkView, footOf, pageName, refusalLine, dailyBrowsing, BROWSER_STEPS, MAX_NOTES, NOTE_CHARS } from "@/lib/browserTool";
 import { browserLimits } from "@/lib/agentBrowser";
 import { openBrowser, findChromium, browserLoad } from "@/lib/browserSession";
 import { resolvePublicHost } from "@/lib/urlSecurity";
@@ -137,6 +137,20 @@ describe("what an agent is shown of a page", () => {
     expect(some).toContain("2. no page yet");
     expect(some).toContain("PAGES VISITED: a.example/pricing, b.example");
     expect(pageView(look, { left: 3, foot: some })).toContain("1. [a.example/pricing] Pro is 20 a month");
+  });
+
+  it("what the browser would not do is said in the live log in the person's words, and housekeeping is not said at all", () => {
+    expect(refusalLine("This is a password or sign-in code field. The browser signs in nowhere, so it does not type here.")).toBe("Did not type there: it is a password or sign-in code field");
+    expect(refusalLine("This is a payment or secret-key field. The browser pays nowhere and holds no keys, so it does not type here.")).toBe("Did not type there: it is a payment or secret-key field");
+    expect(refusalLine("That address is not on the public web, so it is not opened.")).toBe("Did not open that address: it is not a public web page");
+    expect(refusalLine("This job has used all 8 of its browser steps. Write your answer now, from your notes and what you have.")).toBe("The browser's share for this job is used up. Writing the answer");
+    expect(refusalLine("Every browser is busy right now. Try again in a minute. Do the job without the browser and say so.")).toBe("No browser could be had. Going on without one");
+    expect(refusalLine(`That list has no choice like "Colour". It offers: Price | Name.`)).toBe(`That list has no choice like "Colour".`);
+    // between the browser and the agent: nothing for the person to read
+    expect(refusalLine(`Not done yet: you would leave shop.test with nothing written down`)).toBeNull();
+    expect(refusalLine("There is no thing number 60 on the page as it is now.")).toBeNull();
+    expect(refusalLine("Name the thing by its number from the latest list, for example ref: 3.")).toBeNull();
+    expect(refusalLine("")).toBeNull();
   });
 
   it("a page goes by its site and path", () => {
