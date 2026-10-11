@@ -84,7 +84,10 @@ const LOOK = String.raw`(() => {
       if (el.matches("input[type=submit], input[type=button], input[type=reset]") && el.value) return el.value;
       return el.getAttribute("title") || el.name || el.id || "";
     }
-    const text = el.innerText; if (text && text.trim()) return text;
+    const text = el.innerText;
+    // a link that wraps a whole card is named by the card's heading, not by everything on it
+    if (text && text.trim().length > 60) { const h = el.querySelector("h1, h2, h3, h4, h5, h6, [role=heading], strong, b"); if (h && h.innerText.trim()) return h.innerText; }
+    if (text && text.trim()) return text;
     const img = el.querySelector("img[alt]"); if (img && img.alt) return img.alt;
     return el.getAttribute("title") || el.value || "";
   };
@@ -162,7 +165,7 @@ const AIM = (ref: number) => String.raw`(() => {
   return { x, y, clear, tag, type, editable: el.isContentEditable || tag === "textarea" || (tag === "input" && !["checkbox", "radio", "submit", "button", "reset", "image", "file", "range", "color"].includes(type)),
     select: tag === "select", disabled: Boolean(el.disabled) || el.getAttribute("aria-disabled") === "true",
     field: { type, autocomplete: el.getAttribute("autocomplete"), name: el.getAttribute("name"), id: el.id, label, placeholder: el.getAttribute("placeholder") },
-    name: String(label || el.innerText || el.value || el.getAttribute("placeholder") || el.getAttribute("title") || "").replace(/\s+/g, " ").trim().slice(0, 60) };
+    name: String(label || (el.innerText && el.innerText.trim().length > 60 && el.querySelector("h1, h2, h3, h4, h5, h6, [role=heading], strong, b")?.innerText) || el.innerText || el.value || el.getAttribute("placeholder") || el.getAttribute("title") || "").replace(/\s+/g, " ").trim().slice(0, 60) };
 })()`;
 
 const CLICK_IN_PAGE = (ref: number) => `(() => { const el = (window.__axonRefs || [])[${ref - 1}]; if (!el) return false; el.click(); return true; })()`;
@@ -296,6 +299,12 @@ export interface BrowserToolContext {
 }
 
 const hostOf = (u: string): string => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+/** A thing's name as a line of the live log carries it: short, and cut at a word. */
+const short = (name: string, fallback: string): string => {
+  const n = name.replace(/\s+/g, " ").trim();
+  if (!n) return fallback;
+  return n.length <= 42 ? `"${n}"` : `"${n.slice(0, 42).replace(/\s+\S*$/, "")}…"`;
+};
 
 /**
  * The tool as one hire holds it, and the way to end its browser. Whatever goes wrong comes back to the agent as a
@@ -397,7 +406,7 @@ export function browserTool(ctx: BrowserToolContext): { tool: LocalTool; close: 
     if (action === "click") {
       const a = await aim(s, args.ref);
       take(s);
-      ctx.say?.(`Clicking "${a.name || "a button"}"`);
+      ctx.say?.(`Clicking ${short(a.name, "a button")}`);
       if (a.clear) await mouse(s, a.x, a.y); else await evaluate(s, CLICK_IN_PAGE(Number(args.ref)));
       await hands.settle();
       return view(s);
@@ -413,13 +422,13 @@ export function browserTool(ctx: BrowserToolContext): { tool: LocalTool; close: 
         take(s);
         const r = await evaluate<{ chose?: string; no?: string[] } | null>(s, CHOOSE(Number(args.ref), text));
         if (!r || r.no) throw new Error(`That list has no choice like "${text}". It offers: ${(r?.no ?? []).join(" | ")}.`);
-        ctx.say?.(`Choosing "${r.chose}"`);
+        ctx.say?.(`Choosing ${short(r.chose ?? "", "from the list")}`);
         await hands.settle(4_000);
         return view(s);
       }
       if (!a.editable) throw new Error(`"${a.name || "That"}" is not something to type into. Click it instead.`);
       take(s);
-      ctx.say?.(`Typing into "${a.name || "a field"}"`);
+      ctx.say?.(`Typing into ${short(a.name, "a field")}`);
       if (a.clear) await mouse(s, a.x, a.y);
       if (!(await evaluate<boolean>(s, FOCUS(Number(args.ref))))) throw new Error("The field could not be typed into just now. Click it first, then type.");
       // what is typed replaces what was there, the way a person selects a field's words and types over them
