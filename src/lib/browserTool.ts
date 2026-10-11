@@ -89,7 +89,9 @@ export function mayBrowse(agent: Pick<Agent, "provider" | "orchestrator" | "capa
 /** What both looks at a page share: how a field is named, what kind of form it sits in, and what a form holds. */
 const FORMS = String.raw`
   const axClean = (s, n) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, n);
-  const axName = (el) => axClean((el.labels && el.labels.length ? [...el.labels].map((l) => l.innerText).join(" ") : "") || el.getAttribute("aria-label") || el.getAttribute("placeholder") || el.getAttribute("title") || el.getAttribute("name") || el.id || "", 80);
+  // a label's own words: a label often wraps its field, and a list's choices or a button's text are not its name
+  const axLabelText = (l) => { const c = l.cloneNode(true); c.querySelectorAll("select, textarea, input, button, datalist, option").forEach((x) => x.remove()); return c.textContent || ""; };
+  const axName = (el) => axClean((el.labels && el.labels.length ? [...el.labels].map(axLabelText).join(" ") : "") || el.getAttribute("aria-label") || el.getAttribute("placeholder") || el.getAttribute("title") || el.getAttribute("name") || el.id || "", 80);
   const axFieldsOf = (root) => [...root.querySelectorAll("input, select, textarea")].filter((e) => !["hidden", "submit", "button", "reset", "image"].includes((e.getAttribute("type") || "").toLowerCase()));
   // a search box or a filter asks the site a question; anything else sends the site what was typed
   const axFormKind = (f) => {
@@ -147,7 +149,7 @@ const LOOK = String.raw`(() => {
     const aria = el.getAttribute("aria-label"); if (aria) return aria;
     const by = el.getAttribute("aria-labelledby"); if (by) { const t = by.split(/\s+/).map((id) => document.getElementById(id)?.innerText ?? "").join(" "); if (t.trim()) return t; }
     if (el.matches("input, select, textarea")) {
-      if (el.labels && el.labels.length) return [...el.labels].map((l) => l.innerText).join(" ");
+      if (el.labels && el.labels.length) return [...el.labels].map(axLabelText).join(" ");
       if (el.placeholder) return el.placeholder;
       if (el.matches("input[type=submit], input[type=button], input[type=reset]") && el.value) return el.value;
       return el.getAttribute("title") || el.name || el.id || "";
@@ -232,7 +234,7 @@ const AIM = (ref: number) => String.raw`(() => {
   if (r.top < 60 || r.bottom > innerHeight - 20) { el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }); r = el.getBoundingClientRect(); }
   if (el.tagName === "A" && el.target && el.target !== "_self") el.removeAttribute("target");
   const tag = el.tagName.toLowerCase(), type = (el.getAttribute("type") || "").toLowerCase();
-  const label = (el.labels && el.labels.length ? [...el.labels].map((l) => l.innerText).join(" ") : "") || el.getAttribute("aria-label") || "";
+  const label = (el.labels && el.labels.length ? [...el.labels].map(axLabelText).join(" ") : "") || el.getAttribute("aria-label") || "";
   const x = Math.min(innerWidth - 2, Math.max(1, r.left + r.width / 2)), y = Math.min(innerHeight - 2, Math.max(1, r.top + r.height / 2));
   let top = document.elementFromPoint(x, y);
   while (top && top.shadowRoot) { const inner = top.shadowRoot.elementFromPoint(x, y); if (!inner || inner === top) break; top = inner; }
@@ -761,7 +763,7 @@ export function browserTool(ctx: BrowserToolContext): { tool: LocalTool; close: 
       `When the job compares things, answer with a table: a row for each thing, a column for each fact, and the address each row came from. ` +
       `If a site refuses you, asks you to prove you are human or wants you to sign in, do not fight it: leave it, say so in your answer, and use another source if there is one. ` +
       `Actions: open (url; read: true answers with the whole page's words in place of the window), note (text), click (ref), type (ref, text, and submit: true to press Enter after; for a list, text is the choice to pick), scroll (to: down, up, top or bottom), read (the whole page's words, 12,000 characters at a time, continue with from), look (the window as a picture, for what words cannot tell you: a chart, a map, a photo, how a page is laid out; this job has ${looks} of these), back, press (key: Enter, Escape, Tab, ArrowDown, ArrowUp, PageDown, PageUp). ` +
-      `Forms: fill fields in with type, pick from lists with type, tick boxes and options with click; a date, time, month, slider or colour field takes its value in the shape shown beside it (a date as 2026-10-31). A field marked "must be filled in" has to be before the form will go. ` +
+      `Forms: fill fields in with type, pick from lists with type, tick boxes and options with click. A field that shows a shape beside it (date, as 2026-10-31) takes its value in exactly that shape; every other field takes what the page itself asks for, so a plain field for a date is typed the way the page shows dates. A field marked "must be filled in" has to be before the form will go. ` +
       (ctx.maySend
         ? `Sending a form: a search box or a filter is sent like anything else. A form that sends what you typed to the site (a contact form, a sign-up, a booking request) is sent only with send: true on the click or the submit; without it you are shown what would be sent, so check it against what the person asked for and then repeat the action with send: true. Send a form once. In your answer say exactly what you sent and what the site answered. `
         : `Sending a form: a search box or a filter is sent like anything else. This job did not ask for anything to be sent, so a form that sends what you typed to a site (a contact form, a sign-up, a booking request) is filled in at most and never sent: say what you filled in and that the person can ask for it to be sent. `) +

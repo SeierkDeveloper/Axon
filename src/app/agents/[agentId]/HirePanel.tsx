@@ -104,15 +104,15 @@ function FormsSent({ sent }: { sent: Sent[] }) {
       <p className="font-semibold text-gray-900 dark:text-white">{sent.length === 1 ? "It sent a form for you" : `It sent ${sent.length} forms for you`}</p>
       {sent.map((f) => (
         <div key={f.n} className="mt-2">
-          <p className="break-all text-gray-600 dark:text-gray-300">
-            To <a href={f.url} target="_blank" rel="noopener noreferrer nofollow" className="text-teal-700 hover:underline dark:text-teal-400">{pageLabel(f.url)}</a>
+          <p className="break-words text-gray-600 dark:text-gray-300">
+            To <a href={f.url} target="_blank" rel="noopener noreferrer nofollow" className="break-all text-teal-700 hover:underline dark:text-teal-400">{pageLabel(f.url)}</a>
             {f.button ? <> with the button &ldquo;{f.button}&rdquo;</> : null}
           </p>
           {f.fields.length > 0 ? (
-            <dl className="mt-1.5 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-1">
+            <dl className="mt-1.5 grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-x-3 gap-y-1">
               {f.fields.map((x, i) => (
                 <div key={i} className="contents">
-                  <dt className="truncate text-gray-500 dark:text-gray-400">{x.label || "A field"}</dt>
+                  <dt className="break-words text-gray-500 dark:text-gray-400">{x.label || "A field"}</dt>
                   <dd className="break-words text-gray-900 dark:text-white">{x.value}</dd>
                 </div>
               ))}

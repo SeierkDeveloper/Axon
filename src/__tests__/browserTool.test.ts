@@ -219,6 +219,7 @@ beforeAll(async () => {
       return html(page("Newsletter", `<h1>Newsletter</h1><label>Your email <input type="email" id="e"></label> <div role="button" tabindex="0" id="go" style="display:inline-block;padding:6px;border:1px solid #333" onclick="fetch('/news',{method:'POST',body:document.getElementById('e').value}).then(()=>{document.getElementById('out').textContent='You are on the list.'})">Subscribe</div><p id="out"></p>`));
     }
     if (u.pathname === "/human") return html(page("Are you human", `<h1>One more step</h1><form method="post" action="/contact"><label>Message <textarea name="msg"></textarea></label><div class="g-recaptcha" style="width:300px;height:70px;border:1px solid #999">I am not a robot</div><button>Send</button></form>`));
+    if (u.pathname === "/wrapped") return html(page("Wrapped labels", `<h1>Wrapped</h1><form><label>Size <select name="size"><option>Small</option><option>Large</option></select></label> <label>Colour <input name="colour" value="red"> <button type="button">Pick</button></label></form>`));
     if (u.pathname === "/prices") return html(page(q.headers.host === "rival.test" ? "Rival Teas prices" : "Tea shop prices", q.headers.host === "rival.test" ? "<h1>Rival Teas</h1><p>Green tea 5.20 per 100 g. Delivery 4.00.</p>" : "<h1>Tea shop</h1><p>Green tea 4.50 per 100 g. Delivery 2.90.</p>"));
     if (u.pathname === "/cards") return html(page("Cards", `<h1>Our growers</h1><a href="/tea/green" style="display:block;border:1px solid #ccc;padding:12px"><span>ESTATE</span> <span>Verified grower</span> <span>Rating 4.8</span><h3>Misty Hill Estate</h3><p>Three generations growing green tea on the north slope, picked by hand every spring.</p></a>`));
     if (u.pathname === "/search") return html(page(`Search: ${u.searchParams.get("q")}`, `<h1>Results for ${u.searchParams.get("q")}</h1><ul><li><a href="/tea/green">Green tea</a> 4.50</li><li><a href="/tea/black">Black tea</a> 3.90</li></ul>`));
@@ -736,6 +737,14 @@ describe.skipIf(!findChromium({}))("forms: when one may be sent", () => {
     expect(sent[0].fields).toEqual([{ label: "Your email", value: "ada@example.org" }]);
     await b.close();
   }, 90_000);
+
+  it("a field goes by its label's own words, not by the choices or buttons its label wraps", async () => {
+    const b = browserTool({ taskId: "job-27", paid: true, env, open: start() });
+    const v = await drive(b, { action: "open", url: "http://shop.test/wrapped" });
+    expect(v).toMatch(/\[\d+\] list "Size" now: "Small" choices: Small \| Large/);
+    expect(v).toMatch(/\[\d+\] field "Colour" now: "red"/);
+    await b.close();
+  }, 60_000);
 
   it("a page that wants proof of being human is said to, and the browser does not try", async () => {
     const b = browserTool({ taskId: "job-26", paid: true, env, open: start(), maySend: true });
