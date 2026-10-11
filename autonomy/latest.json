@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-10T21:27:47.006Z",
-  "finishedAt": "2026-10-10T21:28:15.954Z",
-  "commit": "0231f12",
+  "startedAt": "2026-10-11T17:24:47.780Z",
+  "finishedAt": "2026-10-11T17:29:04.870Z",
+  "commit": "2b06ce4",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 16221
+      "ms": 14411
     },
     {
       "id": "links",
@@ -17,13 +17,13 @@
       "ok": true,
       "checked": 205,
       "findings": [],
-      "ms": 95
+      "ms": 127
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 1142,
+      "checked": 1181,
       "findings": [
         {
           "severity": "warn",
@@ -50,15 +50,15 @@
           ]
         }
       ],
-      "ms": 1494
+      "ms": 1634
     },
     {
       "id": "api-reference",
       "title": "The API reference matches the routes",
       "ok": true,
-      "checked": 374,
+      "checked": 375,
       "findings": [],
-      "ms": 67
+      "ms": 72
     },
     {
       "id": "sdk-routes",
@@ -66,7 +66,7 @@
       "ok": true,
       "checked": 142,
       "findings": [],
-      "ms": 35
+      "ms": 32
     },
     {
       "id": "examples",
@@ -74,7 +74,7 @@
       "ok": true,
       "checked": 39,
       "findings": [],
-      "ms": 11
+      "ms": 12
     },
     {
       "id": "packages",
@@ -91,19 +91,28 @@
           ]
         }
       ],
-      "ms": 5026
+      "ms": 2209
     },
     {
       "id": "migrations",
       "title": "Migrations are complete and in order",
       "ok": true,
-      "checked": 117,
+      "checked": 122,
       "findings": [],
-      "ms": 1
+      "ms": 0
     }
   ],
   "errors": 0,
   "warnings": 4,
-  "changed": false,
-  "changes": []
+  "changed": true,
+  "changes": [
+    {
+      "what": "dropped the export from plainWhy()",
+      "where": "src/lib/browserSession.ts",
+      "files": [
+        "src/lib/browserSession.ts"
+      ],
+      "status": "applied"
+    }
+  ]
 }
