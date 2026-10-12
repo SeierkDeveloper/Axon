@@ -28,6 +28,9 @@ interface Agent {
     /** Whether a hire that names a website is given a real browser to open it with (`getAgent` says so). Absent
      *  where agents have no browser, and for an agent that runs on its own server. */
     browses?: boolean;
+    /** Whether a hire that asks for a page or a small app is given the tool to build one (`getAgent` says so).
+     *  Absent where agents do not build, and for an agent that runs on its own server. */
+    builds?: boolean;
     /** One line saying what this agent does, written from the name and capabilities it declared.
      *  Generated rather than typed, because anyone can register an agent and asking people to write
      *  copy about themselves produces either nothing or marketing. Absent until it has been written. */
@@ -167,6 +170,8 @@ interface TaskRequest {
     followUp?: FollowUpInfo;
     /** The files the agent handed back, each with the token that downloads it. */
     outputFiles?: TaskFile[];
+    /** The page the agent built or changed in this job, when it did: a link that opens it. */
+    site?: BuiltPage;
     /** What the agent has done so far, one line a step. A step taken in its browser carries a picture of the page
      *  as it stood then (`shot`), read with `downloadFile`. */
     steps?: {
@@ -405,6 +410,71 @@ interface ConversationTurn {
     outputFiles: TaskFile[];
     /** The pages the agent's browser opened on this turn. */
     pages?: VisitedPage[];
+    /** The page the agent built or changed on this turn, when it did. */
+    site?: BuiltPage;
+    receipt: string;
+}
+/** A page an agent built: what it is called, which version the job made, and the link that opens it. */
+interface BuiltPage {
+    siteId: string;
+    title: string;
+    version: number;
+    url: string;
+}
+/** One version of a built page that is still kept. `shown` is the one its link shows; `madeHere` says this job made it. */
+interface BuiltPageVersion {
+    version: number;
+    note: string | null;
+    files: number;
+    bytes: number;
+    sha256: string;
+    createdAt: string;
+    shown: boolean;
+    madeHere: boolean;
+    url: string;
+}
+/** A built page as its owner reads it: every version kept, whether it has a form and how many answers came in,
+ *  and what keeps it up to date when a schedule or a trigger does. */
+interface BuiltPageView {
+    site: BuiltPage & {
+        status: "live" | "hidden";
+    };
+    versions: BuiltPageVersion[];
+    form: boolean;
+    answers: number;
+    kept: "schedule" | "trigger" | null;
+}
+/** What one visitor sent through a built page's form: its fields in the order of the form. */
+interface PageAnswer {
+    id: string;
+    form: string;
+    at: string;
+    version: number;
+    fields: [string, string][];
+}
+/** What a built page is, as numbers: the fingerprint of the version it shows and each file's own hash. The receipt
+ *  of the job that built it lists the same fingerprint. */
+interface PageFingerprint {
+    version: number;
+    fingerprint: string;
+    builtAt: string;
+    files: {
+        path: string;
+        bytes: number;
+        sha256: string;
+    }[];
+    how: string;
+}
+/** A page in your library: the page, and the job (with what reads it) that made the version it shows. */
+interface LibraryPage extends BuiltPage {
+    updatedAt: string;
+    taskId: string;
+    claimToken: string;
+    thread: string;
+    agent: {
+        id: string;
+        name: string;
+    };
     receipt: string;
 }
 interface LibraryFile extends TaskFile {
@@ -1428,6 +1498,8 @@ interface HireResult {
     pages?: VisitedPage[];
     /** The forms its browser sent, when the task asked for that. */
     sent?: SentForm[];
+    /** The page the agent built, when the task asked for one: `site.url` opens it. */
+    site?: BuiltPage;
     /** For a hire made without signing in: what reads the job again and follows it up (`followUp`). */
     claimToken?: string;
     /** The agent's output, when completed. */
@@ -2205,4 +2277,4 @@ interface MindRewardShare {
     endAt: number;
 }
 
-export type { LibraryOptions as $, ApprovalRequest as A, AgentMetrics as B, CreateProfileOptions as C, DelegateOptions as D, Receipt as E, FindAgentsOptions as F, GrantMandateOptions as G, HirerOptions as H, HireOptions as I, HireResult as J, RunOptions as K, ListPurchasesOptions as L, RunResult as M, AxonToolsOptions as N, AxonTool as O, PurchasesView as P, QuorumTask as Q, RegisterOptions as R, SignMandate as S, TaskRequest as T, UpdateAgentOptions as U, VerifyOptions as V, WatchPurchasesOptions as W, X402PayFunction as X, FollowUpOptions as Y, WaitOptions as Z, TaskNote as _, CommerceProfile as a, X402Requirements as a$, AgentMemory as a0, Conversation as a1, ConversationTurn as a2, LibraryFile as a3, UploadedFile as a4, FileVersion as a5, AllowanceStatus as a6, CreateAllowanceKeyOptions as a7, CreatedAllowanceKey as a8, AllowanceKey as a9, GatewayCallResult as aA, X402Currency as aB, RegisterWebhookOptions as aC, Webhook as aD, WebhookDelivery as aE, CreateOpenTaskOptions as aF, OpenTask as aG, ListOpenTasksOptions as aH, Bid as aI, SplitRecipient as aJ, TaskSplitsView as aK, CreateWorkflowTemplateOptions as aL, WorkflowTemplate as aM, InstantiateTemplateOptions as aN, AttestCapabilityOptions as aO, CapabilityAttestation as aP, DefineSlaOptions as aQ, TaskSla as aR, FileAbuseReportOptions as aS, AbuseReport as aT, FeePolicy as aU, ProtocolInfo as aV, ProtocolNegotiation as aW, ExplorerFeed as aX, SystemStatus as aY, SubmitBidOptions as aZ, AcceptBidOptions as a_, CreateRetainerOptions as aa, Retainer as ab, RetainerLimits as ac, UpdateRetainerOptions as ad, RetainerRun as ae, ListTokenMindsOptions as af, TokenMindPage as ag, TokenMind as ah, ListMindThoughtsOptions as ai, MindThought as aj, MindRewardShare as ak, MindBriefState as al, SetMindBriefResult as am, AgentRetainers as an, RouteHireOptions as ao, RoutingInfo as ap, PlanOptions as aq, PlanResult as ar, SubcontractOptions as as, SubcontractResult as at, OptimizeResult as au, PaymentNote as av, GetTaskHistoryOptions as aw, RegisterGatewayProviderOptions as ax, GatewayProvider as ay, GatewayCallOptions as az, SpendMandate as b, TaskSplit as b$, RegisterMcpServerOptions as b0, McpServer as b1, McpToolRecord as b2, CallMcpToolOptions as b3, StartMissionOptions as b4, Mission as b5, OpenChannelOptions as b6, OpenChannelResult as b7, PaymentChannel as b8, ReproductionProof as b9, MindFees as bA, MindMove as bB, MindOrder as bC, MindPlan as bD, MindPromises as bE, MindReport as bF, MindState as bG, MindTrackRecord as bH, MindTreasury as bI, MissionStatus as bJ, OpenTaskStatus as bK, PaymentHandlerDescriptor as bL, PaymentInstrument as bM, PaymentNoteKind as bN, PaymentStatus as bO, PlanView as bP, PlannedStep as bQ, PurchaseStatus as bR, QuorumStatus as bS, ReceiptDelivery as bT, RetainerSchedule as bU, Review as bV, SentForm as bW, SlaStatus as bX, SpendSummary as bY, SplitPayout as bZ, StepShot as b_, WorkerMetrics as ba, X402PaymentOption as bb, AgentRuntimeOptions as bc, AxonAgent as bd, AbuseReason as be, AbuseStatus as bf, AgentContext as bg, AgentRating as bh, AgentRunHandler as bi, AllowanceAccount as bj, AllowanceKeyLimitsView as bk, ApiErrorBody as bl, ApiErrorCode as bm, BidStatus as bn, ComponentStatus as bo, DefineSplitsOptions as bp, DelegationResult as bq, DelegationStep as br, EndpointUptime as bs, ExplorerSettlement as bt, ExplorerTask as bu, FeeTier as bv, FileSource as bw, MindActionKind as bx, MindBooks as by, MindBrief as bz, PurchaseIntent as c, TaskStatus as c0, TokenMindEvent as c1, TokenMindSummary as c2, TokenMindTotals as c3, VisitedPage as c4, WebhookEventType as c5, WorkflowStep as c6, PaymentOptionsView as d, ApproveOptions as e, ApproveResult as f, WatchHandle as g, AutoApprovePolicy as h, ParsedAuthorisation as i, PurchaseExpectation as j, AxonConfig as k, AuthChallenge as l, AuthVerifyResult as m, Agent as n, CapabilitySummary as o, SendTaskOptions as p, TaskProgress as q, TaskHandler as r, TaskResult as s, CreateQuorumOptions as t, QuorumResult as u, Workflow as v, GetTransactionsOptions as w, Transaction as x, AgentBalance as y, Reputation as z };
+export type { LibraryOptions as $, ApprovalRequest as A, AgentMetrics as B, CreateProfileOptions as C, DelegateOptions as D, Receipt as E, FindAgentsOptions as F, GrantMandateOptions as G, HirerOptions as H, HireOptions as I, HireResult as J, RunOptions as K, ListPurchasesOptions as L, RunResult as M, AxonToolsOptions as N, AxonTool as O, PurchasesView as P, QuorumTask as Q, RegisterOptions as R, SignMandate as S, TaskRequest as T, UpdateAgentOptions as U, VerifyOptions as V, WatchPurchasesOptions as W, X402PayFunction as X, FollowUpOptions as Y, WaitOptions as Z, TaskNote as _, CommerceProfile as a, ExplorerFeed as a$, AgentMemory as a0, Conversation as a1, ConversationTurn as a2, LibraryFile as a3, LibraryPage as a4, BuiltPageView as a5, PageAnswer as a6, PageFingerprint as a7, UploadedFile as a8, FileVersion as a9, GetTaskHistoryOptions as aA, RegisterGatewayProviderOptions as aB, GatewayProvider as aC, GatewayCallOptions as aD, GatewayCallResult as aE, X402Currency as aF, RegisterWebhookOptions as aG, Webhook as aH, WebhookDelivery as aI, CreateOpenTaskOptions as aJ, OpenTask as aK, ListOpenTasksOptions as aL, Bid as aM, SplitRecipient as aN, TaskSplitsView as aO, CreateWorkflowTemplateOptions as aP, WorkflowTemplate as aQ, InstantiateTemplateOptions as aR, AttestCapabilityOptions as aS, CapabilityAttestation as aT, DefineSlaOptions as aU, TaskSla as aV, FileAbuseReportOptions as aW, AbuseReport as aX, FeePolicy as aY, ProtocolInfo as aZ, ProtocolNegotiation as a_, AllowanceStatus as aa, CreateAllowanceKeyOptions as ab, CreatedAllowanceKey as ac, AllowanceKey as ad, CreateRetainerOptions as ae, Retainer as af, RetainerLimits as ag, UpdateRetainerOptions as ah, RetainerRun as ai, ListTokenMindsOptions as aj, TokenMindPage as ak, TokenMind as al, ListMindThoughtsOptions as am, MindThought as an, MindRewardShare as ao, MindBriefState as ap, SetMindBriefResult as aq, AgentRetainers as ar, RouteHireOptions as as, RoutingInfo as at, PlanOptions as au, PlanResult as av, SubcontractOptions as aw, SubcontractResult as ax, OptimizeResult as ay, PaymentNote as az, SpendMandate as b, Review as b$, SystemStatus as b0, SubmitBidOptions as b1, AcceptBidOptions as b2, X402Requirements as b3, RegisterMcpServerOptions as b4, McpServer as b5, McpToolRecord as b6, CallMcpToolOptions as b7, StartMissionOptions as b8, Mission as b9, ExplorerTask as bA, FeeTier as bB, FileSource as bC, MindActionKind as bD, MindBooks as bE, MindBrief as bF, MindFees as bG, MindMove as bH, MindOrder as bI, MindPlan as bJ, MindPromises as bK, MindReport as bL, MindState as bM, MindTrackRecord as bN, MindTreasury as bO, MissionStatus as bP, OpenTaskStatus as bQ, PaymentHandlerDescriptor as bR, PaymentInstrument as bS, PaymentNoteKind as bT, PaymentStatus as bU, PlanView as bV, PlannedStep as bW, PurchaseStatus as bX, QuorumStatus as bY, ReceiptDelivery as bZ, RetainerSchedule as b_, OpenChannelOptions as ba, OpenChannelResult as bb, PaymentChannel as bc, ReproductionProof as bd, WorkerMetrics as be, X402PaymentOption as bf, AgentRuntimeOptions as bg, AxonAgent as bh, AbuseReason as bi, AbuseStatus as bj, AgentContext as bk, AgentRating as bl, AgentRunHandler as bm, AllowanceAccount as bn, AllowanceKeyLimitsView as bo, ApiErrorBody as bp, ApiErrorCode as bq, BidStatus as br, BuiltPage as bs, BuiltPageVersion as bt, ComponentStatus as bu, DefineSplitsOptions as bv, DelegationResult as bw, DelegationStep as bx, EndpointUptime as by, ExplorerSettlement as bz, PurchaseIntent as c, SentForm as c0, SlaStatus as c1, SpendSummary as c2, SplitPayout as c3, StepShot as c4, TaskSplit as c5, TaskStatus as c6, TokenMindEvent as c7, TokenMindSummary as c8, TokenMindTotals as c9, VisitedPage as ca, WebhookEventType as cb, WorkflowStep as cc, PaymentOptionsView as d, ApproveOptions as e, ApproveResult as f, WatchHandle as g, AutoApprovePolicy as h, ParsedAuthorisation as i, PurchaseExpectation as j, AxonConfig as k, AuthChallenge as l, AuthVerifyResult as m, Agent as n, CapabilitySummary as o, SendTaskOptions as p, TaskProgress as q, TaskHandler as r, TaskResult as s, CreateQuorumOptions as t, QuorumResult as u, Workflow as v, GetTransactionsOptions as w, Transaction as x, AgentBalance as y, Reputation as z };

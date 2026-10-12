@@ -213,3 +213,61 @@ describe("memory, the library and files", () => {
     expect((fetchMock.mock.calls.at(-1) as [string, RequestInit])[1].headers).toMatchObject({ "X-File-Token": "ft" });
   });
 });
+
+// Agents that build (1.4.0): a hire that built a page says so, and the page is read and acted on as its hirer.
+describe("a page an agent built", () => {
+  const site = { siteId: "Gux4oaQrquj6zObP", title: "Tip Calculator", version: 1, url: "https://x/s/Gux4oaQrquj6zObP" };
+
+  it("comes back from hire as site, and a job that built nothing says nothing about one", async () => {
+    const stub = (t: TaskRequest) => ({ sendTask: vi.fn(async () => task()), getTask: vi.fn(async () => t) }) as unknown as AxonClient;
+    const built = await hire(stub(task({ status: "completed", output: "Built.", site })), { to: "quill", task: "Build a tip calculator", from: "0xabc", pollIntervalMs: 1 });
+    expect(built).toMatchObject({ status: "completed", output: "Built.", site });
+    const plain = await hire(stub(task({ status: "completed", output: "Done." })), { to: "quill", task: "Say hi", from: "0xabc", pollIntervalMs: 1 });
+    expect(plain).not.toHaveProperty("site");
+  });
+
+  it("is read with its versions, and an earlier version is shown again, as the job's hirer", async () => {
+    fetchMock.mockResolvedValueOnce(resp(200, { site: { ...site, status: "live" }, versions: [], form: true, answers: 2, kept: null }));
+    expect(await client.getBuiltPage("t1", { claimToken: "tok" })).toMatchObject({ form: true, answers: 2 });
+    expect(sent()).toMatchObject({ url: "https://x/api/tasks/t1/site", method: "GET", headers: { "X-Claim-Token": "tok" } });
+    fetchMock.mockResolvedValueOnce(resp(200, { site: { ...site, status: "live" }, versions: [], form: false, answers: 0, kept: null }));
+    await client.showPageVersion("t1", 1, { claimToken: "tok" });
+    expect(sent()).toMatchObject({ url: "https://x/api/tasks/t1/site", method: "POST", body: { version: 1 }, headers: { "X-Claim-Token": "tok" } });
+  });
+
+  it("gives its form's answers, removes one, and hands them over as a CSV", async () => {
+    const answers = [{ id: "a1", form: "rsvp", at: "2026-10-12T12:25:00.000Z", version: 1, fields: [["Name", "Ada"]] }];
+    fetchMock.mockResolvedValueOnce(resp(200, { total: 1, answers }));
+    expect((await client.listPageAnswers("t1", { claimToken: "tok" })).answers).toEqual(answers);
+    expect(sent()).toMatchObject({ url: "https://x/api/tasks/t1/site/answers", method: "GET" });
+    fetchMock.mockResolvedValueOnce(resp(200, { ok: true, total: 0, answers: [] }));
+    await client.removePageAnswer("t1", "a/1", { claimToken: "tok" });
+    expect(sent()).toMatchObject({ url: "https://x/api/tasks/t1/site/answers?id=a%2F1", method: "DELETE", headers: { "X-Claim-Token": "tok" } });
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, headers: { get: () => null }, text: async () => "sent,form,Name\r\n" } as unknown as Response);
+    expect(await client.downloadPageAnswers("t1", { claimToken: "tok" })).toBe("sent,form,Name\r\n");
+    expect(fetchMock.mock.calls.at(-1)![0]).toBe("https://x/api/tasks/t1/site/answers?format=csv");
+  });
+
+  it("hands over its files as one archive, the version asked for when one is", async () => {
+    const bytes = new Uint8Array([0x50, 0x4b, 3, 4]);
+    fetchMock.mockResolvedValue({ ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => bytes.buffer } as unknown as Response);
+    expect(Array.from(await client.downloadPage("t1", { claimToken: "tok" }))).toEqual([0x50, 0x4b, 3, 4]);
+    expect(fetchMock.mock.calls.at(-1)![0]).toBe("https://x/api/tasks/t1/site/zip");
+    expect((fetchMock.mock.calls.at(-1)![1] as RequestInit).headers).toMatchObject({ "X-Claim-Token": "tok" });
+    await client.downloadPage("t1", { version: 2 });
+    expect(fetchMock.mock.calls.at(-1)![0]).toBe("https://x/api/tasks/t1/site/zip?v=2");
+  });
+
+  it("gives its fingerprint from its name or from its link, and your library lists the pages built for you", async () => {
+    const print = { version: 1, fingerprint: "ab".repeat(32), builtAt: "2026-10-12T12:00:00.000Z", files: [], how: "..." };
+    fetchMock.mockResolvedValueOnce(resp(200, print));
+    expect(await client.getPageFingerprint("https://axon-agents.com/s/Gux4oaQrquj6zObP")).toEqual(print);
+    expect(sent().url).toBe("https://x/s/Gux4oaQrquj6zObP/fingerprint");
+    fetchMock.mockResolvedValueOnce(resp(200, print));
+    await client.getPageFingerprint("Gux4oaQrquj6zObP");
+    expect(sent().url).toBe("https://x/s/Gux4oaQrquj6zObP/fingerprint");
+    fetchMock.mockResolvedValueOnce(resp(200, { pages: [{ ...site, taskId: "t1" }] }));
+    expect(await client.listLibraryPages({ memoryKey: "k", limit: 5 })).toHaveLength(1);
+    expect(sent()).toMatchObject({ url: "https://x/api/library?view=pages&limit=5", headers: { "X-Memory-Key": "k" } });
+  });
+});

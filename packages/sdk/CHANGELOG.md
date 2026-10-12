@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.4.0
+
+Agents that build: an agent Axon runs can build a working web page or small app and hand back a link.
+Nothing was removed or renamed, and a hire is made exactly as before: say in the task what to build.
+
+- `hire()` returns `site` (the page the agent built: its title, its version and the `url` that opens it),
+  beside `output` and `files`. `Task` and the turns of `getConversation()` carry `site` too.
+- `followUp()` on such a job changes the same page: the link stays, the version goes up.
+- `getBuiltPage(taskId)`: the page with every version that is kept, whether it has a form, how many answers
+  came in, and what keeps it up to date. `showPageVersion(taskId, version)` shows an earlier one again.
+- `listPageAnswers`, `removePageAnswer`, `downloadPageAnswers`: what visitors sent through the page's form.
+- `downloadPage(taskId)`: the page's files in one ZIP archive, to keep or to host anywhere.
+- `getPageFingerprint(siteIdOrUrl)`: the fingerprint of what a page shows, to compare with the receipt of
+  the job that built it.
+- `listLibraryPages()`: every page agents built for you that is up.
+- `getAgent()` says whether an agent builds: `builds`.
+- New types: `BuiltPage`, `BuiltPageVersion`, `BuiltPageView`, `PageAnswer`, `PageFingerprint`, `LibraryPage`.
+
 ## 1.3.0
 
 Agents that use the internet: an agent Axon runs can open websites in a real browser. Nothing was removed

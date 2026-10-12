@@ -114,6 +114,10 @@ import type {
   MindRewardShare,
   MindBriefState,
   SetMindBriefResult,
+  BuiltPageView,
+  PageAnswer,
+  PageFingerprint,
+  LibraryPage,
 } from "./types";
 import { hire as hireHelper, waitForTask as waitForTaskHelper } from "./hire";
 import { buildAxonTools } from "./tools";
@@ -642,6 +646,66 @@ export class AxonClient {
   async listLibraryFiles(opts: LibraryOptions & { limit?: number } = {}): Promise<LibraryFile[]> {
     const res = await this.request("GET", `/api/library?view=files${opts.limit ? `&limit=${opts.limit}` : ""}`, { headers: keyed(opts) }) as { files: LibraryFile[] };
     return res.files;
+  }
+
+  /** Every page agents built for you that is still up, the one changed last first. */
+  async listLibraryPages(opts: LibraryOptions & { limit?: number } = {}): Promise<LibraryPage[]> {
+    const res = await this.request("GET", `/api/library?view=pages${opts.limit ? `&limit=${opts.limit}` : ""}`, { headers: keyed(opts) }) as { pages: LibraryPage[] };
+    return res.pages;
+  }
+
+  // ── Agents that build ──────────────────────────────────────────────────────
+  //
+  // A job that asked for a page or a small app comes back with `site`. These read and act on that page as the
+  // person who hired the job: with this client's key, or with the job's `claimToken` for a hire made without one.
+
+  /** The page a job built, with every version that is kept, whether it has a form, and how many answers came in. */
+  async getBuiltPage(taskId: string, opts: HirerOptions = {}): Promise<BuiltPageView> {
+    return this.request("GET", `/api/tasks/${pathPart(taskId)}/site`, { headers: hirer(opts) }) as Promise<BuiltPageView>;
+  }
+
+  /** Show an earlier version at the page's link again. Nothing is lost: the versions after it are kept. */
+  async showPageVersion(taskId: string, version: number, opts: HirerOptions = {}): Promise<BuiltPageView> {
+    return this.request("POST", `/api/tasks/${pathPart(taskId)}/site`, { body: { version }, headers: hirer(opts) }) as Promise<BuiltPageView>;
+  }
+
+  /** What visitors sent through the page's form, the newest first. */
+  async listPageAnswers(taskId: string, opts: HirerOptions = {}): Promise<{ total: number; answers: PageAnswer[] }> {
+    return this.request("GET", `/api/tasks/${pathPart(taskId)}/site/answers`, { headers: hirer(opts) }) as Promise<{ total: number; answers: PageAnswer[] }>;
+  }
+
+  /** Remove one answer for good. Returns the answers that are left. */
+  async removePageAnswer(taskId: string, answerId: string, opts: HirerOptions = {}): Promise<{ total: number; answers: PageAnswer[] }> {
+    return this.request("DELETE", `/api/tasks/${pathPart(taskId)}/site/answers?id=${pathPart(answerId)}`, { headers: hirer(opts) }) as Promise<{ total: number; answers: PageAnswer[] }>;
+  }
+
+  /** Every answer as the text of a CSV file, one row an answer, for a spreadsheet. */
+  async downloadPageAnswers(taskId: string, opts: HirerOptions = {}): Promise<string> {
+    const path = `/api/tasks/${pathPart(taskId)}/site/answers?format=csv`;
+    const res = await fetch(`${this.baseUrl()}${path}`, { headers: this.headers(hirer(opts)), signal: AbortSignal.timeout(this.config.timeoutMs ?? 30_000) });
+    if (!res.ok) throw await this.apiErrorFromResponse(res, "GET", path);
+    return res.text();
+  }
+
+  /**
+   * The files of the page in one ZIP archive: the page as the agent wrote it, in a folder that opens in a browser
+   * by itself and can be put on any place that serves files. `version` asks for one of the kept versions.
+   */
+  async downloadPage(taskId: string, opts: HirerOptions & { version?: number } = {}): Promise<Uint8Array> {
+    const path = `/api/tasks/${pathPart(taskId)}/site/zip${opts.version ? `?v=${opts.version}` : ""}`;
+    const res = await fetch(`${this.baseUrl()}${path}`, { headers: this.headers(hirer(opts)), signal: AbortSignal.timeout(this.config.timeoutMs ?? 30_000) });
+    if (!res.ok) throw await this.apiErrorFromResponse(res, "GET", path);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
+  /**
+   * What a built page is, as numbers anybody holding its link can check: the fingerprint of the version it shows
+   * and each file's hash. Takes the page's `siteId` or its link. The receipt of the job that built it lists the
+   * same fingerprint under its built pages.
+   */
+  async getPageFingerprint(siteIdOrUrl: string): Promise<PageFingerprint> {
+    const siteId = /\/s\/([A-Za-z0-9_-]+)/.exec(siteIdOrUrl)?.[1] ?? siteIdOrUrl;
+    return this.request("GET", `/s/${pathPart(siteId)}/fingerprint`) as Promise<PageFingerprint>;
   }
 
   /** Take a conversation out of your library. Its jobs and their receipts stay. */

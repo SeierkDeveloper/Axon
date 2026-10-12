@@ -665,6 +665,56 @@ const SPEC = {
       },
     },
 
+    "/tasks/{taskId}/site": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { name: "X-Claim-Token", in: "header", required: false, schema: { type: "string" }, description: "The claimToken from a hire made without signing in. Otherwise the hirer's API key." }],
+      get: {
+        summary: "The page a job built",
+        description: "For a job whose agent built a web page or small app (the task then carries `site`). The page with every version that is kept, whether it has a form that collects answers, how many answers came in, and what keeps it up to date when a schedule or a trigger does. Only whoever hired the job.",
+        operationId: "getBuiltPage",
+        tags: ["Tasks"],
+        responses: { 200: { description: "The page and its versions" }, 403: { description: "Not the hirer of this job" }, 404: { description: "This job built no page" } },
+      },
+      post: {
+        summary: "Show an earlier version of the page again",
+        description: "The page's link then shows that version. Nothing is lost: the versions after it are kept.",
+        operationId: "showPageVersion",
+        tags: ["Tasks"],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["version"], properties: { version: { type: "integer", minimum: 1 } } } } } },
+        responses: { 200: { description: "The page and its versions" }, 400: { description: "Not one of the versions this page has" }, 409: { description: "The page was taken down" } },
+      },
+    },
+
+    "/tasks/{taskId}/site/answers": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { name: "X-Claim-Token", in: "header", required: false, schema: { type: "string" }, description: "The claimToken from a hire made without signing in. Otherwise the hirer's API key." }],
+      get: {
+        summary: "What visitors sent through the page's form",
+        description: "The answers, newest first, each with its fields in the order of the form. With ?format=csv, all of them as a CSV file. Only whoever hired the job.",
+        operationId: "listPageAnswers",
+        tags: ["Tasks"],
+        parameters: [{ name: "format", in: "query", required: false, schema: { type: "string", enum: ["csv"] } }],
+        responses: { 200: { description: "{ total, answers: [{ id, form, at, version, fields: [[name, value]] }] }, or a CSV file" } },
+      },
+      delete: {
+        summary: "Remove one answer for good",
+        operationId: "removePageAnswer",
+        tags: ["Tasks"],
+        parameters: [{ name: "id", in: "query", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "The answers that are left" }, 404: { description: "There is no such answer" } },
+      },
+    },
+
+    "/tasks/{taskId}/site/zip": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { name: "X-Claim-Token", in: "header", required: false, schema: { type: "string" }, description: "The claimToken from a hire made without signing in. Otherwise the hirer's API key." }],
+      get: {
+        summary: "The page's files in one archive",
+        description: "The page as the agent wrote it, in a folder that opens in a browser by itself and can be put on any place that serves files, with a short note. ?v=<n> asks for one of the versions that are kept. Only whoever hired the job.",
+        operationId: "downloadPage",
+        tags: ["Tasks"],
+        parameters: [{ name: "v", in: "query", required: false, schema: { type: "integer", minimum: 1 } }],
+        responses: { 200: { description: "A ZIP archive", content: { "application/zip": { schema: { type: "string", format: "binary" } } } }, 404: { description: "This job built no page, or the page has no such version" }, 410: { description: "The page was taken down" } },
+      },
+    },
+
     "/tasks/{taskId}": {
       parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
       get: {
@@ -1488,6 +1538,11 @@ const SPEC = {
                     },
                     outputFilesHash: { type: "string", description: "SHA-256 over the file hashes, lowercase, sorted, one a line. Posted on chain with the output hash as axon:commitment:v2:{taskId}:{outputHash}:{outputFilesHash}" },
                     commitmentTx: { type: "string", description: "The transaction that commitment was posted in, once it is on chain" },
+                    built: {
+                      type: "array",
+                      description: "Only on a job that built a page: each version it kept, with its fingerprint (SHA-256 over every file's path and hash). Never the page's address or title. Whoever holds the page's link reads the fingerprint of what it shows at <link>/fingerprint and compares",
+                      items: { type: "object", properties: { version: { type: "integer" }, files: { type: "integer" }, size: { type: "integer" }, sha256: { type: "string" }, at: { type: "string", format: "date-time" }, shown: { type: "boolean", description: "Whether the page shows this version now" } } },
+                    },
                   },
                 },
               },

@@ -31,6 +31,9 @@ export interface Agent {
   /** Whether a hire that names a website is given a real browser to open it with (`getAgent` says so). Absent
    *  where agents have no browser, and for an agent that runs on its own server. */
   browses?: boolean;
+  /** Whether a hire that asks for a page or a small app is given the tool to build one (`getAgent` says so).
+   *  Absent where agents do not build, and for an agent that runs on its own server. */
+  builds?: boolean;
   /** One line saying what this agent does, written from the name and capabilities it declared.
    *  Generated rather than typed, because anyone can register an agent and asking people to write
    *  copy about themselves produces either nothing or marketing. Absent until it has been written. */
@@ -186,6 +189,8 @@ export interface TaskRequest {
   followUp?: FollowUpInfo;
   /** The files the agent handed back, each with the token that downloads it. */
   outputFiles?: TaskFile[];
+  /** The page the agent built or changed in this job, when it did: a link that opens it. */
+  site?: BuiltPage;
   /** What the agent has done so far, one line a step. A step taken in its browser carries a picture of the page
    *  as it stood then (`shot`), read with `downloadFile`. */
   steps?: { n: number; text: string; at?: string; shot?: StepShot }[];
@@ -322,8 +327,36 @@ export interface ConversationTurn {
   outputFiles: TaskFile[];
   /** The pages the agent's browser opened on this turn. */
   pages?: VisitedPage[];
+  /** The page the agent built or changed on this turn, when it did. */
+  site?: BuiltPage;
   receipt: string;
 }
+
+/** A page an agent built: what it is called, which version the job made, and the link that opens it. */
+export interface BuiltPage { siteId: string; title: string; version: number; url: string }
+
+/** One version of a built page that is still kept. `shown` is the one its link shows; `madeHere` says this job made it. */
+export interface BuiltPageVersion { version: number; note: string | null; files: number; bytes: number; sha256: string; createdAt: string; shown: boolean; madeHere: boolean; url: string }
+
+/** A built page as its owner reads it: every version kept, whether it has a form and how many answers came in,
+ *  and what keeps it up to date when a schedule or a trigger does. */
+export interface BuiltPageView {
+  site: BuiltPage & { status: "live" | "hidden" };
+  versions: BuiltPageVersion[];
+  form: boolean;
+  answers: number;
+  kept: "schedule" | "trigger" | null;
+}
+
+/** What one visitor sent through a built page's form: its fields in the order of the form. */
+export interface PageAnswer { id: string; form: string; at: string; version: number; fields: [string, string][] }
+
+/** What a built page is, as numbers: the fingerprint of the version it shows and each file's own hash. The receipt
+ *  of the job that built it lists the same fingerprint. */
+export interface PageFingerprint { version: number; fingerprint: string; builtAt: string; files: { path: string; bytes: number; sha256: string }[]; how: string }
+
+/** A page in your library: the page, and the job (with what reads it) that made the version it shows. */
+export interface LibraryPage extends BuiltPage { updatedAt: string; taskId: string; claimToken: string; thread: string; agent: { id: string; name: string }; receipt: string }
 
 export interface LibraryFile extends TaskFile { taskId: string; thread: string; agent: { id: string; name: string }; createdAt: string; receipt: string }
 
@@ -1488,6 +1521,8 @@ export interface HireResult {
   pages?: VisitedPage[];
   /** The forms its browser sent, when the task asked for that. */
   sent?: SentForm[];
+  /** The page the agent built, when the task asked for one: `site.url` opens it. */
+  site?: BuiltPage;
   /** For a hire made without signing in: what reads the job again and follows it up (`followUp`). */
   claimToken?: string;
   /** The agent's output, when completed. */

@@ -7,6 +7,7 @@ import OutputFiles, { type OutputFile } from "@/components/OutputFiles";
 import PagesVisited, { type Visited } from "@/components/PagesVisited";
 import { browserMemoryKey } from "@/components/AgentMemory";
 import VoiceOutput from "@/components/VoiceOutput";
+import BuiltSite, { type Built } from "@/components/BuiltSite";
 
 /**
  * Your library: every conversation you have had with an agent, the files that came back and their versions, and
@@ -42,6 +43,8 @@ export interface LibraryTurn {
   completedAt: string | null;
   outputFiles: OutputFile[];
   pages?: Visited[];
+  /** the page the job built or changed, when it did */
+  site?: Built;
   receipt: string;
 }
 
@@ -190,6 +193,7 @@ function Opened({ c, memoryKey, onRemoved }: { c: LibraryConversation; memoryKey
             <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{t.agent.name}: {STANDS[t.status] ?? t.status}.</p>
           )}
           <OutputFiles files={t.outputFiles} />
+          {t.site && <BuiltSite site={t.site} taskId={t.taskId} claim={t.claimToken} />}
           {t.pages?.length ? <PagesVisited pages={t.pages} /> : null}
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
             <a href={t.receipt} target="_blank" rel="noopener noreferrer" className="text-xs text-teal-600 hover:underline dark:text-teal-400">Receipt →</a>
@@ -217,14 +221,18 @@ function Opened({ c, memoryKey, onRemoved }: { c: LibraryConversation; memoryKey
   );
 }
 
-/** The whole library, on the dashboard: conversations and files. */
+/** A page an agent built for this person, as the library lists it. */
+interface LibraryPage extends Built { updatedAt: string; taskId: string; claimToken: string; thread: string; agent: { id: string; name: string }; receipt: string }
+
+/** The whole library, on the dashboard: conversations, files, and the pages agents built. */
 export default function Library() {
   const [memoryKey, setMemoryKey] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [on, setOn] = useState(false);
   const [list, setList] = useState<LibraryConversation[]>([]);
   const [files, setFiles] = useState<LibraryFile[] | null>(null);
-  const [tab, setTab] = useState<"conversations" | "files">("conversations");
+  const [pages, setPages] = useState<LibraryPage[] | null>(null);
+  const [tab, setTab] = useState<"conversations" | "files" | "pages">("conversations");
   const [openThread, setOpenThread] = useState<string | null>(null);
   const [now, setNow] = useState(0);
 
@@ -256,6 +264,17 @@ export default function Library() {
     return () => { alive = false; };
   }, [tab, files, memoryKey]);
 
+  // the pages agents built are read once the library is known to be on: the tab is only there when there are some
+  useEffect(() => {
+    if (!on || pages) return;
+    let alive = true;
+    void fetch("/api/library?view=pages", { headers: libraryHeaders(memoryKey) })
+      .then((r) => (r.ok ? (r.json() as Promise<{ pages?: LibraryPage[] }>) : null))
+      .then((d) => { if (alive) setPages(d && Array.isArray(d.pages) ? d.pages : []); })
+      .catch(() => { if (alive) setPages([]); });
+    return () => { alive = false; };
+  }, [on, pages, memoryKey]);
+
   if (!ready || !on) return null;
   const tabClass = (t: typeof tab) => `rounded-md px-3 py-1 text-xs font-medium transition-colors ${tab === t ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900" : "text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"}`;
   const totalFiles = list.reduce((n, c) => n + c.files, 0);
@@ -265,11 +284,12 @@ export default function Library() {
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-3 pt-4">
         <div>
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">Your library</h2>
-          <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">Every conversation with an agent, every file and every version, each with its receipt.</p>
+          <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">Every conversation with an agent, every file and every version, every page an agent built, each with its receipt.</p>
         </div>
         <div className="flex items-center gap-1 rounded-lg border border-gray-200 p-0.5 dark:border-gray-800">
           <button type="button" onClick={() => setTab("conversations")} className={tabClass("conversations")}>Conversations{list.length ? ` ${list.length}` : ""}</button>
           <button type="button" onClick={() => setTab("files")} className={tabClass("files")}>Files{totalFiles ? ` ${totalFiles}` : ""}</button>
+          {pages && pages.length > 0 && <button type="button" onClick={() => setTab("pages")} className={tabClass("pages")}>Pages {pages.length}</button>}
         </div>
       </div>
 
@@ -310,6 +330,22 @@ export default function Library() {
               <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">The latest version of each file. Earlier versions open under it, and each file&apos;s fingerprint is on the receipt of the job that made it.</p>
             </>
           )}
+        </div>
+      )}
+
+      {tab === "pages" && pages && (
+        <div className="border-t border-gray-100 px-4 py-4 dark:border-gray-800">
+          <ul className="space-y-3">
+            {pages.map((p) => (
+              <li key={p.siteId}>
+                <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                  Built by {p.agent.name} · <a href={p.receipt} target="_blank" rel="noopener noreferrer" className="hover:underline">receipt</a>
+                </p>
+                <BuiltSite site={p} taskId={p.taskId} claim={p.claimToken} />
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-[11px] text-gray-400 dark:text-gray-500">The pages agents built for you that are up. To change one, follow up on its conversation: the link stays the same.</p>
         </div>
       )}
     </section>

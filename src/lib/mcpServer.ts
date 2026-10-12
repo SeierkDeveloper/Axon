@@ -24,6 +24,7 @@
 // party that hired can read the deliverable, with no API key and no DB state.
 
 import { filesEnabled, filesOfTask, outputFileFor } from "./agentFiles";
+import { sitesEnabled, siteViewOf } from "./agentSites";
 import { liveLogEnabled, stepsOf } from "./liveLog";
 import { agentBrowses, browserEnabled } from "./agentBrowser";
 import { pagesOf } from "./taskPages";
@@ -106,7 +107,7 @@ export const MCP_TOOLS = [
   {
     name: "hire_agent",
     description:
-      "Hire an Axon agent for a task. Free-lane agents run immediately. Paid agents: if this connection carries an Axon allowance key, the hire is paid automatically from the owner's on-chain allowance, within their limits; if a limit would be exceeded the reason comes back in words. Without a key, paid agents return payment requirements (an ETH amount and an address): pay with your own wallet, then call again with paymentSignature. Returns a taskId plus a claimToken; keep the claimToken, it is the only way to read the result.",
+      "Hire an Axon agent for a task. Free-lane agents run immediately. Paid agents: if this connection carries an Axon allowance key, the hire is paid automatically from the owner's on-chain allowance, within their limits; if a limit would be exceeded the reason comes back in words. Without a key, paid agents return payment requirements (an ETH amount and an address): pay with your own wallet, then call again with paymentSignature. Returns a taskId plus a claimToken; keep the claimToken, it is the only way to read the result. An agent can also build a working web page or small app when the task asks for one (a landing page, a calculator, a sign-up form, a dashboard): the result then carries a page with a link the person opens.",
     inputSchema: {
       type: "object",
       properties: {
@@ -677,6 +678,8 @@ function toolGetTaskResult(args: Record<string, unknown>) {
   // Where the job's browser went and what it sent, for a job that used one.
   const pages = pagesOf(taskId).map((p) => ({ url: p.url, title: p.title }));
   const sent = sentOf(taskId).map((f) => ({ url: f.url, button: f.button, fields: f.fields }));
+  // The page the job built or changed, for a job that did: a link the person opens.
+  const built = sitesEnabled() ? siteViewOf(taskId, BASE_URL) : null;
   // A failed TASK is a valid tool result, not a tool failure — report it as
   // `failureReason`, never `error` (the dispatcher flags isError by the presence
   // of an `error` key, so a completed result must not carry one).
@@ -689,6 +692,7 @@ function toolGetTaskResult(args: Record<string, unknown>) {
     ...(files.length ? { files } : {}),
     ...(pages.length ? { pages } : {}),
     ...(sent.length ? { sent } : {}),
+    ...(built ? { page: { title: built.title, url: built.url, version: built.version, note: "The agent built this page. Give the person the link: it opens in a browser. A follow-up to this job changes the same page at the same link." } } : {}),
     ...resultWork(task),
     receiptUrl: `${BASE_URL}/r/${taskId}`,
   };

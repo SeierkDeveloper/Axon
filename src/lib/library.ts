@@ -17,6 +17,7 @@ import { pagesOf } from "./taskPages";
 import { getAgentById } from "./agents";
 import { claimTokenFor } from "./claimToken";
 import { filesEnabled, filesOfTask, latestOnly, outputFileFor, type FileRow, type OutputFile } from "./agentFiles";
+import { sitesEnabled, siteViewOf } from "./agentSites";
 
 type Env = Record<string, string | undefined>;
 
@@ -121,6 +122,8 @@ export interface LibraryTurn {
   outputFiles: OutputFile[];
   /** where the job's browser went, for a job that used one */
   pages: { n: number; url: string; title: string }[];
+  /** the page the job built or changed, for a job that did: what it is called, its version, and where it opens */
+  site?: { siteId: string; title: string; version: number; url: string };
   /** the proof: the job's public receipt, which carries the hash of the answer and of every file */
   receipt: string;
 }
@@ -148,9 +151,37 @@ export function conversationOf(owners: string[], thread: string): { thread: stri
       completedAt: r.completed_at,
       outputFiles: filesEnabled() ? filesOfTask(r.task_id, "out").map((f) => outputFileFor(f)) : [],
       pages: pagesOf(r.task_id).map((p) => ({ n: p.n, url: p.url, title: p.title })),
+      ...(() => { const site = sitesEnabled() ? siteViewOf(r.task_id) : null; return site ? { site } : {}; })(),
       receipt: `/r/${r.task_id}`,
     })),
   };
+}
+
+/** A page an agent built for this person: where it opens, and the job (with what reads it) that last changed it. */
+export interface LibraryPage { siteId: string; title: string; version: number; url: string; updatedAt: string; taskId: string; claimToken: string; thread: string; agent: { id: string; name: string }; receipt: string }
+
+/**
+ * Every page agents built for this person that is still up, the one changed last first. Each comes with the job
+ * that made the version it shows, so its versions, its answers and its files can be reached from the list.
+ */
+export function pagesBuiltFor(owners: string[], o: { limit?: number } = {}): LibraryPage[] {
+  const who = mine(owners);
+  if (!who.length || !sitesEnabled()) return [];
+  const limit = Math.max(1, Math.min(200, Math.floor(o.limit ?? 50)));
+  // a page is this person's when a job of theirs made a version of it; the job named is the newest such one
+  const rows = getDb().prepare(
+    `SELECT s.site_id, s.title, s.version, s.updated_at, s.agent_id, t.task_id, COALESCE(t.thread_id, t.task_id) AS thread
+     FROM built_sites s
+     JOIN built_site_versions v ON v.site_id = s.site_id
+     JOIN tasks t ON t.task_id = v.task_id
+     WHERE s.status = 'live' AND s.version > 0 AND t.library_owner IN (${marks(who)})
+       AND v.version = (SELECT MAX(v2.version) FROM built_site_versions v2 JOIN tasks t2 ON t2.task_id = v2.task_id WHERE v2.site_id = s.site_id AND t2.library_owner IN (${marks(who)}))
+     ORDER BY s.updated_at DESC LIMIT ?`,
+  ).all(...who, ...who, limit) as { site_id: string; title: string; version: number; updated_at: string; agent_id: string; task_id: string; thread: string }[];
+  return rows.map((r) => ({
+    siteId: r.site_id, title: r.title, version: r.version, url: `/s/${r.site_id}`, updatedAt: r.updated_at, taskId: r.task_id, claimToken: claimTokenFor(r.task_id), thread: r.thread,
+    agent: { id: r.agent_id, name: getAgentById(r.agent_id)?.name ?? r.agent_id }, receipt: `/r/${r.task_id}`,
+  }));
 }
 
 /** A file in the library: the file as its reader gets it, and the job and conversation it came from. */

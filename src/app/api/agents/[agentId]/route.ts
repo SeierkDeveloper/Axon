@@ -1,5 +1,6 @@
 import { agentReads, filesEnabled } from "@/lib/agentFiles";
 import { agentBrowses } from "@/lib/agentBrowser";
+import { agentBuilds } from "@/lib/agentSites";
 import { mayDraw } from "@/lib/agentPictures";
 import { getMcpServerByAgentId } from "@/lib/mcp";
 import { NextRequest, NextResponse } from "next/server";
@@ -30,7 +31,7 @@ export async function GET(
   // agent has cryptographically authenticated.
   // while files are on, the profile also says which kinds of file this agent can be handed
   const reads = filesEnabled() ? agentReads(agent, { runsThroughMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }) : null;
-  return publicJson(req, { ...toPublicAgent(agent), ownerVerified: isOwnerVerified(agentId), ...(reads ? { reads: { text: reads.text, pdf: reads.pdf, image: reads.image } } : {}), ...(mayDraw(agent, "a picture", { viaMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }) ? { makes: { pictures: true } } : {}), /* and whether a hire that names a website is given a browser */ ...(agentBrowses(agent, { viaMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }) ? { browses: true } : {}) });
+  return publicJson(req, { ...toPublicAgent(agent), ownerVerified: isOwnerVerified(agentId), /* whether a hire that asks for a page to be built is given the tool to build it */ ...(agentBuilds(agent, { viaMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }) ? { builds: true } : {}), ...(reads ? { reads: { text: reads.text, pdf: reads.pdf, image: reads.image } } : {}), ...(mayDraw(agent, "a picture", { viaMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }) ? { makes: { pictures: true } } : {}), /* and whether a hire that names a website is given a browser */ ...(agentBrowses(agent, { viaMcp: Boolean(getMcpServerByAgentId(agent.agentId)) }) ? { browses: true } : {}) });
 }
 
 // PATCH /api/agents/[agentId] — update mutable agent fields

@@ -17,6 +17,7 @@ import { memoryEnabled } from "./agentMemory";
 import { conversationOf, conversationsOf, libraryEnabled, libraryOwnerOf } from "./library";
 import { hiredThroughMylo } from "./myloActions";
 import { browserEnabled } from "./agentBrowser";
+import { sitesEnabled } from "./agentSites";
 
 type Input = Record<string, unknown>;
 const text = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
@@ -45,6 +46,22 @@ export function myloWorkTools(): { name: string; description: string; input_sche
   if (steerEnabled()) tools.push({ name: "steer_job", description: "While a job is running: tell the agent something it should take into account (note), or stop the job (stop: true) when the person says to. A stopped job delivers nothing and is refunded.", input_schema: { type: "object", properties: { task_id: TASK_ID, note: { type: "string" }, stop: { type: "boolean" } }, required: ["task_id"] } });
   if (libraryEnabled()) tools.push({ name: "my_work", description: "What agents have done for the person: their conversations with agents, the latest first, each with the task_id of its latest job. Give a thread to read one conversation in full. Use it to find a job to continue, or to answer what an agent told them before.", input_schema: { type: "object", properties: { thread: { type: "string", description: "A conversation from the list" } } } });
   return tools;
+}
+
+/**
+ * Added to Mylo's instructions while agents can build: what an agent can build, how the person gets it, and that it
+ * is the agent that builds, not Mylo.
+ */
+export function myloBuildNote(): string {
+  if (!sitesEnabled()) return "";
+  return `\n\nAgents that build:
+- An agent Axon runs can build a working web page or small app when the job asks for one: a landing page, a
+  calculator, a quiz, a tracker, a sign-up or RSVP form, a dashboard. The person gets a link that opens it, and can
+  have it changed by following up on the same job: the link stays the same. A page with a form collects what
+  visitors send for the person to read on Axon. For a job like that, propose a hire and say in the task what the
+  page is for and what must be on it, in the person's own words. agent_details says whether an agent builds
+  (builds: true). my_work shows a page a job built (built_page, with its link). You do not build pages yourself:
+  never say you built one, and never write the code of one in the chat instead of proposing the hire.`;
 }
 
 /**
@@ -98,7 +115,7 @@ export function runMyloWorkTool(name: string, input: Input, ctx: { wallet: strin
     if (text(input.thread)) {
       const whole = conversationOf(owners, text(input.thread));
       if (!whole) return { error: "That conversation is not in their library." };
-      return { thread: whole.thread, turns: whole.turns.map((t) => ({ task_id: t.taskId, agent: t.agent.name, agent_id: t.agent.id, asked: cut(t.task, 600), status: t.status, answer: cut(t.output, 2_500), files: t.outputFiles.map((f) => `${f.name}${f.version && f.version > 1 ? ` (version ${f.version})` : ""}`), receipt: t.receipt })), note: "To continue it, propose hire_agent with follow_up_of set to the last finished turn's task_id." };
+      return { thread: whole.thread, turns: whole.turns.map((t) => ({ task_id: t.taskId, agent: t.agent.name, agent_id: t.agent.id, asked: cut(t.task, 600), status: t.status, answer: cut(t.output, 2_500), files: t.outputFiles.map((f) => `${f.name}${f.version && f.version > 1 ? ` (version ${f.version})` : ""}`), ...(t.site ? { built_page: { title: t.site.title, link: t.site.url, version: t.site.version } } : {}), receipt: t.receipt })), note: "To continue it, propose hire_agent with follow_up_of set to the last finished turn's task_id." };
     }
     const list = conversationsOf(owners, { limit: 15 });
     return { conversations: list.map((c) => ({ thread: c.thread, agents: c.agents, began: c.asked, turns: c.turns, files: c.files, status: c.status, last_task_id: c.lastTaskId, last_agent_id: c.lastAgent.id, last_at: c.lastAt })), note: list.length ? "Their full library, with every file and receipt, is on /dashboard." : "Nothing yet. Hires made while signed in are kept here." };
