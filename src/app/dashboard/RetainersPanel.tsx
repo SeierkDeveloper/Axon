@@ -31,6 +31,7 @@ interface Retainer {
   createdByKey: boolean;
   keyExpiresAt?: string | null;
   webhook: { url: string; active: boolean; failuresInARow: number } | null;
+  built?: { siteId: string; title: string; version: number; path: string; updatedAt: string } | null;
 }
 
 interface Run {
@@ -475,6 +476,13 @@ export default function RetainersPanel({
             </div>
 
             <p className="text-sm text-gray-700 dark:text-gray-300 mt-2 line-clamp-2 break-words">{r.instructions}</p>
+            {r.built && (
+              <p className="mt-1.5 text-xs text-gray-600 dark:text-gray-300">
+                Keeps a page up to date:{" "}
+                <a href={r.built.path} target="_blank" rel="noopener noreferrer" className="font-medium text-teal-600 hover:underline dark:text-teal-400">{r.built.title}</a>
+                <span className="text-gray-400">{`, version ${r.built.version}, changed ${when(r.built.updatedAt)}`}</span>
+              </p>
+            )}
 
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mt-2">
               {r.status === "active" && r.nextRunAt && <span>Next run {countdown(r.nextRunAt, now)} ({when(r.nextRunAt)})</span>}

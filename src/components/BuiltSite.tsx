@@ -33,18 +33,20 @@ export default function BuiltSite({ site, taskId, claim }: { site: Built | null 
   const [open, setOpen] = useState(false);
   const [working, setWorking] = useState("");
   const [said, setSaid] = useState("");
+  // a schedule or a trigger whose runs keep the page up to date, when one does
+  const [kept, setKept] = useState<"schedule" | "trigger" | null>(null);
   const siteId = site?.siteId, siteVersion = site?.version;
 
   /** The page's versions, as the server has them: read, or after asking it to show one of them again. */
-  const ask = useCallback(async (body?: { version: number }): Promise<{ versions: Version[]; has: boolean; total: number } | null> => {
+  const ask = useCallback(async (body?: { version: number }): Promise<{ versions: Version[]; has: boolean; total: number; kept: "schedule" | "trigger" | null } | null> => {
     if (!taskId || !claim) return null;
     const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/site`, {
       ...(body ? { method: "POST", body: JSON.stringify(body) } : {}),
       headers: { "x-claim-token": claim, ...(body ? { "content-type": "application/json" } : {}) },
     });
     if (!res.ok) return null;
-    const got = (await res.json()) as { versions?: Version[]; form?: boolean; answers?: number };
-    return { versions: Array.isArray(got.versions) ? got.versions : [], has: Boolean(got.form), total: typeof got.answers === "number" ? got.answers : 0 };
+    const got = (await res.json()) as { versions?: Version[]; form?: boolean; answers?: number; kept?: string | null };
+    return { versions: Array.isArray(got.versions) ? got.versions : [], has: Boolean(got.form), total: typeof got.answers === "number" ? got.answers : 0, kept: got.kept === "schedule" || got.kept === "trigger" ? got.kept : null };
   }, [taskId, claim]);
 
   /** The answers people sent through the page's form: read, or read again after one was removed. */
@@ -63,7 +65,7 @@ export default function BuiltSite({ site, taskId, claim }: { site: Built | null 
   useEffect(() => {
     if (!siteId) return;
     let off = false;
-    ask().then((got) => { if (!off && got) { setVersions(got.versions); setForm({ has: got.has, total: got.total }); } }).catch(() => undefined);
+    ask().then((got) => { if (!off && got) { setVersions(got.versions); setForm({ has: got.has, total: got.total }); setKept(got.kept); } }).catch(() => undefined);
     return () => { off = true; };
   }, [ask, siteId, siteVersion]);
 
@@ -113,6 +115,7 @@ export default function BuiltSite({ site, taskId, claim }: { site: Built | null 
           <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{now > 1 || versions.length > 1 ? `Built, showing version ${now}` : "Built"}</p>
           <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">{site.title}</p>
           <p className="truncate text-xs text-gray-500 dark:text-gray-400" title={full}>{shown(full)}</p>
+          {kept && <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">{kept === "schedule" ? "Kept up to date by a schedule: each run changes this page, at this link." : "Kept up to date by a trigger: each run changes this page, at this link."}</p>}
         </div>
         <a href={site.url} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">
           Open

@@ -35,6 +35,7 @@ import { agentReads, attachFiles, filesEnabled, fitForHire, listFiles, CONTEXT_K
 import { getMcpServerByAgentId } from "./mcp";
 import { scrubSecrets } from "./scrubSecrets";
 import { browserEnabled, checkBrowserUrl } from "./agentBrowser";
+import { keptPage } from "./siteKeeper";
 
 type Env = Record<string, string | undefined>;
 
@@ -139,6 +140,8 @@ export function triggerJson(t: Trigger) {
     ...(t.kind === "page" ? { page: { url: t.pageUrl, watch: t.pageWatch, everyMinutes: t.pageEveryMin, lookedAt: t.pageCheckedAt, changedAt: t.pageChangedAt, changes: t.pageChanges } } : {}),
     maxPriceEth: t.maxPriceWei !== null ? weiToDecimalString(t.maxPriceWei) : null, payIn: t.payIn, maxRunsPerDay: t.maxRunsPerDay, reportFile: t.reportFile,
     status: t.status, pauseReason: t.pauseReason, runsDone: t.runsDone, lastFiredAt: t.lastFiredAt, createdAt: t.createdAt,
+    // the page its runs built and keep up to date, when they built one ("page" above is a page it watches)
+    ...(() => { const built = keptPage({ kind: "trigger", id: t.triggerId }); return built ? { built } : {}; })(),
   };
 }
 

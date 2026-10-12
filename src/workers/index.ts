@@ -26,7 +26,8 @@ import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
 import { asksForFile, asksToSend, BROWSER_MAX_TOKENS, BROWSER_STEPS, browserTool, mayBrowse, refusalLine, withBrowser } from "../lib/browserTool";
 import { BUILD_MAX_TOKENS, BUILD_STEPS, buildTool, buildWatch, builtLine, builtSoFar, mayBuild, withBuild } from "../lib/buildTool";
 import { pictureOfSite } from "../lib/sitePicture";
-import { agentBuilds, siteOfTasks } from "../lib/agentSites";
+import { siteKeptForTask } from "../lib/siteKeeper";
+import { sitesEnabled, agentBuilds, siteOfTasks } from "../lib/agentSites";
 import { libraryOwnerOf } from "../lib/library";
 import { recordSent } from "../lib/taskSent";
 import { recordPage } from "../lib/taskPages";
@@ -358,8 +359,12 @@ async function processTasks() {
           const office = officeEnabled() && mayCode && (handed.files.some((f) => f.kind === "office") || wantsOffice(task.task));
           // Change it by talking: a page an earlier turn of this conversation built is the page this turn works on. The
           // agent is shown its files as they are now, so a change is made to what is there.
-          const earlierSite = before && agentBuilds(agent, { viaMcp: Boolean(mcpHandler) }) ? siteOfTasks(earlierTurns(task).map((t) => t.taskId)) : null;
-          const fullMessage = before + task.task + formatContext(said) + remembered + answered + notesAtStart(early) + handed.text + prices + approved + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "") + (office ? OFFICE_NOTE : "") + (earlierSite ? builtSoFar(earlierSite.siteId) : "");
+          const followedSite = before && agentBuilds(agent, { viaMcp: Boolean(mcpHandler) }) ? siteOfTasks(earlierTurns(task).map((t) => t.taskId)) : null;
+          // A job that started itself (a schedule, a trigger) keeps the page its earlier runs built: this run is handed
+          // it as it stands and brings it up to date, at the same link.
+          const keptSite = !followedSite && sitesEnabled() && agentBuilds(agent, { viaMcp: Boolean(mcpHandler) }) ? siteKeptForTask(task.taskId) : null;
+          const earlierSite = followedSite ?? keptSite;
+          const fullMessage = before + task.task + formatContext(said) + remembered + answered + notesAtStart(early) + handed.text + prices + approved + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "") + (office ? OFFICE_NOTE : "") + (earlierSite ? builtSoFar(earlierSite.siteId, { kept: Boolean(keptSite) }) : "");
           // a file handed back that changes one the job was given is its next version; said in the log as it is kept
           const madeLine = (file: { id: string; name: string }): string => {
             const rev = markRevision(task.taskId, file.id);

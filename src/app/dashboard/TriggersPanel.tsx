@@ -23,6 +23,7 @@ interface Trigger {
   pauseReason: string | null;
   runsDone: number;
   lastFiredAt: string | null;
+  built?: { siteId: string; title: string; version: number; path: string; updatedAt: string };
 }
 interface Run {
   runId: string;
@@ -304,6 +305,13 @@ export default function TriggersPanel({ apiKey, onToast }: { apiKey: string; onT
               <span className="ml-auto text-[11px] text-gray-400">{t.runsDone} {t.runsDone === 1 ? "run" : "runs"}{t.lastFiredAt ? `, last ${when(t.lastFiredAt)}` : ""}</span>
             </div>
             <p className="mt-1.5 text-sm text-gray-600 dark:text-gray-300 break-words">{t.instructions}</p>
+            {t.built && (
+              <p className="mt-1.5 text-xs text-gray-600 dark:text-gray-300">
+                Keeps a page up to date:{" "}
+                <a href={t.built.path} target="_blank" rel="noopener noreferrer" className="font-medium text-teal-600 hover:underline dark:text-teal-400">{t.built.title}</a>
+                <span className="text-gray-400">{`, version ${t.built.version}, changed ${when(t.built.updatedAt)}`}</span>
+              </p>
+            )}
             {t.kind === "inbound" && t.url && <p className="mt-1.5 break-all font-mono text-[11px] text-gray-400">POST {t.url}</p>}
             {t.kind === "chain" && t.chain && (
               <p className="mt-1.5 break-all font-mono text-[11px] text-gray-400">

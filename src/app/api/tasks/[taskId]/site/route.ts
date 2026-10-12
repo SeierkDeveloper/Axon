@@ -5,6 +5,7 @@ import { notTheHirer } from "@/lib/hirerAuth";
 import { publicOrigin } from "@/lib/publicUrl";
 import { checkRateLimit, getClientIp, tooManyRequests } from "@/lib/rateLimit";
 import { answerCount, hasForm } from "@/lib/siteAnswers";
+import { keeperOfSite } from "@/lib/siteKeeper";
 import { getTaskById } from "@/lib/tasks";
 import { withRequestContext } from "@/lib/withRequestContext";
 
@@ -21,6 +22,8 @@ function view(taskId: string, origin: string) {
     site: { siteId: site.siteId, title: site.title, version: site.version, status: site.status, url },
     // a page with a form collects answers: whether it has one, and how many have come in
     form: hasForm(site.siteId), answers: answerCount(site.siteId),
+    // a schedule or a trigger whose runs keep this page up to date, when one does
+    kept: keeperOfSite(site.siteId)?.kind ?? null,
     versions: versionsOf(site.siteId).map((v) => ({
       version: v.version, note: v.note, files: v.files, bytes: v.bytes, sha256: v.sha256, createdAt: v.createdAt,
       shown: v.version === site.version, madeHere: v.taskId === taskId, url: `${url}?v=${v.version}`,

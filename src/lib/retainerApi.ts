@@ -16,6 +16,7 @@ import { decimalToWei, weiToDecimalString, parsePaymentAmount } from "./money";
 import { getAgentById } from "./agents";
 import { getKeyLimits } from "./allowanceKeys";
 import { getRetainer, latestRetainerResult, countActiveRetainers, runPriceWei, RetainerError, type Retainer, type RetainerRun } from "./retainers";
+import { keptPage } from "./siteKeeper";
 import { getDb } from "./db";
 import { getTier, tiers } from "./holderTier";
 import { describeSchedule } from "./retainerSchedule";
@@ -196,6 +197,8 @@ export function retainerView(r: Retainer, opts: { withLatest?: boolean } = {}) {
     webhook: retainerWebhookStatus(r.retainerId),
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    // the page its runs built and keep up to date, when they built one
+    built: keptPage({ kind: "schedule", id: r.retainerId }),
   };
   return opts.withLatest ? { ...view, latest: latestRetainerResult(r.retainerId, r.ownerWallet) } : view;
 }

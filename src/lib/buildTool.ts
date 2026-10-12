@@ -151,9 +151,10 @@ export const SHOWN_CHARS = 80_000;
 /**
  * What a follow-up is told about the page the conversation built: its files as they are now, so that a change is made
  * to what is really there and not to what the agent remembers writing. Pictures are named, not shown. Empty when the
- * site has nothing to show.
+ * site has nothing to show. `kept` is for a run of a job that starts itself (./siteKeeper): the same files, and the
+ * word that this run is to bring the page up to date, with the time it is.
  */
-export function builtSoFar(siteId: string): string {
+export function builtSoFar(siteId: string, o: { kept?: boolean; now?: Date } = {}): string {
   const site = getSite(siteId), files = filesOf(siteId);
   if (!site || !files.length) return "";
   let room = SHOWN_CHARS;
@@ -165,6 +166,11 @@ export function builtSoFar(siteId: string): string {
     if (text.length > room) { parts.push(`=== ${f.path} === (${kb(f.bytes)}: too long to show here. Change it only by giving the whole file again.)`); continue; }
     room -= text.length;
     parts.push(`=== ${f.path} ===\n${text}`);
+  }
+  // a job that starts itself keeps one page: every run brings the same page up to date
+  if (o.kept) {
+    return `\n\n---\nTHE PAGE THIS JOB KEEPS UP TO DATE: "${site.title}", version ${site.version}, open at its link now. This job runs again and again, and this is one of its runs. It is ${(o.now ?? new Date()).toISOString().slice(0, 16).replace("T", " ")} UTC. These are the page's files as they are:\n\n${parts.join("\n\n")}\n\n---\n` +
+      "Bring the page up to date with what this run found: call build_page with only the files you change, each given whole; the files you leave out stay as they are. Do not start a new page. The link stays the same and shows the new version. Say on the page when it was last updated. If nothing on it needs changing, leave it as it is and say so in your answer.";
   }
   return `\n\n---\nTHE PAGE BUILT EARLIER IN THIS CONVERSATION: "${site.title}", version ${site.version}, open at its link now. These are its files as they are:\n\n${parts.join("\n\n")}\n\n---\n` +
     "If the person asks for a change to it, call build_page with only the files you change, each given whole; the files you leave out stay as they are. The link stays the same and shows the new version. If they ask for something else, leave the page alone.";
