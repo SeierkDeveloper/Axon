@@ -62,7 +62,7 @@ const kb = (n: number): string => (n < 1024 ? `${n} bytes` : `${Math.round(n / 1
  * The tool, for one job. `ownerMark` is whose the site will be (the mark of whoever hired the agent); `continueSite`
  * is a site an earlier turn of the same conversation built, which this job then changes instead of starting another.
  */
-export function buildTool(ctx: { taskId: string; agentId: string; ownerMark: string | null; paid: boolean; continueSite?: string | null; onBuilt?: (b: Built) => void; env?: Env }): LocalTool {
+export function buildTool(ctx: { taskId: string; agentId: string; ownerMark: string | null; paid: boolean; continueSite?: string | null; onBuilt?: (b: Built) => unknown; env?: Env }): LocalTool {
   const limit = ctx.paid ? BUILDS_PER_HIRE.paid : BUILDS_PER_HIRE.free;
   let siteId: string | null = ctx.continueSite && getSite(ctx.continueSite)?.status === "live" ? ctx.continueSite : null;
   let built = 0, tries = 0;
@@ -130,7 +130,8 @@ export function buildTool(ctx: { taskId: string; agentId: string; ownerMark: str
       built++;
       const site = getSite(siteId)!;
       logger.info("sites.built", "An agent built a page", { taskId: ctx.taskId, siteId, version: kept.version, files: kept.files, bytes: kept.bytes });
-      ctx.onBuilt?.({ site, version: kept.version, files: kept.files, bytes: kept.bytes, sha256: kept.sha256 });
+      // whoever watches is told, and may take a moment over it (a picture of the page): the build stands whatever happens there
+      try { await ctx.onBuilt?.({ site, version: kept.version, files: kept.files, bytes: kept.bytes, sha256: kept.sha256 }); } catch (err) { logger.warn("sites.on_built_failed", "A build could not be reported", { taskId: ctx.taskId, err }); }
       const left = limit - built;
       return `Built "${site.title}": version ${kept.version}, ${kept.files} ${kept.files === 1 ? "file" : "files"}, ${kb(kept.bytes)}. The person gets the link to open it with your answer. Tell them in a sentence or two what it is and how to use it, without the code. ${left > 0 ? `You can change it ${left} more ${left === 1 ? "time" : "times"} in this job.` : "That was the last version this job can build."}`;
     },
@@ -171,3 +172,49 @@ export function withBuild(t: ResolvedTools | null | undefined, tool: LocalTool):
 
 /** How a build reads as a step in the live log. */
 export const builtLine = (b: Built): string => (b.version === 1 ? `Built ${b.site.title}` : `Changed ${b.site.title}: version ${b.version}`);
+
+// ── watch it being built ─────────────────────────────────────────────────────
+
+const STRING = String.raw`"((?:[^"\\]|\\.)*)"`;
+const TITLE = new RegExp(String.raw`"title"\s*:\s*${STRING}`);
+const PATHS = new RegExp(String.raw`"path"\s*:\s*${STRING}`, "g");
+/** A string of the call as the person reads it: its escapes undone, on one line, not long. */
+const plain = (raw: string, max: number): string => {
+  let text = raw;
+  try { text = JSON.parse(`"${raw}"`) as string; } catch { /* as it was written */ }
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
+};
+
+/**
+ * Watch a page being written. An agent writes the whole call to build_page before anything is built, and that takes
+ * most of a minute: this reads the call as far as it has got (the "writing" steps of ./providers) and says what is
+ * new in it, so the person sees "Building Tip calculator", then each file by name as the agent starts on it.
+ *
+ * Only the names are read, never a file's contents: inside a file every quote is escaped, so a name is only ever
+ * found where the call itself gives one. `changing` is for a job that changes a page an earlier turn built. A call
+ * that is written again (a build put right, or a retry) names its files again, which is what is happening.
+ */
+export function buildWatch(say: (line: string) => void, o: { changing?: boolean } = {}): (ev: { id: string; json: string }) => void {
+  const calls = new Map<string, { opened: boolean; files: number }>();
+  return (ev) => {
+    try {
+      const c = calls.get(ev.id) ?? { opened: false, files: 0 };
+      calls.set(ev.id, c);
+      const names = [...ev.json.matchAll(PATHS)].map((m) => plain(m[1], 60).replace(/^\.?\/+/, ""));
+      if (!c.opened) {
+        const title = TITLE.exec(ev.json);
+        // the title comes first in a call as it is usually written; one that starts with its files is still opened
+        if (title || names.length) {
+          c.opened = true;
+          const what = title ? plain(title[1], 80) : "";
+          say(what.length >= 2 ? `${o.changing ? "Changing" : "Building"} ${what}` : o.changing ? "Changing the page" : "Building the page");
+        }
+      }
+      for (const name of names.slice(c.files)) if (/^[a-z0-9][a-z0-9._\/-]*$/i.test(name)) say(`Writing ${name}`);
+      c.files = Math.max(c.files, names.length);
+    } catch {
+      /* a line that could not be said is not worth a failed job */
+    }
+  };
+}

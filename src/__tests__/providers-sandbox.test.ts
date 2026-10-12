@@ -142,6 +142,42 @@ describe("an agent that runs code", () => {
     expect(live).toHaveLength(2);
   });
 
+  it("reports a tool of Axon's own while the model is still writing the call, a piece at a time", async () => {
+    const whole = JSON.stringify({ title: "Tip calculator", files: [{ path: "index.html", content: "<!doctype html>" + "<p>tip</p>".repeat(90) }] });
+    const pieces = Array.from({ length: Math.ceil(whole.length / 50) }, (_, i) => whole.slice(i * 50, (i + 1) * 50));
+    const events = [
+      { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "I will build it." } },
+      { type: "content_block_stop", index: 0 },
+      { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "toolu_1", name: "build_page", input: {} } },
+      ...pieces.map((partial_json) => ({ type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json } })),
+      { type: "content_block_stop", index: 1 },
+      // a tool the model runs itself is not "being written" by anyone: it is reported whole, as before
+      { type: "content_block_start", index: 2, content_block: { type: "server_tool_use", id: "srv_9", name: "web_search", input: {} } },
+      { type: "content_block_delta", index: 2, delta: { type: "input_json_delta", partial_json: '{"query":"' + "x".repeat(400) + '"}' } },
+      { type: "content_block_stop", index: 2 },
+    ];
+    sdk.stream.mockReturnValueOnce({
+      on(event: string, fn: (e: unknown) => void) { if (event === "streamEvent") for (const e of events) fn(e); return this; },
+      finalMessage: async () => ({ content: [{ type: "text", text: "Built." }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } }),
+    });
+    const live: { type: string; id?: string; tool?: string; json?: string }[] = [];
+    await getProvider(agent).completeWithTools!("s", "Build a tip calculator", 1000, withCode(null), { sandbox: { files: [] }, onLive: (e) => { live.push(e); } });
+    const writing = live.filter((e) => e.type === "writing");
+    expect(writing.length).toBeGreaterThan(1);
+    expect(writing.length).toBeLessThan(pieces.length);
+    expect(writing.every((e) => e.id === "toolu_1" && e.tool === "build_page")).toBe(true);
+    // each report is the call so far, longer than the last, and the last one is all of it
+    writing.slice(1).forEach((e, i) => { expect(e.json!.startsWith(writing[i].json!)).toBe(true); expect(e.json!.length).toBeGreaterThan(writing[i].json!.length); });
+    expect(writing.at(-1)!.json).toBe(whole);
+    // a sink that throws while the call is being written does not break the job
+    sdk.stream.mockReturnValueOnce({
+      on(event: string, fn: (e: unknown) => void) { if (event === "streamEvent") for (const e of events) fn(e); return this; },
+      finalMessage: async () => ({ content: [{ type: "text", text: "Built." }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } }),
+    });
+    await expect(getProvider(agent).completeWithTools!("s", "Build", 1000, withCode(null), { sandbox: { files: [] }, onLive: () => { throw new Error("sink down"); } })).resolves.toBe("Built.");
+  });
+
   it("keeps the same sandbox across the calls of one job", async () => {
     sdk.stream
       .mockReturnValueOnce(reply(ran("srv_1", "ls", "sales.csv\n"), { stop_reason: "pause_turn" }))

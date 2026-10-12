@@ -24,7 +24,8 @@ import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
 import { asksForFile, asksToSend, BROWSER_MAX_TOKENS, BROWSER_STEPS, browserTool, mayBrowse, refusalLine, withBrowser } from "../lib/browserTool";
-import { BUILD_MAX_TOKENS, BUILD_STEPS, buildTool, builtLine, builtSoFar, mayBuild, withBuild } from "../lib/buildTool";
+import { BUILD_MAX_TOKENS, BUILD_STEPS, buildTool, buildWatch, builtLine, builtSoFar, mayBuild, withBuild } from "../lib/buildTool";
+import { pictureOfSite } from "../lib/sitePicture";
 import { agentBuilds, siteOfTasks } from "../lib/agentSites";
 import { libraryOwnerOf } from "../lib/library";
 import { recordSent } from "../lib/taskSent";
@@ -36,7 +37,7 @@ import { retryFileCommitments } from "../lib/outputCommitment";
 import type { SandboxFile } from "../lib/providers";
 import { runWithProvider, runWithProviderTools, getAgentMaxTokens } from "../lib/providers";
 import { limitsForAgent } from "../lib/agentTierLimits";
-import type { ToolCallEvent } from "../lib/providers";
+import type { LiveEvent, ToolCallEvent } from "../lib/providers";
 import { resolveAgentTools, hasTools } from "../lib/agentTools";
 import { safeAppendTraceEvent, hashContent, estimateCostUsd, captureModelStep } from "../lib/traceEvents";
 import { verifyAgentEndpoint } from "../lib/verification";
@@ -503,6 +504,7 @@ async function processTasks() {
           // page or a small app, they are checked and kept, and the person opens what was built. A follow-up to such
           // a job is about that page too.
           const aboutBuild = (job: string) => mayBuild(agent, job, { viaMcp: Boolean(mcpHandler) });
+          let watchBuild: ((ev: { id: string; json: string }) => void) | null = null;
           const building = Boolean(earlierSite) || aboutBuild(task.task) || Boolean(before && earlierTurns(task).some((t) => aboutBuild(t.task)));
           if (building) {
             tools = withBuild(tools, buildTool({
@@ -511,8 +513,16 @@ async function processTasks() {
               ownerMark: libraryOwnerOf(task.taskId) ?? memoryOf ?? hirerWallet,
               // a follow-up changes the page the conversation already has, at the same link
               continueSite: earlierSite?.siteId,
-              onBuilt: (b) => live.say(builtLine(b)),
+              // the line that says it was built carries a picture of the page, where one can be taken
+              onBuilt: async (b) => {
+                if (!live.on) return;
+                const keep = live.show(builtLine(b), hirerWallet);
+                const jpeg = await pictureOfSite(b.site.siteId, { taskId: task.taskId });
+                if (jpeg) keep(jpeg);
+              },
             }));
+            // while the agent writes the page, each file is named as it starts on it
+            watchBuild = buildWatch((line) => { live.say(line); }, { changing: Boolean(earlierSite) });
           }
           // It remembers you: the agent may note something about the person for the next time they hire it.
           if (memoryOf && canNote(agent, { viaMcp: Boolean(mcpHandler) })) {
@@ -574,7 +584,7 @@ async function processTasks() {
                 : hasTools(tools)
                   ? runWithProviderTools(agent, fullMessage, Math.max(getAgentMaxTokens(agent.agentId), office ? OFFICE_MAX_TOKENS : sandbox ? CODE_MAX_TOKENS : 0, browserSteps ? BROWSER_MAX_TOKENS : 0, building ? BUILD_MAX_TOKENS : 0), tools, {
                       onToolCall,
-                      ...(live.on ? { onLive: live.onLive } : {}),
+                      ...(live.on ? { onLive: (ev: LiveEvent) => { if (ev.type === "writing") { if (ev.tool === "build_page") watchBuild?.(ev); } else live.onLive(ev); } } : {}),
                       signal: abort.signal,
                       // a job with a browser needs a round for each thing it does there, and a few to read, note and answer
                       // and one that builds needs a round for the build, one or two to put it right, and the answer

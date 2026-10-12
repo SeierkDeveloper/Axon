@@ -106,6 +106,8 @@ function commandLine(command: string): string {
 /** The line for one thing an agent does, or null when it is not worth a line. */
 export function lineFor(ev: LiveEvent): string | null {
   if (ev.type === "note") return noteLine(ev.text);
+  // a call still being written is said by the tool it is for (a page being built names its files as they come)
+  if (ev.type === "writing") return null;
   const input = (ev.input && typeof ev.input === "object" ? ev.input : {}) as Record<string, unknown>;
   if (ev.tool === "web_search") return typeof input.query === "string" && input.query.trim() ? oneLine(`Searching the web for "${input.query.trim()}"`) : "Searching the web";
   if (ev.tool === "web_fetch") return host(input.url) ? `Opening ${host(input.url)}` : "Opening a page";
@@ -124,6 +126,8 @@ export function lineFor(ev: LiveEvent): string | null {
   if (ev.tool === "remember") return null;
   // each thing it does in its browser is said by the browser itself, with the name of what it clicked or typed into
   if (ev.tool === "browser") return null;
+  // its files were named one by one while it wrote them; the call itself, once whole, is the store checking them
+  if (ev.tool === "build_page") return "Checking the page";
   if (ev.tool === "make_picture") return typeof input.prompt === "string" && input.prompt.trim() ? oneLine(`Drawing: ${input.prompt.trim()}`, 110) : "Drawing a picture";
   // a tool of the agent's own (an MCP server's, or one Axon gives it): its name is what there is to say
   const name = ev.tool.split("/").pop() ?? ev.tool;
@@ -182,6 +186,7 @@ export function liveLog(taskId: string, o: { enabled?: boolean } = {}) {
   };
   const onLive = (ev: LiveEvent): void => {
     try {
+      if (ev.type === "writing") return;
       const key = ev.type === "note" ? `note:${ev.text.slice(0, 200)}` : `tool:${ev.id}`;
       if (seen.has(key)) return;
       seen.add(key);

@@ -85,6 +85,9 @@ describe("a step as a line", () => {
     expect(lineFor(tool("text_editor_code_execution", { command: "view", path: "/tmp/orders.csv" }))).toBe("Looking at orders.csv");
     expect(lineFor(tool("text_editor_code_execution", { command: "str_replace", path: "/tmp/chart.py" }))).toBe("Editing chart.py");
     expect(lineFor(tool("pricefeed/get_token_price", { symbol: "ETH" }))).toBe("Using get token price");
+    // a page's files are named while the agent writes them; the finished call is the store checking them
+    expect(lineFor(tool("build_page", { title: "Tip calculator", files: [] }))).toBe("Checking the page");
+    expect(lineFor({ type: "writing", id: "x", tool: "build_page", json: '{"title":"Tip' })).toBeNull();
   });
 
   it("is short, however long the thing it describes", () => {

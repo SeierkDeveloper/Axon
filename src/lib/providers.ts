@@ -198,18 +198,52 @@ export type ToolCallSink = (event: ToolCallEvent) => void;
  */
 export type LiveEvent =
   | { type: "note"; text: string }
-  | { type: "tool"; id: string; tool: string; input: unknown };
+  | { type: "tool"; id: string; tool: string; input: unknown }
+  // a tool Axon runs itself, while the model is still writing the call: `json` is its input as far as it has got
+  | { type: "writing"; id: string; tool: string; json: string };
 export type LiveSink = (event: LiveEvent) => void;
+
+/** How much more of a call the model must have written before it is reported again, in characters. */
+const WRITING_EVERY = 300;
+interface StreamStep { type: string; index?: number; content_block?: { type: string; id?: string; name?: string }; delta?: { type: string; partial_json?: string } }
 
 /**
  * Report a model call's steps while it streams: a tool the model runs itself (a search, code in its sandbox) the
  * moment the call to it is complete, and what the model said just before. The words of the final answer are never
  * reported: text only counts as a note once a tool follows it. Nothing here may break the call it watches.
+ *
+ * A tool Axon runs itself is reported once the call is over (where it is run). But the model writes such a call out
+ * first, and a long one (the files of a page) takes most of a minute: how far it has got is reported as it grows, so
+ * that whoever watches is not looking at nothing.
  */
 function watchSteps(stream: unknown, sink: LiveSink): void {
   const s = stream as { on?: (event: string, fn: (block: { type: string; text?: string; id?: string; name?: string; input?: unknown }) => void) => unknown };
   if (typeof s.on !== "function") return;
   let said: string | null = null;
+  try {
+    const writing = new Map<number, { id: string; tool: string; json: string; told: number }>();
+    const tell = (w: { id: string; tool: string; json: string; told: number }) => { w.told = w.json.length; sink({ type: "writing", id: w.id, tool: w.tool, json: w.json }); };
+    (s.on as (event: string, fn: (e: StreamStep) => void) => unknown)("streamEvent", (e) => {
+      try {
+        if (e.type === "content_block_start" && e.content_block?.type === "tool_use" && e.content_block.id && e.content_block.name && typeof e.index === "number") {
+          writing.set(e.index, { id: e.content_block.id, tool: e.content_block.name, json: "", told: 0 });
+        } else if (e.type === "content_block_delta" && e.delta?.type === "input_json_delta" && typeof e.index === "number") {
+          const w = writing.get(e.index);
+          if (!w) return;
+          w.json += e.delta.partial_json ?? "";
+          if (w.json.length - w.told >= WRITING_EVERY) tell(w);
+        } else if (e.type === "content_block_stop" && typeof e.index === "number") {
+          const w = writing.get(e.index);
+          writing.delete(e.index);
+          if (w && w.json.length > w.told) tell(w);
+        }
+      } catch {
+        /* a step that could not be reported is not worth a failed job */
+      }
+    });
+  } catch {
+    /* not a stream that reports its events */
+  }
   try {
     s.on("contentBlock", (block) => {
       try {

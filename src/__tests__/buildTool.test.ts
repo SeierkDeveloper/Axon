@@ -3,7 +3,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { getDb } from "@/lib/db";
 import { filesOf, getSite, siteOfTask, versionsOf } from "@/lib/agentSites";
-import { asksToBuild, BUILD_MAX_TOKENS, BUILD_STEPS, BUILDS_PER_HIRE, buildTool, builtLine, canBuild, dailyBuilds, mayBuild, withBuild, type Built } from "@/lib/buildTool";
+import { asksToBuild, BUILD_MAX_TOKENS, BUILD_STEPS, BUILDS_PER_HIRE, buildTool, buildWatch, builtLine, canBuild, dailyBuilds, mayBuild, withBuild, type Built } from "@/lib/buildTool";
 
 const ON = { AGENT_SITES: "on" };
 const claude = { provider: "anthropic" as const, capabilities: ["research"] };
@@ -187,5 +187,87 @@ describe("building", () => {
     for (const must of [/index\.html is the page that opens/, /no script, style, font or picture loaded from another site/, /no call over the network/, /localStorage and cookies are not there/, /never asks for a password, a recovery phrase, a private key or a card/, /never connects a wallet/, /built for a phone first/, /do not paste the code into the answer/, /This job can build 3 versions/]) expect(d).toMatch(must);
     expect(tool({ paid: true }).description).toMatch(/This job can build 6 versions/);
     expect(d).not.toMatch(/—/);
+  });
+});
+
+// Phase 4: watch it being built. The agent writes the whole call before anything is built; what it has written so far
+// is read for the names in it, and each is said once.
+describe("watching a page being written", () => {
+  const call = JSON.stringify({ title: "Tip calculator", files: [
+    { path: "index.html", content: html('<h1 class="x">Tips</h1><p>He said "split it" and left.</p>') },
+    { path: "style.css", content: 'body::before{content:"\\201C"}' },
+    { path: "js/app.js", content: 'const file = {"path": "not-a-file.js", "title": "Not the title"}; // {"path":"nor-this.css"}' },
+  ], note: "first version" });
+  /** The call as it arrives: a little more of it each time. */
+  const written = (json: string, step = 37) => Array.from({ length: Math.ceil(json.length / step) }, (_, i) => json.slice(0, (i + 1) * step));
+
+  it("says what is being built, then each file as the agent starts on it, once each", () => {
+    const said: string[] = [];
+    const watch = buildWatch((l) => said.push(l));
+    for (const json of written(call)) watch({ id: "toolu_1", json });
+    expect(said).toEqual(["Building Tip calculator", "Writing index.html", "Writing style.css", "Writing js/app.js"]);
+    // the whole call again changes nothing
+    watch({ id: "toolu_1", json: call });
+    expect(said).toHaveLength(4);
+  });
+
+  it("names a file only once its name is whole, and never reads a name out of a file's contents", () => {
+    const said: string[] = [];
+    const watch = buildWatch((l) => said.push(l));
+    const upTo = (text: string) => call.slice(0, call.indexOf(text) + text.length);
+    watch({ id: "t", json: '{"tit' });
+    watch({ id: "t", json: '{"title": "Tip calc' });
+    expect(said).toEqual([]);
+    watch({ id: "t", json: upTo('"path":"index.ht') });
+    expect(said).toEqual(["Building Tip calculator"]);
+    watch({ id: "t", json: upTo('"path":"index.html"') });
+    expect(said).toEqual(["Building Tip calculator", "Writing index.html"]);
+    // the third file's contents hold "path" and "title" of their own: inside a file they are escaped, and not names
+    watch({ id: "t", json: call });
+    expect(said.join("|")).not.toMatch(/not-a-file|nor-this|Not the title/);
+    expect(said).toHaveLength(4);
+  });
+
+  it("says a change is a change, and still opens a call that starts with its files or has no usable title", () => {
+    const said: string[] = [];
+    buildWatch((l) => said.push(l), { changing: true })({ id: "a", json: '{"title":"Tip calculator","files":[{"path":"style.css","content":"b' });
+    expect(said).toEqual(["Changing Tip calculator", "Writing style.css"]);
+    said.length = 0;
+    const filesFirst = buildWatch((l) => said.push(l));
+    filesFirst({ id: "b", json: '{"files":[{"path":"index.html","content":"<!doctype html>' });
+    filesFirst({ id: "b", json: '{"files":[{"path":"index.html","content":"<!doctype html>"}],"title":"Late"}' });
+    expect(said).toEqual(["Building the page", "Writing index.html"]);
+    said.length = 0;
+    buildWatch((l) => said.push(l), { changing: true })({ id: "c", json: '{"title":"","files":[{"path":"app.js","content":"' });
+    expect(said).toEqual(["Changing the page", "Writing app.js"]);
+  });
+
+  it("a call written again names its files again, a title is read as the person reads it, and a strange name is not said", () => {
+    const said: string[] = [];
+    const watch = buildWatch((l) => said.push(l));
+    watch({ id: "first", json: '{"title":"Caf\\u00e9 \\"Luna\\"\\nmenu","files":[{"path":"./index.html","content":"x"},{"path":"<script>.js","content":"y"},{"path":"' + "a".repeat(90) + '.css","content":"z"}' });
+    expect(said).toEqual(['Building Café "Luna" menu', "Writing index.html"]);
+    // put right in a second call of the same job
+    watch({ id: "second", json: '{"title":"Menu","files":[{"path":"index.html","content":"x' });
+    expect(said.slice(2)).toEqual(["Building Menu", "Writing index.html"]);
+    expect(said.every((l) => l.length <= 100)).toBe(true);
+  });
+
+  it("never throws, whatever it is given or whatever the line's taker does", () => {
+    const watch = buildWatch(() => { throw new Error("log down"); });
+    expect(() => watch({ id: "x", json: call })).not.toThrow();
+    expect(() => buildWatch(() => {})({ id: "y", json: "\u0000{{{\"path\":\"" })).not.toThrow();
+  });
+
+  it("the build waits for whoever is told of it, and stands when they fail", async () => {
+    const order: string[] = [];
+    const slow = tool({ onBuilt: async () => { await new Promise((r) => setTimeout(r, 30)); order.push("told"); } });
+    const said = await slow.run({ title: "Tips", files: [{ path: "index.html", content: html("<h1>x</h1>") }] });
+    order.push("answered");
+    expect(order).toEqual(["told", "answered"]);
+    expect(said).toMatch(/^Built "Tips"/);
+    const failing = tool({ taskId: "t2", onBuilt: async () => { throw new Error("no picture"); } });
+    await expect(failing.run({ title: "Tips", files: [{ path: "index.html", content: html("<h1>x</h1>") }] })).resolves.toMatch(/^Built "Tips"/);
+    expect(siteOfTask("t2")!.version).toBe(1);
   });
 });
