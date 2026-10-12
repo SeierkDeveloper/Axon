@@ -45,7 +45,8 @@
     "worker:local": "AXON_WORKER_STANDALONE=1 tsx --env-file=.env.local src/workers/index.ts",
     "release:check": "node scripts/release-packages.mjs",
     "release": "node scripts/release-packages.mjs --publish",
-    "deploy": "sh scripts/deploy-local.sh"
+    "deploy": "sh scripts/deploy-local.sh",
+    "seal:selftest": "tsx scripts/seal-selftest.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
