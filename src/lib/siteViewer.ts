@@ -64,7 +64,7 @@ button{font:inherit;color:#0a0a0a;background:#fff;border:1px solid #d4d4d8;borde
 .rep .q{flex:1 1 100%;font-weight:600}.rep .opts{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:8px 18px}.rep label{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.rep #rs{color:#71717a}
 [hidden]{display:none!important}iframe{flex:1 1 auto;width:100%;border:0;display:block;background:#fff}
 .gone{margin:auto;padding:24px;max-width:420px;text-align:center}.gone h1{font-size:20px;margin:0 0 8px}.gone p{color:#71717a;margin:0 0 16px}
-.tag{flex:none;font-size:12px;color:#71717a;border:1px solid #d4d4d8;border-radius:999px;padding:2px 8px;white-space:nowrap}.by .short{display:none}@media (max-width:560px){.by .long{display:none}.by .short{display:inline}.rep .opts{flex-direction:column;gap:8px}}`;
+.tag{flex:none;font-size:12px;color:#71717a;border:1px solid #d4d4d8;border-radius:999px;padding:2px 8px;white-space:nowrap}.by .short{display:none}@media (max-width:560px){.by .long{display:none}.by .short{display:inline}.old .by{display:none}.rep .opts{flex-direction:column;gap:8px}}`;
 
 // The holder's own script. It trusts nothing the frame says beyond the two requests below, and acts on an address
 // only after the visitor has seen it and said yes.
@@ -115,7 +115,7 @@ export function viewerHtml(site: Pick<Site, "siteId" | "title" | "agentId">, pag
   const data = { pages, report: `/api/sites/${site.siteId}/report` };
   const reasons = REPORT_REASONS.map((r) => `<label><input type="radio" name="why" value="${r}">${esc(REASON_WORDS[r])}</label>`).join("");
   const body =
-    `<header class="bar">${MARK}<span class="title">${esc(site.title)}</span>${earlier ? `<span class="tag">an earlier version, ${earlier}</span>` : ""}` +
+    `<header class="bar${earlier ? " old" : ""}">${MARK}<span class="title">${esc(site.title)}</span>${earlier ? `<span class="tag">earlier version ${earlier}</span>` : ""}` +
     `<span class="by"><span class="long">Built by </span><span class="short">by </span><a href="/agents/${encodeURIComponent(site.agentId)}">${esc(agentName)}</a><span class="long"> on Axon</span></span>` +
     `<button id="rb" type="button">Report</button></header>` +
     `<div class="note" id="o" hidden><span class="grow">This page wants to open <b id="ow"></b></span><button class="go" id="oy" type="button">Open</button><button id="on" type="button">Stay</button></div>` +

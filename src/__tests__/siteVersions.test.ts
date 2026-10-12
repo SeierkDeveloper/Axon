@@ -147,7 +147,8 @@ describe("looking at an earlier version", () => {
     addVersion(id, [page("<h1>Two</h1>")], { taskId: "t2" });
     const at = (q: string) => openSite(new NextRequest(`http://localhost/s/${id}${q}`), { params: Promise.resolve({ siteId: id }) });
     const old = await (await at("?v=1")).text();
-    expect(old).toContain('<span class="tag">an earlier version, 1</span>');
+    expect(old).toContain('<header class="bar old">');
+    expect(old).toContain('<span class="tag">earlier version 1</span>');
     expect(old).toContain("\\u003ch1\\u003eOne\\u003c/h1\\u003e");
     const now = await (await at("")).text();
     expect(now).not.toContain('class="tag"');
