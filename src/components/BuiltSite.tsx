@@ -169,7 +169,7 @@ export default function BuiltSite({ site, taskId, claim }: { site: Built | null 
                   <dl className="mt-1 space-y-0.5">
                     {a.fields.filter(([, v]) => v !== "").map(([name, value], i) => (
                       <div key={`${name}-${i}`} className="flex min-w-0 gap-2">
-                        <dt className="shrink-0 font-medium text-gray-900 dark:text-white">{name}</dt>
+                        <dt className="shrink-0 font-medium text-gray-900 dark:text-white">{name.replace(/[_-]+/g, " ")}</dt>
                         <dd className="min-w-0 flex-1 whitespace-pre-wrap break-words text-gray-600 dark:text-gray-300">{value}</dd>
                       </div>
                     ))}

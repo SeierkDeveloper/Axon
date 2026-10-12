@@ -91,7 +91,7 @@ var clean=[];for(var i=0;i<f.length;i++){var p=f[i];if(!Array.isArray(p)||typeof
 var filled=clean.filter(function(p){return p[1].trim()!==""});
 if(!filled.length){tell(id,false,"Fill in the form first.");return}
 fasked=Date.now();held={id:id,form:String(e.data.form||"form").slice(0,60),fields:clean,busy:false};
-fl.textContent="";filled.slice(0,6).forEach(function(p){var d=document.createElement("span");d.className="fv";var b=document.createElement("b");b.textContent=p[0]+": ";d.appendChild(b);d.appendChild(document.createTextNode(p[1].length>90?p[1].slice(0,90)+"\u2026":p[1]));fl.appendChild(d)});
+fl.textContent="";filled.slice(0,6).forEach(function(p){var d=document.createElement("span");d.className="fv";var b=document.createElement("b");b.textContent=p[0].replace(/[_-]+/g," ")+": ";d.appendChild(b);d.appendChild(document.createTextNode(p[1].length>90?p[1].slice(0,90)+"\u2026":p[1]));fl.appendChild(d)});
 if(filled.length>6){var m=document.createElement("span");m.className="fv";m.textContent="and "+(filled.length-6)+" more";fl.appendChild(m)}
 fsaid.textContent="";fs.hidden=false;return}
 if(e.data.axon==="open"){var u;try{u=new URL(String(e.data.url))}catch(x){return}if(u.protocol!=="https:"&&u.protocol!=="http:")return;
