@@ -24,6 +24,8 @@ import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
 import { asksForFile, asksToSend, BROWSER_MAX_TOKENS, BROWSER_STEPS, browserTool, mayBrowse, refusalLine, withBrowser } from "../lib/browserTool";
+import { BUILD_MAX_TOKENS, BUILD_STEPS, buildTool, builtLine, mayBuild, withBuild } from "../lib/buildTool";
+import { libraryOwnerOf } from "../lib/library";
 import { recordSent } from "../lib/taskSent";
 import { recordPage } from "../lib/taskPages";
 import { triggersEnabled } from "../lib/triggers";
@@ -493,6 +495,19 @@ async function processTasks() {
             closeBrowser = b.close;
             browserSteps = task.payment != null ? BROWSER_STEPS.paid : BROWSER_STEPS.free;
           }
+          // Building. A hire that is about something to build gives the agent one more tool: it writes the files of a
+          // page or a small app, they are checked and kept, and the person opens what was built. A follow-up to such
+          // a job is about that page too.
+          const aboutBuild = (job: string) => mayBuild(agent, job, { viaMcp: Boolean(mcpHandler) });
+          const building = aboutBuild(task.task) || Boolean(before && earlierTurns(task).some((t) => aboutBuild(t.task)));
+          if (building) {
+            tools = withBuild(tools, buildTool({
+              taskId: task.taskId, agentId: agent.agentId, paid: task.payment != null,
+              // whose it will be: the same mark as the person's library, their memory with agents, or their wallet
+              ownerMark: libraryOwnerOf(task.taskId) ?? memoryOf ?? hirerWallet,
+              onBuilt: (b) => live.say(builtLine(b)),
+            }));
+          }
           // It remembers you: the agent may note something about the person for the next time they hire it.
           if (memoryOf && canNote(agent, { viaMcp: Boolean(mcpHandler) })) {
             tools = withRemember(tools, rememberTool({ owner: memoryOf, agentId: agent.agentId, taskId: task.taskId, onNoted: (line) => live.say(`Noted for next time: ${line.text}`) }));
@@ -514,7 +529,7 @@ async function processTasks() {
           const onToolCall = (ev: ToolCallEvent) => {
             // a browser that did not do something says what and why, in the person's words; anything else just says it failed
             if (!ev.ok) {
-              const line = ev.tool === "browser" ? refusalLine(ev.error ?? "") : ev.kind === "code" ? "That run did not work. Trying another way." : "That step did not work. Trying another way.";
+              const line = ev.tool === "browser" ? refusalLine(ev.error ?? "") : ev.tool === "build_page" ? "That build was not kept. Putting it right." : ev.kind === "code" ? "That run did not work. Trying another way." : "That step did not work. Trying another way.";
               // an agent that tries again past its share is told the same thing again; the person is told once
               if (line !== lastRefusal) live.say(line);
               lastRefusal = line;
@@ -551,12 +566,13 @@ async function processTasks() {
               mcpHandler
                 ? mcpHandler(fullMessage)
                 : hasTools(tools)
-                  ? runWithProviderTools(agent, fullMessage, Math.max(getAgentMaxTokens(agent.agentId), office ? OFFICE_MAX_TOKENS : sandbox ? CODE_MAX_TOKENS : 0, browserSteps ? BROWSER_MAX_TOKENS : 0), tools, {
+                  ? runWithProviderTools(agent, fullMessage, Math.max(getAgentMaxTokens(agent.agentId), office ? OFFICE_MAX_TOKENS : sandbox ? CODE_MAX_TOKENS : 0, browserSteps ? BROWSER_MAX_TOKENS : 0, building ? BUILD_MAX_TOKENS : 0), tools, {
                       onToolCall,
                       ...(live.on ? { onLive: live.onLive } : {}),
                       signal: abort.signal,
                       // a job with a browser needs a round for each thing it does there, and a few to read, note and answer
-                      maxSteps: browserSteps ? Math.max(depth.toolSteps, browserSteps + 5) : depth.toolSteps,
+                      // and one that builds needs a round for the build, one or two to put it right, and the answer
+                      maxSteps: Math.max(browserSteps ? Math.max(depth.toolSteps, browserSteps + 5) : depth.toolSteps, building ? BUILD_STEPS : 0),
                       maxToolResultChars: depth.toolResultChars,
                       attachments: handed.attachments,
                       sandbox,

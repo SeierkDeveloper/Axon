@@ -36,12 +36,25 @@ describe("/api/admin/sites", () => {
   it("shows what the store holds, the limits, and the pages people reported", async () => {
     const a = built(), b = built("t2");
     reportSite(a, { reason: "scam", reporter: "1" });
-    const body = (await (await GET(req("GET"))).json()) as { enabled: boolean; limits: { files: number }; stats: { sites: number; live: number }; reported: { site: { siteId: string }; reports: number }[] };
+    const body = (await (await GET(req("GET"))).json()) as { enabled: boolean; limits: { files: number; buildsPerDay: number }; stats: { sites: number; live: number }; newest: { siteId: string; files: number; bytes: number }[]; reported: { site: { siteId: string }; reports: number }[] };
     expect(body.enabled).toBe(false);
-    expect(body.limits.files).toBe(12);
+    expect(body.limits).toMatchObject({ files: 12, buildsPerDay: 200 });
     expect(body.stats).toMatchObject({ sites: 2, live: 2, hidden: 0, reported: 1 });
     expect(body.reported.map((r) => [r.site.siteId, r.reports])).toEqual([[a, 1]]);
-    expect(JSON.stringify(body)).not.toContain(b);
+    // the newest sites, whoever built them, with what the version shown holds
+    expect(body.newest.map((n) => n.siteId).sort()).toEqual([a, b].sort());
+    expect(body.newest[0]).toMatchObject({ files: 1, bytes: 13 });
+  });
+
+  it("shows one site's files as they are kept, so what an agent built can be looked at", async () => {
+    const id = built();
+    const one = new NextRequest(`http://localhost/api/admin/sites?site=${id}`, { headers: { authorization: `Bearer ${SECRET}` } });
+    const body = (await (await GET(one)).json()) as { site: { title: string }; files: { path: string; mime: string; bytes: number }[]; index: string };
+    expect(body.site.title).toBe("Tip calculator");
+    expect(body.files).toEqual([expect.objectContaining({ path: "index.html", mime: "text/html", bytes: 13 })]);
+    expect(body.index).toBe("<h1>Tips</h1>");
+    expect((await GET(new NextRequest("http://localhost/api/admin/sites?site=nope", { headers: { authorization: `Bearer ${SECRET}` } }))).status).toBe(404);
+    expect((await GET(new NextRequest(`http://localhost/api/admin/sites?site=${id}`))).status).toBe(401);
   });
 
   it("takes a page down at once and puts it back", async () => {

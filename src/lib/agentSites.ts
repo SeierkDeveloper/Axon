@@ -351,6 +351,15 @@ export function reportedSites(limit = 100): { site: Site; reports: number; reaso
   return rows.map((r) => ({ site: toSite(r), reports: r.n, reasons: r.reasons ? r.reasons.split(",") : [] }));
 }
 
+/** The newest sites, whoever they belong to: for a moderator's eyes only. */
+export function newestSites(limit = 20): (Site & { files: number; bytes: number })[] {
+  const rows = getDb().prepare(
+    `SELECT s.*, COALESCE(v.files, 0) files, COALESCE(v.bytes, 0) bytes FROM built_sites s LEFT JOIN built_site_versions v ON v.site_id = s.site_id AND v.version = s.version
+     ORDER BY s.updated_at DESC, s.rowid DESC LIMIT ?`,
+  ).all(limit) as (Row & { files: number; bytes: number })[];
+  return rows.map((r) => ({ ...toSite(r), files: r.files, bytes: r.bytes }));
+}
+
 /** What the store holds, for the owner's eyes. */
 export function siteStats(): { sites: number; live: number; hidden: number; versions: number; megabytes: number; reported: number } {
   const db = getDb();
