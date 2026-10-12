@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-11T17:24:47.780Z",
-  "finishedAt": "2026-10-11T17:29:04.870Z",
-  "commit": "2b06ce4",
+  "startedAt": "2026-10-12T17:27:17.967Z",
+  "finishedAt": "2026-10-12T17:31:33.305Z",
+  "commit": "7318ac8",
   "checks": [
     {
       "id": "install-commands",
@@ -9,7 +9,7 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 14411
+      "ms": 13548
     },
     {
       "id": "links",
@@ -17,13 +17,13 @@
       "ok": true,
       "checked": 205,
       "findings": [],
-      "ms": 127
+      "ms": 74
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 1181,
+      "checked": 1243,
       "findings": [
         {
           "severity": "warn",
@@ -50,23 +50,23 @@
           ]
         }
       ],
-      "ms": 1634
+      "ms": 1395
     },
     {
       "id": "api-reference",
       "title": "The API reference matches the routes",
       "ok": true,
-      "checked": 375,
+      "checked": 386,
       "findings": [],
-      "ms": 72
+      "ms": 64
     },
     {
       "id": "sdk-routes",
       "title": "The SDK calls routes that exist",
       "ok": true,
-      "checked": 142,
+      "checked": 149,
       "findings": [],
-      "ms": 32
+      "ms": 27
     },
     {
       "id": "examples",
@@ -74,7 +74,7 @@
       "ok": true,
       "checked": 39,
       "findings": [],
-      "ms": 12
+      "ms": 10
     },
     {
       "id": "packages",
@@ -91,13 +91,13 @@
           ]
         }
       ],
-      "ms": 2209
+      "ms": 2016
     },
     {
       "id": "migrations",
       "title": "Migrations are complete and in order",
       "ok": true,
-      "checked": 122,
+      "checked": 124,
       "findings": [],
       "ms": 0
     }
@@ -107,10 +107,10 @@
   "changed": true,
   "changes": [
     {
-      "what": "dropped the export from plainWhy()",
-      "where": "src/lib/browserSession.ts",
+      "what": "added 2 public routes to the API reference, written from their route files",
+      "where": "src/app/api/openapi/route.ts",
       "files": [
-        "src/lib/browserSession.ts"
+        "src/app/api/openapi/route.ts"
       ],
       "status": "applied"
     }
