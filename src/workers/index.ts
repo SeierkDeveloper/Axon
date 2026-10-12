@@ -24,7 +24,7 @@ import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
 import { asksForFile, asksToSend, BROWSER_MAX_TOKENS, BROWSER_STEPS, browserTool, mayBrowse, refusalLine, withBrowser } from "../lib/browserTool";
-import { BUILD_MAX_TOKENS, BUILD_STEPS, buildTool, buildWatch, builtLine, builtSoFar, mayBuild, withBuild } from "../lib/buildTool";
+import { BUILD_MAX_TOKENS, BUILD_STEPS, buildTool, buildWatch, builtLine, builtSoFar, mayBuild, noRoomNote, noRoomToBuild, withBuild } from "../lib/buildTool";
 import { pictureOfSite } from "../lib/sitePicture";
 import { siteKeptForTask } from "../lib/siteKeeper";
 import { sitesEnabled, agentBuilds, siteOfTasks } from "../lib/agentSites";
@@ -364,7 +364,14 @@ async function processTasks() {
           // it as it stands and brings it up to date, at the same link.
           const keptSite = !followedSite && sitesEnabled() && agentBuilds(agent, { viaMcp: Boolean(mcpHandler) }) ? siteKeptForTask(task.taskId) : null;
           const earlierSite = followedSite ?? keptSite;
-          const fullMessage = before + task.task + formatContext(said) + remembered + answered + notesAtStart(early) + handed.text + prices + approved + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "") + (office ? OFFICE_NOTE : "") + (earlierSite ? builtSoFar(earlierSite.siteId, { kept: Boolean(keptSite) }) : "");
+          // Building: a hire that is about something to build (see below, where the tool is given). Whether there is
+          // room to build is asked here, before the agent starts: with none, it is told so and not given the tool.
+          const aboutBuild = (job: string) => mayBuild(agent, job, { viaMcp: Boolean(mcpHandler) });
+          const wantsBuild = Boolean(earlierSite) || aboutBuild(task.task) || Boolean(before && earlierTurns(task).some((t) => aboutBuild(t.task)));
+          const siteOwner = libraryOwnerOf(task.taskId) ?? memoryOf ?? hirerWallet;
+          const noRoom = wantsBuild ? noRoomToBuild({ taskId: task.taskId, ownerMark: siteOwner, continueSite: earlierSite?.siteId }) : null;
+          const building = wantsBuild && !noRoom;
+          const fullMessage = before + task.task + formatContext(said) + remembered + answered + notesAtStart(early) + handed.text + prices + approved + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "") + (office ? OFFICE_NOTE : "") + (earlierSite && !noRoom ? builtSoFar(earlierSite.siteId, { kept: Boolean(keptSite) }) : "") + (noRoom ? noRoomNote(noRoom) : "");
           // a file handed back that changes one the job was given is its next version; said in the log as it is kept
           const madeLine = (file: { id: string; name: string }): string => {
             const rev = markRevision(task.taskId, file.id);
@@ -508,14 +515,13 @@ async function processTasks() {
           // Building. A hire that is about something to build gives the agent one more tool: it writes the files of a
           // page or a small app, they are checked and kept, and the person opens what was built. A follow-up to such
           // a job is about that page too.
-          const aboutBuild = (job: string) => mayBuild(agent, job, { viaMcp: Boolean(mcpHandler) });
           let watchBuild: ((ev: { id: string; json: string }) => void) | null = null;
-          const building = Boolean(earlierSite) || aboutBuild(task.task) || Boolean(before && earlierTurns(task).some((t) => aboutBuild(t.task)));
+          if (noRoom) logger.info("sites.no_room", "A job that asked for a page was not given the build tool", { taskId: task.taskId, why: noRoom.slice(0, 120) });
           if (building) {
             tools = withBuild(tools, buildTool({
               taskId: task.taskId, agentId: agent.agentId, paid: task.payment != null,
               // whose it will be: the same mark as the person's library, their memory with agents, or their wallet
-              ownerMark: libraryOwnerOf(task.taskId) ?? memoryOf ?? hirerWallet,
+              ownerMark: siteOwner,
               // a follow-up changes the page the conversation already has, at the same link
               continueSite: earlierSite?.siteId,
               // the line that says it was built carries a picture of the page, where one can be taken

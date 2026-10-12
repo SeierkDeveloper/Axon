@@ -50,6 +50,12 @@ export function checkRateLimit(
   };
 }
 
+/** How many uses a key's window holds right now, without adding one. */
+export function peekRateLimit(key: string): number {
+  const row = getDb().prepare("SELECT count FROM rate_limit_windows WHERE key = ? AND reset_at > ?").get(key, Date.now()) as { count: number } | undefined;
+  return row?.count ?? 0;
+}
+
 // Give back a consumed slot — for endpoints where the limit should count
 // SUCCESSFUL uses, not attempts (e.g. the world pipeline showcase: a failed
 // validation shouldn't burn the visitor's hourly runs).

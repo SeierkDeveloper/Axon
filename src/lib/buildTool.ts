@@ -13,8 +13,8 @@
 
 import type { Agent } from "@/sdk/types";
 import type { LocalTool, ResolvedTools } from "./agentTools";
-import { addVersion, agentBuilds, createSite, filesOf, getSite, siteLimits, sitesEnabled, SITE, type Site, type SiteFileIn } from "./agentSites";
-import { checkRateLimit } from "./rateLimit";
+import { addVersion, agentBuilds, createSite, filesOf, getSite, noRoomForSite, siteLimits, sitesEnabled, SITE, type Site, type SiteFileIn } from "./agentSites";
+import { checkRateLimit, peekRateLimit } from "./rateLimit";
 import { COLLECTS } from "./siteAnswers";
 import { logger } from "./logger";
 
@@ -56,6 +56,25 @@ export function mayBuild(agent: Pick<Agent, "provider" | "orchestrator" | "capab
 }
 
 export interface Built { site: Site; version: number; files: number; bytes: number; sha256: string }
+
+/**
+ * Why nothing can be built in this job, or null when it can. A page is long to write, and an agent that writes one
+ * only to be told it cannot be kept has cost a build and the person a minute: so this is asked before the job starts,
+ * and a job with no room is not given the tool at all (see noRoomNote). Counts nothing. A job that changes a page it
+ * already has (`continueSite`) needs no room for a new one.
+ */
+export function noRoomToBuild(ctx: { taskId: string; ownerMark: string | null; continueSite?: string | null; env?: Env }): string | null {
+  const env = ctx.env ?? process.env;
+  const cap = dailyBuilds(env);
+  if (cap === 0 || peekRateLimit("sites:day") >= cap) return "nothing more can be built today: the network has reached its number of builds for the day";
+  if (ctx.continueSite && getSite(ctx.continueSite)?.status === "live") return null;
+  return noRoomForSite({ taskId: ctx.taskId, ownerMark: ctx.ownerMark }, siteLimits(env));
+}
+
+/** What an agent is told when the job asks for something built and there is no room to build it. */
+export const noRoomNote = (why: string): string =>
+  `\n\n---\nNOTHING CAN BE BUILT IN THIS JOB: ${why}\nYou do not have the build tool in this job. Say so in your first sentence, in plain words, and say when it can be tried again (tomorrow, or as a change to a page that is already built). ` +
+  "Do not write out the page's code or files in your answer, and do not say a page was built. You may add in a few lines what the page would hold, so the person can ask again later.";
 
 const kb = (n: number): string => (n < 1024 ? `${n} bytes` : `${Math.round(n / 102.4) / 10} KB`);
 

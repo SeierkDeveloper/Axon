@@ -262,10 +262,10 @@ export function storeBytes(): number {
 export type Made = { ok: true; site: Site } | { ok: false; why: string };
 
 /**
- * A new, empty site for a job. It shows nothing until its first version is kept. Refused when the person has used
- * their day's allowance or the store is full.
+ * Why a new site cannot be made for this job right now, or null when it can: the person has used their day's
+ * allowance, or the store is full. Asked before an agent starts on a page, so it is told before it writes one.
  */
-export function createSite(a: { taskId: string; agentId: string; ownerMark?: string | null; title: string }, limits: SiteLimits = siteLimits()): Made {
+export function noRoomForSite(a: { taskId: string; ownerMark?: string | null }, limits: SiteLimits = siteLimits()): string | null {
   const db = getDb();
   const mark = a.ownerMark?.trim() || null;
   // a job with no mark counts against itself, so a stream of anonymous jobs is still bounded per job
@@ -273,11 +273,23 @@ export function createSite(a: { taskId: string; agentId: string; ownerMark?: str
   const made = mark
     ? (db.prepare("SELECT COUNT(*) n FROM built_sites WHERE owner_mark = ? AND created_at > ?").get(mark, since) as { n: number }).n
     : (db.prepare("SELECT COUNT(*) n FROM built_sites WHERE owner_mark IS NULL AND task_id = ? AND created_at > ?").get(a.taskId, since) as { n: number }).n;
-  if (made >= limits.perOwnerDay) return { ok: false, why: `this person has had ${made} sites built in the last day, which is the most a day allows. An existing one can still be changed.` };
+  if (made >= limits.perOwnerDay) return `this person has had ${made} sites built in the last day, which is the most a day allows. An existing one can still be changed.`;
   if (storeBytes() >= limits.storeMegabytes * 1024 * 1024) {
     logger.warn("sites.store_full", "The store for built pages is full", { megabytes: limits.storeMegabytes });
-    return { ok: false, why: "no more sites can be kept right now. Nothing was built." };
+    return "no more sites can be kept right now. Nothing was built.";
   }
+  return null;
+}
+
+/**
+ * A new, empty site for a job. It shows nothing until its first version is kept. Refused when the person has used
+ * their day's allowance or the store is full.
+ */
+export function createSite(a: { taskId: string; agentId: string; ownerMark?: string | null; title: string }, limits: SiteLimits = siteLimits()): Made {
+  const db = getDb();
+  const mark = a.ownerMark?.trim() || null;
+  const full = noRoomForSite(a, limits);
+  if (full) return { ok: false, why: full };
   const at = now(), siteId = randomBytes(12).toString("base64url");
   db.prepare("INSERT INTO built_sites (site_id, task_id, agent_id, owner_mark, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .run(siteId, a.taskId, a.agentId, mark, clip(a.title, SITE.titleChars) || "Untitled", at, at);

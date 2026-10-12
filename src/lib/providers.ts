@@ -203,6 +203,21 @@ export type LiveEvent =
   | { type: "writing"; id: string; tool: string; json: string };
 export type LiveSink = (event: LiveEvent) => void;
 
+/**
+ * Whether a model call failed because a tool call it streamed was not JSON. The library reads such a call as it
+ * grows and gives up on the first piece it cannot read; the error it raises is the JSON parser's own.
+ */
+export function brokenCall(err: unknown): boolean {
+  const seen = new Set<unknown>();
+  for (let e: unknown = err; e && !seen.has(e); e = (e as { cause?: unknown }).cause) {
+    seen.add(e);
+    if (e instanceof SyntaxError) return true;
+    const m = e instanceof Error ? e.message : "";
+    if (/\bin JSON at position \d+|Unexpected end of JSON input|Unexpected token .* in JSON|is not valid JSON|Unterminated string in JSON|Bad (control character|escaped character) in string literal/i.test(m)) return true;
+  }
+  return false;
+}
+
 /** How much more of a call the model must have written before it is reported again, in characters. */
 const WRITING_EVERY = 300;
 interface StreamStep { type: string; index?: number; content_block?: { type: string; id?: string; name?: string }; delta?: { type: string; partial_json?: string } }
@@ -677,16 +692,21 @@ class AnthropicProvider implements ProviderClient {
   ): Promise<{ text: string; refused: boolean }> {
     const timeoutMs = Math.max(120_000, maxTokens * 30);
     const byName = new Map<string, LocalTool>(tools.localTools.map((t) => [t.name, t]));
-    const toolDefs: Anthropic.Messages.ToolUnion[] = [
+    const defsOf = (eager: boolean): Anthropic.Messages.ToolUnion[] => [
       ...tools.serverTools,
       ...tools.localTools.map((t) => ({
         name: t.name,
         description: t.description,
         input_schema: t.inputSchema as Anthropic.Messages.Tool.InputSchema,
         // a call that is long to write is sent as it is written, so it can be watched (see LocalTool.eager)
-        ...(t.eager ? { eager_input_streaming: true } : {}),
+        ...(eager && t.eager ? { eager_input_streaming: true } : {}),
       })),
     ];
+    // A call sent as it is written is not checked on the way: now and then what arrives is not JSON (a quote the
+    // model did not escape), and the whole answer is lost. The round is then asked for again the ordinary way, where
+    // a call only arrives whole and checked, and the rest of the job stays that way.
+    let eager = tools.localTools.some((t) => t.eager);
+    let toolDefs = defsOf(eager);
 
     const first = firstTurn(message, attachments);
     // the hire's files, placed in the sandbox, follow the message
@@ -737,7 +757,15 @@ class AnthropicProvider implements ProviderClient {
         3,
         1000,
         `anthropic-tools:${model}`,
-      );
+      ).catch((err: unknown) => {
+        if (!eager || !brokenCall(err)) throw err;
+        logger.warn("provider.eager_call_broken", "A call written as it streamed was not JSON: asking for the round again, whole", { model, step, error: err instanceof Error ? err.message.slice(0, 160) : String(err) });
+        eager = false;
+        toolDefs = defsOf(false);
+        return null;
+      });
+      // the round is asked for again; it costs no step of the job's own
+      if (!msg) { step--; continue; }
 
       try {
         if (msg.usage) recordModelUsage(model, msg.usage.input_tokens ?? 0, msg.usage.output_tokens ?? 0);
