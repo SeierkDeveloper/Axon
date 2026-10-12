@@ -520,6 +520,12 @@ async function processTasks() {
               continueSite: earlierSite?.siteId,
               // the line that says it was built carries a picture of the page, where one can be taken
               onBuilt: async (b) => {
+                // on the job's record: the fingerprint of the version it kept, so the receipt can prove what was built
+                safeAppendTraceEvent({
+                  traceId: task.traceId ?? task.taskId, taskId: task.taskId, kind: "site.built", fromAgent: task.toAgent, toAgent: null,
+                  workflowId: task.workflowId ?? null, stepIndex: task.stepIndex ?? null, outputHash: b.sha256,
+                  meta: { version: b.version, files: b.files, bytes: b.bytes },
+                });
                 if (!live.on) return;
                 const keep = live.show(builtLine(b), hirerWallet);
                 const jpeg = await pictureOfSite(b.site.siteId, { taskId: task.taskId });

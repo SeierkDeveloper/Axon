@@ -215,7 +215,7 @@ Verify an execution trace (the flight recorder, no auth)
     // costBasis: "measured" (figures are the model's real reported usage) |
     //            "estimated" (modelled from artifact size) | null (no figures)
   }
-  event kinds: task.created, step.model, tool.call, purchase.completed, progress,
+  event kinds: task.created, step.model, tool.call, purchase.completed, site.built, progress,
   task.completed, task.failed, settlement.completed. A purchase.completed records
   a real-world order an agent placed under the buyer's signed authorisation, 
   business, amount and approved ceiling, plus hashes of the cart and consent,

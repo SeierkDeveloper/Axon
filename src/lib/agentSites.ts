@@ -228,6 +228,20 @@ export function siteOfTasks(taskIds: readonly string[]): Site | null {
   return r ? toSite(r) : null;
 }
 
+/** One version a job kept: which page, which version, its fingerprint and size, and whether the page shows it now. */
+export interface BuiltIn { siteId: string; title: string; version: number; sha256: string; files: number; bytes: number; createdAt: string; shown: boolean; live: boolean }
+
+/** Every version of a page that this job built or changed, oldest first. Empty when it built nothing. */
+export function builtIn(taskId: string): BuiltIn[] {
+  const rows = getDb().prepare(
+    "SELECT v.site_id, v.version, v.sha256, v.files, v.bytes, v.created_at, s.title, s.version AS shown, s.status FROM built_site_versions v JOIN built_sites s ON s.site_id = v.site_id WHERE v.task_id = ? ORDER BY v.created_at, v.version",
+  ).all(taskId) as Row[];
+  return rows.map((r) => ({
+    siteId: String(r.site_id), title: String(r.title), version: Number(r.version), sha256: String(r.sha256), files: Number(r.files), bytes: Number(r.bytes), createdAt: String(r.created_at),
+    shown: Number(r.shown) === Number(r.version) && r.status !== "hidden", live: r.status !== "hidden",
+  }));
+}
+
 /** What a job's reader is told about the site it built: enough to open it. Null when it built nothing that is shown. */
 export function siteViewOf(taskId: string, origin = ""): { siteId: string; title: string; version: number; url: string } | null {
   const site = siteOfTask(taskId);

@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 
 interface TraceEvent {
   seq: number;
-  kind: "task.created" | "step.model" | "tool.call" | "purchase.completed" | "progress" | "task.completed" | "task.failed" | "settlement.completed";
+  kind: "task.created" | "step.model" | "tool.call" | "purchase.completed" | "site.built" | "progress" | "task.completed" | "task.failed" | "settlement.completed";
   fromAgent: string | null;
   toAgent: string | null;
   fromName: string | null;
@@ -48,6 +48,7 @@ const KIND_META: Record<TraceEvent["kind"], { label: string; dot: string; text: 
   "step.model": { label: "Model step", dot: "bg-teal-400", text: "text-teal-200" },
   "tool.call": { label: "Tool call", dot: "bg-indigo-400", text: "text-indigo-200" },
   "purchase.completed": { label: "Purchase", dot: "bg-violet-400", text: "text-violet-200" },
+  "site.built": { label: "Page built", dot: "bg-cyan-400", text: "text-cyan-200" },
   progress: { label: "Progress", dot: "bg-sky-400/70", text: "text-sky-200/80" },
   "task.completed": { label: "Completed", dot: "bg-emerald-400", text: "text-emerald-200" },
   "task.failed": { label: "Failed", dot: "bg-red-400", text: "text-red-200" },
@@ -222,6 +223,8 @@ export default function TimelineClient({ taskId }: { taskId: string }) {
             e.kind === "purchase.completed" && typeof e.meta?.amount === "number" &&
               `${e.meta.amount} ${(e.meta.currency as string) ?? ""}`.trim(),
             e.kind === "purchase.completed" && typeof e.meta?.business === "string" && (e.meta.business as string),
+            e.kind === "site.built" && typeof e.meta?.version === "number" && `version ${e.meta.version}`,
+            e.kind === "site.built" && typeof e.meta?.files === "number" && `${e.meta.files} ${e.meta.files === 1 ? "file" : "files"}`,
           ].filter(Boolean) as string[];
           return (
             <li

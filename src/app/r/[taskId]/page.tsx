@@ -66,6 +66,29 @@ const fileKind = (type: string) => {
   return type === "application/pdf" ? "PDF" : type.startsWith("image/") ? type.slice(6).toUpperCase() : (type.split("/")[1] ?? "text").replace("plain", "text").toUpperCase();
 };
 
+/** The pages the job built: each version's size and fingerprint. Never the page's address or what it is called. */
+function BuiltPages({ built }: { built: NonNullable<PublicReceipt["built"]> }) {
+  return (
+    <div>
+      <p className="text-[11px] uppercase tracking-[0.2em] text-gray-500 mb-1">{built.length === 1 ? "Page built" : `Page built (${built.length} versions)`}</p>
+      <ul className="space-y-1.5">
+        {built.map((b) => (
+          <li key={`${b.sha256}-${b.version}`} className="rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2">
+            <p className="flex items-center justify-between gap-3 text-[11px] text-gray-400">
+              <span>Version {b.version} · {b.files} {b.files === 1 ? "file" : "files"} · {fileSize(b.size)}</span>
+              <span className={b.shown ? "text-teal-300" : "text-gray-500"}>{b.shown ? "the page shows this version now" : "not what the page shows now"}</span>
+            </p>
+            <p className="font-mono text-[13px] text-teal-300 break-all" title={b.sha256}>{b.sha256}</p>
+          </li>
+        ))}
+      </ul>
+      <p className="text-[11px] text-gray-500 mt-1">
+        The fingerprint of what the agent built: SHA-256 over every file&apos;s name and hash. Whoever has the page&apos;s link can read the fingerprint of what it shows at that link followed by /fingerprint, and compare.
+      </p>
+    </div>
+  );
+}
+
 /** The files the job handed back: what each is and its hash. Never a name; the work stays private. */
 function ReturnedFiles({ files, filesHash }: { files: NonNullable<PublicReceipt["outputFiles"]>; filesHash?: string }) {
   return (
@@ -183,6 +206,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ taskId
                   hint="Committed when the work completed, the delivered result, hashed."
                 />
                 {r.outputFiles && r.outputFiles.length > 0 && <ReturnedFiles files={r.outputFiles} filesHash={r.outputFilesHash} />}
+                {r.built && r.built.length > 0 && <BuiltPages built={r.built} />}
                 {r.commitmentTx && isOnChainTxHash(r.commitmentTx) && (
                   <a
                     href={explorerTxUrl(r.commitmentTx)}

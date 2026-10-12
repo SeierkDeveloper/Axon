@@ -137,14 +137,15 @@ export function goneHtml(what: "missing" | "down"): string {
  * The page a built site opens on. `pages` are the site's pages, each already whole and sealed. `o.answers` says
  * whether a form on it can be sent (where to is this site's own address for answers); `o.version` is the version
  * these pages are, kept with each answer; `o.updated` is when a page that is kept up to date by a schedule or a
- * trigger was last changed, shown beside its title.
+ * trigger was last changed, shown beside its title; `o.fingerprint` is the address that gives the fingerprint
+ * of what the page shows, to compare with a receipt (the page itself never names the job that built it).
  */
-export function viewerHtml(site: Pick<Site, "siteId" | "title" | "agentId">, pages: Record<string, string>, agentName: string, earlier?: number, o: { answers?: boolean; version?: number; updated?: string | null } = {}): string {
+export function viewerHtml(site: Pick<Site, "siteId" | "title" | "agentId">, pages: Record<string, string>, agentName: string, earlier?: number, o: { answers?: boolean; version?: number; updated?: string | null; fingerprint?: string | null } = {}): string {
   const data = { pages, report: `/api/sites/${site.siteId}/report`, answers: o.answers ? `/api/sites/${site.siteId}/answers` : null, v: o.version ?? null };
   const reasons = REPORT_REASONS.map((r) => `<label><input type="radio" name="why" value="${r}">${esc(REASON_WORDS[r])}</label>`).join("");
   const body =
     `<header class="bar${earlier ? " old" : ""}">${MARK}<span class="title">${esc(site.title)}</span>${earlier ? `<span class="tag">earlier version ${earlier}</span>` : o.updated ? `<span class="tag" title="This page is kept up to date by its agent">updated ${esc(o.updated)}</span>` : ""}` +
-    `<span class="by"><span class="long">Built by </span><span class="short">by </span><a href="/agents/${encodeURIComponent(site.agentId)}">${esc(agentName)}</a><span class="long"> on Axon</span></span>` +
+    `<span class="by"><span class="long">Built by </span><span class="short">by </span><a href="/agents/${encodeURIComponent(site.agentId)}">${esc(agentName)}</a><span class="long"> on Axon</span>${o.fingerprint ? `<span class="long"> · <a href="${esc(o.fingerprint)}" target="_blank" rel="noopener" title="What this page is, as numbers: compare with the receipt of the job that built it">fingerprint</a></span>` : ""}</span>` +
     `<button id="rb" type="button">Report</button></header>` +
     `<div class="note" id="o" hidden><span class="grow">This page wants to open <b id="ow"></b></span><button class="go" id="oy" type="button">Open</button><button id="on" type="button">Stay</button></div>` +
     `<div class="note snd" id="s" hidden><span class="q">Send this to the person who had this page built?</span><span class="fl" id="sl"></span><button class="go" id="sy" type="button">Send</button><button id="sn" type="button">Cancel</button><span id="ss" role="status"></span></div>` +
@@ -179,5 +180,5 @@ export function viewSite(siteId: string, version?: number): Viewed {
     if (whole !== null) pages[name] = seal(whole);
   }
   if (!pages["index.html"]) return { status: 404, html: goneHtml("missing") };
-  return { status: 200, html: viewerHtml(site, pages, getAgentById(site.agentId)?.name ?? "an agent", earlier, { answers: formsEnabled(), version: earlier ?? site.version, updated: keeperOfSite(siteId) ? updatedWords(site.updatedAt) : null }) };
+  return { status: 200, html: viewerHtml(site, pages, getAgentById(site.agentId)?.name ?? "an agent", earlier, { answers: formsEnabled(), version: earlier ?? site.version, updated: keeperOfSite(siteId) ? updatedWords(site.updatedAt) : null, fingerprint: earlier ? null : `/s/${site.siteId}/fingerprint` }) };
 }

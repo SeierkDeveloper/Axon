@@ -10,6 +10,8 @@ import { getPaymentNotes, type PaymentNote } from "./paymentNotes";
 import { getSplitsForTask, type TaskSplit } from "./escrowSplits";
 import { getSlaForTask, type TaskSla } from "./sla";
 import { receiptFiles, type ReceiptFile } from "./agentFiles";
+import { builtIn, type BuiltIn } from "./agentSites";
+
 import { turnOf } from "./followUp";
 
 export interface Receipt {
@@ -26,7 +28,16 @@ export interface Receipt {
   sla: TaskSla | null; // service-level agreement and its status, if one was set
   /** files the agent handed back, when it handed any back: named, since this receipt is read with a key */
   outputFiles?: ReceiptFile[];
+  /** pages the job built or changed, when it did: named and with their address, since this receipt is read with a key */
+  built?: (BuiltPublic & { siteId: string; title: string; path: string })[];
 }
+
+/**
+ * A page a job built, as anybody may know it: which version, how large, and its fingerprint (SHA-256 over every file's
+ * name and hash). `shown` says whether the page shows this version now. Never the page's address or what it is
+ * called: whoever holds the address can compare its fingerprint with this one, and nobody else learns where it is.
+ */
+export interface BuiltPublic { version: number; files: number; size: number; sha256: string; at: string; shown: boolean }
 
 // The public face of a receipt — the explorer privacy rule applies: WHO
 // transacted with WHOM, status, timestamps, the tamper-evidence hashes and the
@@ -70,7 +81,19 @@ export interface PublicReceipt {
   /** A follow-up: the job this one continues, and which turn of that conversation it is. Only on a follow-up. */
   followUpOf?: string;
   turn?: number;
+  /** Pages the job built or changed: each version's fingerprint. Only on a job that built one. */
+  built?: BuiltPublic[];
 }
+
+/** The pages a job built, as its receipts list them. Empty (never an error) when it built none. */
+function builtPages(taskId: string): BuiltIn[] {
+  try {
+    return builtIn(taskId);
+  } catch {
+    return [];
+  }
+}
+const asPublic = (b: BuiltIn): BuiltPublic => ({ version: b.version, files: b.files, size: b.bytes, sha256: b.sha256, at: b.createdAt, shown: b.shown });
 
 /** The files a job handed back, as its receipts list them. Empty (never an error) when there are none. */
 function returnedFiles(taskId: string): ReceiptFile[] {
@@ -162,6 +185,8 @@ export function getPublicReceipt(taskId: string): PublicReceipt | null {
           ...(row.output_commitment ? { commitmentTx: row.output_commitment } : {}),
         }
       : {}),
+    // and only a job that built a page gains this
+    ...(builtPages(taskId).length ? { built: builtPages(taskId).map(asPublic) } : {}),
   };
 }
 
@@ -262,6 +287,7 @@ export function getReceipt(taskId: string): Receipt {
     splits: getSplitsForTask(taskId),
     sla: getSlaForTask(taskId),
     ...(returnedFiles(taskId).length ? { outputFiles: returnedFiles(taskId) } : {}),
+    ...(builtPages(taskId).length ? { built: builtPages(taskId).map((b) => ({ ...asPublic(b), siteId: b.siteId, title: b.title, path: `/s/${b.siteId}` })) } : {}),
   };
 }
 

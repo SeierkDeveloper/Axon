@@ -23,6 +23,10 @@ export type TraceEventKind =
   // would be the one thing missing from the receipt. Business and amount, plus
   // hashes of the cart and the buyer's signed consent — never the address.
   | "purchase.completed"
+  // An agent built a page, or changed one (./agentSites). The event carries the fingerprint of the version it kept
+  // (as its output hash) with the version's number and size: enough for anybody to check that the page at a link
+  // is the one this job built, and nothing about what the page says or where it is.
+  | "site.built"
   | "progress"
   | "task.completed"
   | "task.failed"
