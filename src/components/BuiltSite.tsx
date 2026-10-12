@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 // What an agent built in a job, under its answer: what it is called, the address it opens at, the two things to do
 // with that address, and, once it has been changed, its versions with a way back to an earlier one. When the page
+// can also be taken away: all its files in one archive, to keep or to put on the web anywhere. When the page
 // has a form, what visitors sent through it is listed here too, for the person who had it built: read, taken as a
 // file, or removed one by one. The built page itself is never shown here: it opens on its own address, sealed.
 
@@ -35,6 +36,7 @@ export default function BuiltSite({ site, taskId, claim }: { site: Built | null 
   const [said, setSaid] = useState("");
   // a schedule or a trigger whose runs keep the page up to date, when one does
   const [kept, setKept] = useState<"schedule" | "trigger" | null>(null);
+  const [took, setTook] = useState("");
   const siteId = site?.siteId, siteVersion = site?.version;
 
   /** The page's versions, as the server has them: read, or after asking it to show one of them again. */
@@ -107,6 +109,21 @@ export default function BuiltSite({ site, taskId, claim }: { site: Built | null 
     setWorking("");
   };
   const showAnswers = Boolean(taskId && claim) && (form.has || form.total > 0);
+  // every file of the page in one archive, fetched with the job's own token and handed to the browser to save
+  const takeFiles = async () => {
+    if (!taskId || !claim) return;
+    setWorking("zip"); setTook("");
+    try {
+      const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/site/zip`, { headers: { "x-claim-token": claim } });
+      if (!res.ok) throw new Error(String(res.status));
+      const href = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = href; a.download = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "page.zip";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 2000);
+    } catch { setTook("The files could not be made ready. Try again."); }
+    setWorking("");
+  };
 
   return (
     <div className="mt-3 rounded-md border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40">
@@ -123,7 +140,13 @@ export default function BuiltSite({ site, taskId, claim }: { site: Built | null 
         <button type="button" onClick={copy} className="shrink-0 rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">
           {copied ? "Copied" : "Copy link"}
         </button>
+        {taskId && claim && (
+          <button type="button" onClick={takeFiles} disabled={working === "zip"} title="Every file of this page in one archive, to keep or to put on the web anywhere" className="shrink-0 rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">
+            {working === "zip" ? "Getting them" : "Download files"}
+          </button>
+        )}
       </div>
+      {took && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{took}</p>}
       {versions.length > 1 && (
         <div className="mt-3 border-t border-gray-100 pt-2 dark:border-gray-800">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Versions</p>

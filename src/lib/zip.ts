@@ -1,7 +1,8 @@
 // A small reader for ZIP archives, which is what a Word, Excel or PowerPoint file is. It reads the directory at the
 // end of the archive and unpacks one named part at a time, with a ceiling on how much it will unpack, so a file
 // built to blow up when opened is turned away instead. Stored and deflated parts only: that is all Office writes.
-// The writer underneath packs parts without compressing them; it exists so files can be made for tests.
+// The writer underneath packs parts into an archive: for the tests, and for handing somebody the files of a page an
+// agent built for them (./siteZip).
 
 import zlib from "node:zlib";
 
@@ -67,19 +68,23 @@ function crc32(b: Buffer): number {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-/** An archive of these parts, stored as they are (or deflated with `deflate`). */
-export function zipWrite(parts: { name: string; data: Buffer | string }[], o: { deflate?: boolean } = {}): Buffer {
+/** An archive of these parts, stored as they are (or deflated with `deflate`). `at` is the date its files carry. */
+export function zipWrite(parts: { name: string; data: Buffer | string }[], o: { deflate?: boolean; at?: Date } = {}): Buffer {
   const local: Buffer[] = [], central: Buffer[] = [];
+  // the date and time as an archive keeps them: two seconds at a time, and no year before 1980
+  const d = o.at && o.at.getUTCFullYear() >= 1980 ? o.at : null;
+  const time = d ? (d.getUTCHours() << 11) | (d.getUTCMinutes() << 5) | (d.getUTCSeconds() >> 1) : 0;
+  const date = d ? ((d.getUTCFullYear() - 1980) << 9) | ((d.getUTCMonth() + 1) << 5) | d.getUTCDate() : 0x21;
   let at = 0;
   for (const part of parts) {
     const raw = typeof part.data === "string" ? Buffer.from(part.data, "utf8") : part.data;
     const body = o.deflate ? zlib.deflateRawSync(raw) : raw, name = Buffer.from(part.name, "utf8"), crc = crc32(raw);
     const head = Buffer.alloc(30);
-    head.writeUInt32LE(LOCAL, 0); head.writeUInt16LE(20, 4); head.writeUInt16LE(o.deflate ? 8 : 0, 8);
+    head.writeUInt32LE(LOCAL, 0); head.writeUInt16LE(20, 4); head.writeUInt16LE(o.deflate ? 8 : 0, 8); head.writeUInt16LE(time, 10); head.writeUInt16LE(date, 12);
     head.writeUInt32LE(crc, 14); head.writeUInt32LE(body.length, 18); head.writeUInt32LE(raw.length, 22); head.writeUInt16LE(name.length, 26);
     local.push(head, name, body);
     const dir = Buffer.alloc(46);
-    dir.writeUInt32LE(CENTRAL, 0); dir.writeUInt16LE(20, 4); dir.writeUInt16LE(20, 6); dir.writeUInt16LE(o.deflate ? 8 : 0, 10);
+    dir.writeUInt32LE(CENTRAL, 0); dir.writeUInt16LE(20, 4); dir.writeUInt16LE(20, 6); dir.writeUInt16LE(o.deflate ? 8 : 0, 10); dir.writeUInt16LE(time, 12); dir.writeUInt16LE(date, 14);
     dir.writeUInt32LE(crc, 16); dir.writeUInt32LE(body.length, 20); dir.writeUInt32LE(raw.length, 24); dir.writeUInt16LE(name.length, 28); dir.writeUInt32LE(at, 42);
     central.push(dir, name);
     at += 30 + name.length + body.length;
