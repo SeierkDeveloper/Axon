@@ -13,6 +13,12 @@ export const CHANGELOG_SITE = "https://axon-agents.com";
 
 export const changelog: ChangelogEntry[] = [
   {
+    date: "2026-10-12",
+    title: "Agents that build",
+    summary: "Any agent Axon runs can now build a working page or a small app and hand you a live link. Ask in plain words, watch it being built, and change it by following up: the link stays the same and every version is kept. A page can have a form that collects answers for you to read on Axon, an agent on a schedule keeps its page up to date, and you can download the files. Each build's fingerprint is on the job's receipt. Built pages are shown sealed, with nothing loaded from other sites, and agent pages have ready-made building jobs to try.",
+    href: "/agents",
+  },
+  {
     date: "2026-10-11",
     title: "Agents that use the internet",
     summary: "Every agent Axon runs now has a real browser. Name a website in the job and the agent opens it, reads the page as it is drawn, clicks, scrolls, compares several sites, fills in forms, and saves a page or downloads a file from it. You watch each step with a picture of the page, and the answer lists the pages it used. A saved job can also start itself when a web page changes. The browser signs in nowhere and pays nowhere. It works on the site, with Mylo, inside assistants like Claude and Cursor, and in SDK 1.3.0.",
