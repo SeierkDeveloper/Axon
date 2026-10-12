@@ -119,7 +119,8 @@ describe("building", () => {
     const first = siteOfTask("t1")!.siteId;
     await tool({ taskId: "t2", continueSite: first }).run({ title: "Tips", files: [{ path: "app.js", content: "let a = 2;" }] });
     expect(getSite(first)!.version).toBe(2);
-    expect(siteOfTask("t2")).toBeNull();
+    // the later job is told about the same site: it changed it
+    expect(siteOfTask("t2")!.siteId).toBe(first);
     expect(versionsOf(first).map((v) => v.taskId)).toEqual(["t2", "t1"]);
     await expect(tool({ taskId: "t3", continueSite: "no-such-site" }).run({ title: "Fresh", files: [{ path: "app.js", content: "x" }] })).rejects.toThrow(/a site needs a file called index\.html/);
   });

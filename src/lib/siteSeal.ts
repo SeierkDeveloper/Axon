@@ -56,14 +56,25 @@ export const SEAL_HOLDER_POLICY = "frame-src 'none'";
 const POLICY_TAG = `<meta http-equiv="Content-Security-Policy" content="${SEAL_POLICY}">`;
 
 /**
+ * A sealed page cannot go anywhere, so a link in it would do nothing, and even a link to a place on the same page
+ * counts as going somewhere and would blank the frame (a real browser showed that: scripts/seal-selftest.ts). This
+ * small script, put in right after the policy, takes every click on a link: a place on the same page is scrolled to;
+ * a link to another site is handed to the page that holds the frame, which offers it to the visitor with its address
+ * shown and opens it only if they say so; a link to another page of the same site is handed over too, and the holder
+ * swaps the page. The built page can do the same asking itself, or take this script out: either way the holder
+ * decides, and it only ever acts on a click of the visitor's own.
+ */
+export const SEAL_LINKS = `<script>(function(){document.addEventListener("click",function(e){var t=e.target;var a=t&&t.closest?t.closest("a[href]"):null;if(!a)return;var h=a.getAttribute("href")||"";e.preventDefault();if(h.charAt(0)==="#"){var n=h.slice(1);try{n=decodeURIComponent(n)}catch(x){}var el=n?document.getElementById(n)||document.getElementsByName(n)[0]:null;if(el&&el.scrollIntoView)el.scrollIntoView();else if(!n)scrollTo(0,0);return}try{parent.postMessage(/^https?:\\/\\//i.test(h)?{axon:"open",url:a.href}:{axon:"go",page:h},"*")}catch(x){}},true)})();</script>`;
+
+/**
  * The document as it goes into the frame: the policy first, before anything the agent wrote, so that nothing in the
  * built page is read by the browser ahead of it. A byte-order mark and the page's own doctype are taken off the front
  * so the policy really is first; a policy or refresh tag of the page's own is never trusted to be absent (the store
  * refuses them), and if one is there it can only narrow what ours allows.
  */
 export function seal(html: string): string {
-  const body = html.replace(/^﻿/, "").replace(/^\s*<!doctype[^>]*>/i, "");
-  return `<!doctype html>${POLICY_TAG}${body}`;
+  const body = html.replace(/^\uFEFF/, "").replace(/^\s*<!doctype[^>]*>/i, "");
+  return `<!doctype html>${POLICY_TAG}${SEAL_LINKS}${body}`;
 }
 
 /** The attributes of the frame a sealed document is shown in, for whichever component draws it. */

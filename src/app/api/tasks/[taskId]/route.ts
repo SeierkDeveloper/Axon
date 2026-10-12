@@ -1,4 +1,6 @@
 import { filesEnabled, filesOfTask, outputFileFor } from "@/lib/agentFiles";
+import { sitesEnabled, siteViewOf } from "@/lib/agentSites";
+import { publicOrigin } from "@/lib/publicUrl";
 import { liveLogEnabled, stepsOf } from "@/lib/liveLog";
 import { pagesOf } from "@/lib/taskPages";
 import { sentOf } from "@/lib/taskSent";
@@ -25,7 +27,7 @@ function paidByKey(taskId: string, keyId: string): boolean {
  * The task as its reader gets it. While files are on, it also lists what the agent handed back, each with the token
  * that downloads it: whoever may read a job's output may read the files that are part of it.
  */
-function withFiles<T extends Task>(task: T): T | (T & { outputFiles?: unknown[]; steps?: unknown[]; pages?: unknown[]; sent?: unknown[]; followUp?: unknown; question?: unknown; questions?: unknown[]; plan?: unknown; plans?: unknown[]; steer?: unknown; notes?: unknown[]; remembered?: unknown[] }) {
+function withFiles<T extends Task>(task: T, origin = ""): T | (T & { site?: unknown; outputFiles?: unknown[]; steps?: unknown[]; pages?: unknown[]; sent?: unknown[]; followUp?: unknown; question?: unknown; questions?: unknown[]; plan?: unknown; plans?: unknown[]; steer?: unknown; notes?: unknown[]; remembered?: unknown[] }) {
   // Watch it work: the steps so far, for whoever may read the job. Read on every poll while it runs.
   const steps = liveLogEnabled() ? stepsOf(task.taskId) : [];
   // Where its browser went, for a job that used one: shown with the answer as the pages it came from.
@@ -37,7 +39,9 @@ function withFiles<T extends Task>(task: T): T | (T & { outputFiles?: unknown[];
   // The agent asks: the question the job is waiting on, and every question it has asked with what came back.
   // It remembers you: what the agent noted during this job for the next one.
   const noted = memoryEnabled() ? rememberedBy(task.taskId).map((m) => ({ id: m.id, text: m.text })) : [];
-  const seen = { ...task, ...(noted.length ? { remembered: noted } : {}), ...(steps.length ? { steps } : {}), ...(pages.length ? { pages } : {}), ...(sent.length ? { sent } : {}), ...(follow ? { followUp: follow } : {}), ...questionsView(task), ...planView(task), ...steerView(task) };
+  // Agents that build: what the job built, with the address it opens at.
+  const built = sitesEnabled() ? siteViewOf(task.taskId, origin) : null;
+  const seen = { ...task, ...(noted.length ? { remembered: noted } : {}), ...(steps.length ? { steps } : {}), ...(pages.length ? { pages } : {}), ...(sent.length ? { sent } : {}), ...(follow ? { followUp: follow } : {}), ...questionsView(task), ...planView(task), ...steerView(task), ...(built ? { site: built } : {}) };
   if (!filesEnabled()) return seen;
   const out = filesOfTask(task.taskId, "out");
   if (!out.length) return seen;
@@ -61,7 +65,7 @@ export async function GET(
     if (!claimTokenValid(taskId, claimToken)) {
       return apiError("FORBIDDEN", "Invalid claim token for this task", 403);
     }
-    return NextResponse.json(withFiles(task));
+    return NextResponse.json(withFiles(task, publicOrigin(req)));
   }
 
   // Otherwise fall back to API-key auth (owner of the from/to agent).
@@ -77,10 +81,10 @@ export async function GET(
     if (!paidByKey(taskId, auth.user.keyId)) {
       return apiError("FORBIDDEN", "This allowance key did not hire this task", 403);
     }
-    return NextResponse.json(withFiles(task));
+    return NextResponse.json(withFiles(task, publicOrigin(req)));
   }
   if (!canAccessIdentity(auth.user, task.fromAgent) && !canAccessIdentity(auth.user, task.toAgent)) {
     return apiError("FORBIDDEN", "API key does not have access to this task", 403);
   }
-  return NextResponse.json(withFiles(task));
+  return NextResponse.json(withFiles(task, publicOrigin(req)));
 }

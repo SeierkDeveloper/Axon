@@ -70,7 +70,9 @@ const nextConfig: NextConfig = {
       {
         // Dashboard and docs pages — tighter CSP than a typical SPA because
         // we control all assets. Inline styles/scripts are forbidden.
-        source: "/((?!api).*)",
+        // A built page's own address (/s/...) is left out: it sends a stricter policy of its own, which is part of
+        // the seal around what an agent built (src/lib/siteViewer.ts), and two policies would only blur that.
+        source: "/((?!api|s/).*)",
         headers: [
           {
             key: "Content-Security-Policy",

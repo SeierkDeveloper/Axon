@@ -210,10 +210,21 @@ export function getSite(siteId: string): Site | null {
   const r = getDb().prepare("SELECT * FROM built_sites WHERE site_id = ?").get(siteId) as Row | undefined;
   return r ? toSite(r) : null;
 }
-/** The site a job built, or the newest one when it built several. */
+/** The site a job built or changed (the newest, if it touched several). */
 export function siteOfTask(taskId: string): Site | null {
-  const r = getDb().prepare("SELECT * FROM built_sites WHERE task_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(taskId) as Row | undefined;
+  const r = getDb().prepare(
+    "SELECT * FROM built_sites WHERE task_id = ? OR site_id IN (SELECT site_id FROM built_site_versions WHERE task_id = ?) ORDER BY updated_at DESC, rowid DESC LIMIT 1",
+  ).get(taskId, taskId) as Row | undefined;
   return r ? toSite(r) : null;
+}
+
+/** What a job's reader is told about the site it built: enough to open it. Null when it built nothing that is shown. */
+export function siteViewOf(taskId: string, origin = ""): { siteId: string; title: string; version: number; url: string } | null {
+  const site = siteOfTask(taskId);
+  if (!site || site.version === 0 || site.status !== "live") return null;
+  // the version this job made, when it made one; the one shown otherwise
+  const mine = (getDb().prepare("SELECT MAX(version) v FROM built_site_versions WHERE site_id = ? AND task_id = ?").get(site.siteId, taskId) as { v: number | null }).v;
+  return { siteId: site.siteId, title: site.title, version: mine ?? site.version, url: `${origin.replace(/\/+$/, "")}/s/${site.siteId}` };
 }
 export function sitesOf(ownerMark: string, limit = 50): Site[] {
   return (getDb().prepare("SELECT * FROM built_sites WHERE owner_mark = ? ORDER BY updated_at DESC, rowid DESC LIMIT ?").all(ownerMark, limit) as Row[]).map(toSite);

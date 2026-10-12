@@ -9,7 +9,8 @@ import { headers } from "next/headers";
 const CANONICAL_HOST = "axon-agents.com";
 
 // Private or per-user surfaces: nothing a search result should land on.
-const PRIVATE = ["/admin/", "/api/admin/", "/api/cron/", "/dashboard"];
+// "/s/" is where pages built by agents open: somebody's own, shared by its address, not Axon's to put in an index.
+const PRIVATE = ["/admin/", "/api/admin/", "/api/cron/", "/dashboard", "/s/"];
 
 export default async function robots(): Promise<MetadataRoute.Robots> {
   const h = await headers();

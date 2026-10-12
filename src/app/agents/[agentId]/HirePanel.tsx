@@ -6,6 +6,7 @@ import { payForBuild } from "@/lib/buildPaymentClient";
 import MarkdownOutput from "@/components/MarkdownOutput";
 import FileAttach, { type Attached } from "@/components/FileAttach";
 import OutputFiles, { type OutputFile } from "@/components/OutputFiles";
+import BuiltSite, { type Built } from "@/components/BuiltSite";
 import StepPicture, { type StepShot } from "@/components/StepPicture";
 import PagesVisited, { pageLabel, type Visited } from "@/components/PagesVisited";
 import VoiceInput from "@/components/VoiceInput";
@@ -62,7 +63,7 @@ function payErrorMessage(msg: string, ethAmount: number): string {
 }
 
 /** One finished turn of a conversation with the agent: what was asked, what came back, and the hire that did it. */
-interface Turn { taskId: string; claim: string; task: string; output: string; outFiles: OutputFile[]; agentName: string }
+interface Turn { taskId: string; claim: string; task: string; output: string; outFiles: OutputFile[]; site?: Built | null; agentName: string }
 
 /** An earlier turn, shown above the one in hand. */
 function EarlierTurn({ n, turn, named }: { n: number; turn: Turn; named: boolean }) {
@@ -75,6 +76,7 @@ function EarlierTurn({ n, turn, named }: { n: number; turn: Turn; named: boolean
         {turn.output ? <MarkdownOutput text={turn.output} /> : <span className="text-sm text-gray-400">(empty response)</span>}
       </div>
       <OutputFiles files={turn.outFiles} />
+      <BuiltSite site={turn.site} />
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
         <a href={`/r/${encodeURIComponent(turn.taskId)}`} target="_blank" rel="noopener noreferrer" className="text-xs text-teal-600 hover:underline dark:text-teal-400">
           Receipt →
@@ -199,6 +201,8 @@ export default function HirePanel({
   // the answer as a file as well, and whatever the agent handed back with it
   const [report, setReport] = useState(false);
   const [outFiles, setOutFiles] = useState<OutputFile[]>([]);
+  // what the agent built in this turn, if it built something
+  const [site, setSite] = useState<Built | null>(null);
   // what the agent has done so far, one line a step, while it runs and after
   const [steps, setSteps] = useState<StepLine[]>([]);
   // where the agent's browser went on this job, when it used one
@@ -311,7 +315,7 @@ export default function HirePanel({
         setPhase("error");
         return;
       }
-      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; steps?: StepLine[]; pages?: Visited[]; sent?: Sent[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[]; plan?: OpenPlan; steer?: { open?: boolean; stoppable?: boolean; notesLeft?: number }; notes?: SentNote[]; remembered?: { id: string; text: string }[] };
+      const t = (await res.json()) as { status?: string; output?: string | null; outputFiles?: OutputFile[]; site?: Built; steps?: StepLine[]; pages?: Visited[]; sent?: Sent[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[]; plan?: OpenPlan; steer?: { open?: boolean; stoppable?: boolean; notesLeft?: number }; notes?: SentNote[]; remembered?: { id: string; text: string }[] };
       if (cancelled.current) return;
       if (Array.isArray(t.steps)) setSteps((had) => (t.steps!.length >= had.length ? t.steps! : had));
       if (Array.isArray(t.pages)) setPages((had) => (t.pages!.length >= had.length ? t.pages! : had));
@@ -353,6 +357,7 @@ export default function HirePanel({
       if (t.status === "completed") {
         setOutput(t.output ?? "");
         setOutFiles(Array.isArray(t.outputFiles) ? t.outputFiles : []);
+        setSite(t.site?.url ? t.site : null);
         setFollow(t.followUp ? { open: Boolean(t.followUp.open), turnsLeft: Number(t.followUp.turnsLeft) || 0 } : null);
         setNoted(Array.isArray(t.remembered) ? t.remembered : []);
         setMemoryRead((n) => n + 1);
@@ -500,7 +505,7 @@ export default function HirePanel({
       if (cancelled.current) return;
       if (res.ok && data.taskId && data.claimToken) {
         // the turn just finished joins the conversation above, and the follow-up becomes the turn in hand
-        setTurns((had) => [...had, { taskId, claim, task, output, outFiles, agentName: turnAgent.name }]);
+        setTurns((had) => [...had, { taskId, claim, task, output, outFiles, site, agentName: turnAgent.name }]);
         setTurnAgent(target);
         setHelper(null);
         setPicking(false);
@@ -514,6 +519,8 @@ export default function HirePanel({
         setClaim(data.claimToken);
         setOutput(null);
         setOutFiles([]);
+    setSite(null);
+        setSite(null);
         setSteps([]); setPages([]); setSent([]);
         setFiles([]);
         setFollow(null);
@@ -706,7 +713,7 @@ export default function HirePanel({
     const last = all[at];
     reset();
     cancelled.current = false;
-    setTurns(all.slice(0, at).filter((t) => t.status === "completed").map((t) => ({ taskId: t.taskId, claim: t.claimToken, task: t.task, output: t.output ?? "", outFiles: t.outputFiles, agentName: t.agent.name })));
+    setTurns(all.slice(0, at).filter((t) => t.status === "completed").map((t) => ({ taskId: t.taskId, claim: t.claimToken, task: t.task, output: t.output ?? "", outFiles: t.outputFiles, site: (t as { site?: Built }).site ?? null, agentName: t.agent.name })));
     setTurnAgent({ id: last.agent.id, name: last.agent.name, price: last.agent.price });
     setTask(last.task);
     setTaskId(last.taskId);
@@ -1048,6 +1055,7 @@ export default function HirePanel({
             {output ? <MarkdownOutput text={output} /> : <span className="text-sm text-gray-400">(empty response)</span>}
           </div>
           <OutputFiles files={outFiles} />
+          <BuiltSite site={site} />
           {noted.length > 0 && (
             <p className="mt-3 break-words text-xs text-gray-500 dark:text-gray-400">
               <span className="text-gray-700 dark:text-gray-300">Noted for next time:</span> {noted.map((m) => m.text).join(" · ")}
