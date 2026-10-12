@@ -269,6 +269,8 @@ export default function HirePanel({
   const [opening, setOpening] = useState(false);
   // Starter jobs: the one whose sample file is being fetched.
   const [starting, setStarting] = useState<string | null>(null);
+  // the files a starter attached, to tell them from the ones the person picked
+  const sampled = useRef(new Set<string>());
   // Stop and steer: whether a note or a stop is possible now, the notes sent, the one being written, and whether
   // the job was stopped here.
   const [steer, setSteer] = useState<{ open: boolean; stoppable: boolean; notesLeft: number } | null>(null);
@@ -744,7 +746,10 @@ export default function HirePanel({
     if (starting || phase !== "idle") return;
     setTask(s.task);
     setError(null);
-    if (!s.sample || files.some((f) => f.name === s.sample!.name)) return;
+    // a sample an earlier starter attached goes with that starter, not with this one
+    const kept = files.filter((f) => !sampled.current.has(f.id) || f.name === s.sample?.name);
+    if (kept.length !== files.length) setFiles(kept);
+    if (!s.sample || kept.some((f) => f.name === s.sample!.name)) return;
     setStarting(s.id);
     try {
       const got = await fetch(s.sample.path);
@@ -755,6 +760,7 @@ export default function HirePanel({
       const d = (await r.json().catch(() => ({}))) as { file?: { id: string; name: string; size: number; kind: Attached["kind"] }; fileToken?: string };
       if (!r.ok || !d.file || !d.fileToken) throw new Error("upload");
       const added = { id: d.file.id, token: d.fileToken, name: d.file.name, size: d.file.size, kind: d.file.kind };
+      sampled.current.add(added.id);
       setFiles((had) => [...had, added]);
     } catch {
       setError(`The sample file ${s.sample.name} could not be attached. Attach a file of your own, or hire without one.`);
