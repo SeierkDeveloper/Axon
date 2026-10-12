@@ -218,6 +218,16 @@ export function siteOfTask(taskId: string): Site | null {
   return r ? toSite(r) : null;
 }
 
+/** The site a conversation has built: the newest live one any of these jobs built or changed. */
+export function siteOfTasks(taskIds: readonly string[]): Site | null {
+  if (!taskIds.length) return null;
+  const marks = taskIds.map(() => "?").join(",");
+  const r = getDb().prepare(
+    `SELECT * FROM built_sites WHERE status = 'live' AND version > 0 AND (task_id IN (${marks}) OR site_id IN (SELECT site_id FROM built_site_versions WHERE task_id IN (${marks}))) ORDER BY updated_at DESC, rowid DESC LIMIT 1`,
+  ).get(...taskIds, ...taskIds) as Row | undefined;
+  return r ? toSite(r) : null;
+}
+
 /** What a job's reader is told about the site it built: enough to open it. Null when it built nothing that is shown. */
 export function siteViewOf(taskId: string, origin = ""): { siteId: string; title: string; version: number; url: string } | null {
   const site = siteOfTask(taskId);

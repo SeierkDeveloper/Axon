@@ -24,7 +24,8 @@ import { hasCode, withCode } from "../lib/agentTools";
 import { liveLog } from "../lib/liveLog";
 import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
 import { asksForFile, asksToSend, BROWSER_MAX_TOKENS, BROWSER_STEPS, browserTool, mayBrowse, refusalLine, withBrowser } from "../lib/browserTool";
-import { BUILD_MAX_TOKENS, BUILD_STEPS, buildTool, builtLine, mayBuild, withBuild } from "../lib/buildTool";
+import { BUILD_MAX_TOKENS, BUILD_STEPS, buildTool, builtLine, builtSoFar, mayBuild, withBuild } from "../lib/buildTool";
+import { agentBuilds, siteOfTasks } from "../lib/agentSites";
 import { libraryOwnerOf } from "../lib/library";
 import { recordSent } from "../lib/taskSent";
 import { recordPage } from "../lib/taskPages";
@@ -354,7 +355,10 @@ async function processTasks() {
           // Word, Excel and PowerPoint: a job that is handed one, or asks for one, is done on the real file in the
           // sandbox, so what comes back is a real document, workbook or deck.
           const office = officeEnabled() && mayCode && (handed.files.some((f) => f.kind === "office") || wantsOffice(task.task));
-          const fullMessage = before + task.task + formatContext(said) + remembered + answered + notesAtStart(early) + handed.text + prices + approved + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "") + (office ? OFFICE_NOTE : "");
+          // Change it by talking: a page an earlier turn of this conversation built is the page this turn works on. The
+          // agent is shown its files as they are now, so a change is made to what is there.
+          const earlierSite = before && agentBuilds(agent, { viaMcp: Boolean(mcpHandler) }) ? siteOfTasks(earlierTurns(task).map((t) => t.taskId)) : null;
+          const fullMessage = before + task.task + formatContext(said) + remembered + answered + notesAtStart(early) + handed.text + prices + approved + (wantsReport ? REPORT_NOTE : "") + (mayRevise ? REVISE_NOTE : "") + (office ? OFFICE_NOTE : "") + (earlierSite ? builtSoFar(earlierSite.siteId) : "");
           // a file handed back that changes one the job was given is its next version; said in the log as it is kept
           const madeLine = (file: { id: string; name: string }): string => {
             const rev = markRevision(task.taskId, file.id);
@@ -499,12 +503,14 @@ async function processTasks() {
           // page or a small app, they are checked and kept, and the person opens what was built. A follow-up to such
           // a job is about that page too.
           const aboutBuild = (job: string) => mayBuild(agent, job, { viaMcp: Boolean(mcpHandler) });
-          const building = aboutBuild(task.task) || Boolean(before && earlierTurns(task).some((t) => aboutBuild(t.task)));
+          const building = Boolean(earlierSite) || aboutBuild(task.task) || Boolean(before && earlierTurns(task).some((t) => aboutBuild(t.task)));
           if (building) {
             tools = withBuild(tools, buildTool({
               taskId: task.taskId, agentId: agent.agentId, paid: task.payment != null,
               // whose it will be: the same mark as the person's library, their memory with agents, or their wallet
               ownerMark: libraryOwnerOf(task.taskId) ?? memoryOf ?? hirerWallet,
+              // a follow-up changes the page the conversation already has, at the same link
+              continueSite: earlierSite?.siteId,
               onBuilt: (b) => live.say(builtLine(b)),
             }));
           }

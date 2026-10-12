@@ -137,6 +137,31 @@ export function buildTool(ctx: { taskId: string; agentId: string; ownerMark: str
   };
 }
 
+/** How much of a built site an agent is shown when it is asked to change it. Past this a file is named, not shown. */
+export const SHOWN_CHARS = 80_000;
+
+/**
+ * What a follow-up is told about the page the conversation built: its files as they are now, so that a change is made
+ * to what is really there and not to what the agent remembers writing. Pictures are named, not shown. Empty when the
+ * site has nothing to show.
+ */
+export function builtSoFar(siteId: string): string {
+  const site = getSite(siteId), files = filesOf(siteId);
+  if (!site || !files.length) return "";
+  let room = SHOWN_CHARS;
+  const parts: string[] = [];
+  // the page that opens first, then the rest by name
+  for (const f of [...files].sort((a, b) => (a.path === SITE.entry ? -1 : b.path === SITE.entry ? 1 : a.path < b.path ? -1 : 1))) {
+    const text = f.mime.startsWith("image/") && f.mime !== "image/svg+xml" ? null : f.content.toString("utf8");
+    if (text === null) { parts.push(`=== ${f.path} === (a picture, ${kb(f.bytes)}: not shown)`); continue; }
+    if (text.length > room) { parts.push(`=== ${f.path} === (${kb(f.bytes)}: too long to show here. Change it only by giving the whole file again.)`); continue; }
+    room -= text.length;
+    parts.push(`=== ${f.path} ===\n${text}`);
+  }
+  return `\n\n---\nTHE PAGE BUILT EARLIER IN THIS CONVERSATION: "${site.title}", version ${site.version}, open at its link now. These are its files as they are:\n\n${parts.join("\n\n")}\n\n---\n` +
+    "If the person asks for a change to it, call build_page with only the files you change, each given whole; the files you leave out stay as they are. The link stays the same and shows the new version. If they ask for something else, leave the page alone.";
+}
+
 export const canBuild = (t: ResolvedTools | null | undefined): boolean => Boolean(t?.localTools.some((x) => x.name === "build_page"));
 /** The same tools with the build tool added, if it is not there already. */
 export function withBuild(t: ResolvedTools | null | undefined, tool: LocalTool): ResolvedTools {

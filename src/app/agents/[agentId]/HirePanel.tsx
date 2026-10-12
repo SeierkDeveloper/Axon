@@ -1055,7 +1055,7 @@ export default function HirePanel({
             {output ? <MarkdownOutput text={output} /> : <span className="text-sm text-gray-400">(empty response)</span>}
           </div>
           <OutputFiles files={outFiles} />
-          <BuiltSite site={site} />
+          <BuiltSite site={site} taskId={taskId ?? undefined} claim={claim ?? undefined} />
           {noted.length > 0 && (
             <p className="mt-3 break-words text-xs text-gray-500 dark:text-gray-400">
               <span className="text-gray-700 dark:text-gray-300">Noted for next time:</span> {noted.map((m) => m.text).join(" · ")}
