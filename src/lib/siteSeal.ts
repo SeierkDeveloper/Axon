@@ -67,6 +67,21 @@ const POLICY_TAG = `<meta http-equiv="Content-Security-Policy" content="${SEAL_P
 export const SEAL_LINKS = `<script>(function(){document.addEventListener("click",function(e){var t=e.target;var a=t&&t.closest?t.closest("a[href]"):null;if(!a)return;var h=a.getAttribute("href")||"";e.preventDefault();if(h.charAt(0)==="#"){var n=h.slice(1);try{n=decodeURIComponent(n)}catch(x){}var el=n?document.getElementById(n)||document.getElementsByName(n)[0]:null;if(el&&el.scrollIntoView)el.scrollIntoView();else if(!n)scrollTo(0,0);return}try{parent.postMessage(/^https?:\\/\\//i.test(h)?{axon:"open",url:a.href}:{axon:"go",page:h},"*")}catch(x){}},true)})();</script>`;
 
 /**
+ * A sealed page cannot send a form either: in the frame a form does nothing at all when it is sent (a real browser
+ * showed that it does not even say it was: scripts/seal-selftest.ts). So a form that is meant to collect answers says
+ * so, with the attribute data-collect, and this script takes it when the visitor presses its button or Enter in one
+ * of its fields: the form's own checks run (a required field left empty stops it there), then its fields are handed
+ * to the page that holds the frame, which shows the visitor what is about to go and to whom, and sends it on only if
+ * they say yes (./siteViewer, ./siteAnswers). The form waits meanwhile, and is told how it went: the event
+ * "axon:sent" or "axon:notsent" is raised on it, and unless the page handles that itself the form is cleared and a
+ * line under it says so (or, where the page has an element marked data-after-send, that is shown in its place).
+ * A form without the mark is left alone: its buttons are the page's own. Files are not sent. A page that calls the
+ * holder itself, or takes this script out, gains nothing: the holder asks the visitor every time and sends only what
+ * they were shown.
+ */
+export const SEAL_FORMS = `<script>(function(){var n=0,wait={};function line(f,t,bad){var p=f.parentNode?f.parentNode.querySelector("[data-axon-said]"):null;if(!p){p=document.createElement("p");p.setAttribute("data-axon-said","");p.setAttribute("role","status");if(f.parentNode)f.parentNode.insertBefore(p,f.nextSibling)}p.textContent=t;p.style.color=bad?"#b91c1c":""}function lock(f,on){var b=f.querySelectorAll("button,input[type=submit]");for(var i=0;i<b.length;i++)b[i].disabled=on;if(on)f.setAttribute("aria-busy","true");else f.removeAttribute("aria-busy")}function send(f){if(!f||f.tagName!=="FORM"||!f.hasAttribute("data-collect")||f.getAttribute("aria-busy"))return;if(f.reportValidity&&!f.reportValidity())return;var fields=[],d;try{d=new FormData(f)}catch(x){return}d.forEach(function(v,k){if(typeof v==="string")fields.push([String(k),v])});var id=++n;wait[id]=f;lock(f,true);try{parent.postMessage({axon:"form",id:id,form:f.getAttribute("name")||f.id||"form",fields:fields},"*")}catch(x){delete wait[id];lock(f,false)}}function marked(f){return f&&f.tagName==="FORM"&&f.hasAttribute("data-collect")}document.addEventListener("submit",function(e){if(!marked(e.target))return;e.preventDefault();send(e.target)},true);document.addEventListener("click",function(e){var t=e.target,b=t&&t.closest?t.closest("button,input[type=submit],input[type=image]"):null;if(!b||b.disabled||!marked(b.form))return;var ty=(b.getAttribute("type")||"").toLowerCase();if(b.tagName==="BUTTON"&&ty&&ty!=="submit")return;e.preventDefault();send(b.form)},true);document.addEventListener("keydown",function(e){if(e.key!=="Enter"||e.isComposing)return;var t=e.target;if(!t||t.tagName!=="INPUT"||!marked(t.form))return;if(/^(button|submit|reset|checkbox|radio|file|image|range|color)$/.test((t.type||"text").toLowerCase()))return;e.preventDefault();send(t.form)},true);addEventListener("message",function(e){if(e.source!==parent||!e.data||e.data.axon!=="form-result")return;var f=wait[e.data.id];if(!f)return;delete wait[e.data.id];lock(f,false);var ok=!!e.data.ok,why=String(e.data.why||""),ev=null;try{ev=new CustomEvent(ok?"axon:sent":"axon:notsent",{bubbles:true,cancelable:true,detail:{why:why}})}catch(x){}if(ev&&!f.dispatchEvent(ev))return;if(ok){f.reset();var after=document.querySelector("[data-after-send]");if(after){after.hidden=false;after.style.display="";f.hidden=true}else line(f,"Sent. Thank you.")}else if(why)line(f,why,true)})})();</script>`;
+
+/**
  * The document as it goes into the frame: the policy first, before anything the agent wrote, so that nothing in the
  * built page is read by the browser ahead of it. A byte-order mark and the page's own doctype are taken off the front
  * so the policy really is first; a policy or refresh tag of the page's own is never trusted to be absent (the store
@@ -74,7 +89,7 @@ export const SEAL_LINKS = `<script>(function(){document.addEventListener("click"
  */
 export function seal(html: string): string {
   const body = html.replace(/^\uFEFF/, "").replace(/^\s*<!doctype[^>]*>/i, "");
-  return `<!doctype html>${POLICY_TAG}${SEAL_LINKS}${body}`;
+  return `<!doctype html>${POLICY_TAG}${SEAL_LINKS}${SEAL_FORMS}${body}`;
 }
 
 /** The attributes of the frame a sealed document is shown in, for whichever component draws it. */

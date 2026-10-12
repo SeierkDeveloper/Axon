@@ -4,6 +4,7 @@ import { apiError } from "@/lib/apiError";
 import { notTheHirer } from "@/lib/hirerAuth";
 import { publicOrigin } from "@/lib/publicUrl";
 import { checkRateLimit, getClientIp, tooManyRequests } from "@/lib/rateLimit";
+import { answerCount, hasForm } from "@/lib/siteAnswers";
 import { getTaskById } from "@/lib/tasks";
 import { withRequestContext } from "@/lib/withRequestContext";
 
@@ -18,6 +19,8 @@ function view(taskId: string, origin: string) {
   const url = `${origin.replace(/\/+$/, "")}/s/${site.siteId}`;
   return {
     site: { siteId: site.siteId, title: site.title, version: site.version, status: site.status, url },
+    // a page with a form collects answers: whether it has one, and how many have come in
+    form: hasForm(site.siteId), answers: answerCount(site.siteId),
     versions: versionsOf(site.siteId).map((v) => ({
       version: v.version, note: v.note, files: v.files, bytes: v.bytes, sha256: v.sha256, createdAt: v.createdAt,
       shown: v.version === site.version, madeHere: v.taskId === taskId, url: `${url}?v=${v.version}`,

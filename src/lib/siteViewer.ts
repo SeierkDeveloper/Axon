@@ -7,12 +7,14 @@
 // beside a built page.
 //
 // The built pages are handed to this page's own small script as data (never as markup of this page), and the script
-// writes the one that opens into the frame. It also does the two things a sealed page cannot do for itself and may
-// ask for: go to another page of the same site, and open a link to another site, which it only does after showing
-// the visitor the address and being told yes.
+// writes the one that opens into the frame. It also does the three things a sealed page cannot do for itself and may
+// ask for: go to another page of the same site; open a link to another site, which it only does after showing the
+// visitor the address and being told yes; and send what the visitor filled in on a form to whoever had the page
+// built (./siteAnswers), which it only does after showing the visitor what goes and being told yes.
 
 import { getAgentById } from "./agents";
 import { filesOf, getSite, REPORT_REASONS, type Site } from "./agentSites";
+import { formsEnabled } from "./siteAnswers";
 import { bundle, pagesOf } from "./siteBundle";
 import { seal, SEAL_HOLDER_POLICY, SEAL_SANDBOX } from "./siteSeal";
 
@@ -61,27 +63,47 @@ const STYLE = `*{box-sizing:border-box}html,body{height:100%;margin:0}body{displ
 button{font:inherit;color:#0a0a0a;background:#fff;border:1px solid #d4d4d8;border-radius:6px;padding:5px 10px;cursor:pointer;flex:none}button:hover{background:#f4f4f5}button.go{background:#0a0a0a;color:#fff;border-color:#0a0a0a}
 .note{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:10px 12px;border-bottom:1px solid #e4e4e7;background:#fafafa}
 .note b{font-weight:600;word-break:break-all}.note .grow{flex:1 1 220px;min-width:0}
+.snd .q{flex:1 1 100%;font-weight:600}.snd .fl{flex:1 1 100%;display:flex;flex-direction:column;gap:2px;color:#3f3f46;max-height:132px;overflow:auto}.fv{word-break:break-word}.fv b{font-weight:600;color:#0a0a0a}.snd #ss{color:#71717a}
 .rep .q{flex:1 1 100%;font-weight:600}.rep .opts{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:8px 18px}.rep label{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.rep #rs{color:#71717a}
 [hidden]{display:none!important}iframe{flex:1 1 auto;width:100%;border:0;display:block;background:#fff}
 .gone{margin:auto;padding:24px;max-width:420px;text-align:center}.gone h1{font-size:20px;margin:0 0 8px}.gone p{color:#71717a;margin:0 0 16px}
 .tag{flex:none;font-size:12px;color:#71717a;border:1px solid #d4d4d8;border-radius:999px;padding:2px 8px;white-space:nowrap}.by .short{display:none}@media (max-width:560px){.by .long{display:none}.by .short{display:inline}.old .by{display:none}.rep .opts{flex-direction:column;gap:8px}}`;
 
-// The holder's own script. It trusts nothing the frame says beyond the two requests below, and acts on an address
-// only after the visitor has seen it and said yes.
+// The holder's own script. It trusts nothing the frame says beyond the three requests below, and acts on an address,
+// or sends an answer, only after the visitor has seen it and said yes.
 const SCRIPT = `(function(){
 var data=JSON.parse(document.getElementById("d").textContent),frame=document.getElementById("f"),now="index.html";
-function show(page){var html=data.pages[page];if(!html)return false;now=page;frame.srcdoc=html;return true}
+function show(page){var html=data.pages[page];if(!html)return false;now=page;fclose();frame.srcdoc=html;return true}
 function resolve(from,ref){ref=String(ref).split(/[?#]/)[0];if(!ref||/^[a-z][a-z0-9+.-]*:/i.test(ref)||ref.indexOf("//")===0)return null;var parts=ref.charAt(0)==="/"?[]:from.split("/").slice(0,-1);ref.split("/").forEach(function(p){if(p===""||p===".")return;if(p==="..")parts.pop();else parts.push(p)});return parts.join("/")}
 var strip=document.getElementById("o"),where=document.getElementById("ow"),pending=null,asked=0;
 function close(){pending=null;strip.hidden=true}
+var fs=document.getElementById("s"),fl=document.getElementById("sl"),fsaid=document.getElementById("ss"),held=null,fasked=0;
+function tell(id,ok,why){try{frame.contentWindow.postMessage({axon:"form-result",id:id,ok:ok,why:why||""},"*")}catch(x){}}
+function fclose(){held=null;if(fs)fs.hidden=true}
 addEventListener("message",function(e){
 if(e.source!==frame.contentWindow||!e.data||typeof e.data!=="object")return;
 if(e.data.axon==="go"){var to=resolve(now,e.data.page);if(to)show(to);return}
+if(e.data.axon==="form"){var id=e.data.id,f=e.data.fields;
+if(!data.answers){tell(id,false,"This page cannot take answers right now.");return}
+if(held||Date.now()-fasked<1500){tell(id,false,"");return}
+if(!Array.isArray(f)||!f.length||f.length>40){tell(id,false,"There is nothing to send.");return}
+var clean=[];for(var i=0;i<f.length;i++){var p=f[i];if(!Array.isArray(p)||typeof p[0]!=="string"||typeof p[1]!=="string")continue;clean.push([p[0].slice(0,60),p[1].slice(0,4000)])}
+var filled=clean.filter(function(p){return p[1].trim()!==""});
+if(!filled.length){tell(id,false,"Fill in the form first.");return}
+fasked=Date.now();held={id:id,form:String(e.data.form||"form").slice(0,60),fields:clean,busy:false};
+fl.textContent="";filled.slice(0,6).forEach(function(p){var d=document.createElement("span");d.className="fv";var b=document.createElement("b");b.textContent=p[0]+": ";d.appendChild(b);d.appendChild(document.createTextNode(p[1].length>90?p[1].slice(0,90)+"\u2026":p[1]));fl.appendChild(d)});
+if(filled.length>6){var m=document.createElement("span");m.className="fv";m.textContent="and "+(filled.length-6)+" more";fl.appendChild(m)}
+fsaid.textContent="";fs.hidden=false;return}
 if(e.data.axon==="open"){var u;try{u=new URL(String(e.data.url))}catch(x){return}if(u.protocol!=="https:"&&u.protocol!=="http:")return;
 if(pending||Date.now()-asked<1500)return;asked=Date.now();pending=u.href;where.textContent=u.host+(u.pathname.length>1?u.pathname:"");strip.hidden=false}
 });
 document.getElementById("oy").addEventListener("click",function(){var u=pending;close();if(u)window.open(u,"_blank","noopener,noreferrer")});
 document.getElementById("on").addEventListener("click",close);
+document.getElementById("sy").addEventListener("click",function(){var h=held;if(!h||h.busy)return;h.busy=true;fsaid.textContent="Sending";
+var failed="That did not go through. Try again in a while.";
+fetch(data.answers,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({form:h.form,fields:h.fields,v:data.v})}).then(function(res){return res.json().then(function(j){return{ok:res.ok,j:j}})}).then(function(x){
+if(held===h)fclose();tell(h.id,x.ok,x.ok?"":(x.j&&typeof x.j.error==="string"&&x.j.error)||failed)}).catch(function(){if(held===h)fclose();tell(h.id,false,failed)})});
+document.getElementById("sn").addEventListener("click",function(){var h=held;if(h&&h.busy)return;fclose();if(h)tell(h.id,false,"")});
 var box=document.getElementById("r"),said=document.getElementById("rs");
 document.getElementById("rb").addEventListener("click",function(){box.hidden=!box.hidden});
 document.getElementById("rn").addEventListener("click",function(){box.hidden=true});
@@ -90,7 +112,7 @@ var picked=document.querySelector('input[name="why"]:checked');if(!picked){said.
 said.textContent="Sending";
 fetch(data.report,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({reason:picked.value})}).then(function(res){return res.json().then(function(j){return{ok:res.ok,j:j}})}).then(function(x){
 if(x.ok&&x.j.hidden){location.reload();return}
-said.textContent=x.ok?"Thank you. It has been reported.":(x.j&&x.j.error&&x.j.error.message)||"That did not go through. Try again in a while."}).catch(function(){said.textContent="That did not go through. Try again in a while."});
+said.textContent=x.ok?"Thank you. It has been reported.":(x.j&&typeof x.j.error==="string"&&x.j.error)||"That did not go through. Try again in a while."}).catch(function(){said.textContent="That did not go through. Try again in a while."});
 });
 show("index.html");
 })();`;
@@ -110,15 +132,20 @@ export function goneHtml(what: "missing" | "down"): string {
   return page(`${head} · Axon`, `<header class="bar">${MARK}<span class="title">Axon</span></header><div class="gone"><h1>${head}</h1><p>${words}</p><a href="/">Go to Axon</a></div>`);
 }
 
-/** The page a built site opens on. `pages` are the site's pages, each already whole and sealed. */
-export function viewerHtml(site: Pick<Site, "siteId" | "title" | "agentId">, pages: Record<string, string>, agentName: string, earlier?: number): string {
-  const data = { pages, report: `/api/sites/${site.siteId}/report` };
+/**
+ * The page a built site opens on. `pages` are the site's pages, each already whole and sealed. `o.answers` says
+ * whether a form on it can be sent (where to is this site's own address for answers); `o.version` is the version
+ * these pages are, kept with each answer.
+ */
+export function viewerHtml(site: Pick<Site, "siteId" | "title" | "agentId">, pages: Record<string, string>, agentName: string, earlier?: number, o: { answers?: boolean; version?: number } = {}): string {
+  const data = { pages, report: `/api/sites/${site.siteId}/report`, answers: o.answers ? `/api/sites/${site.siteId}/answers` : null, v: o.version ?? null };
   const reasons = REPORT_REASONS.map((r) => `<label><input type="radio" name="why" value="${r}">${esc(REASON_WORDS[r])}</label>`).join("");
   const body =
     `<header class="bar${earlier ? " old" : ""}">${MARK}<span class="title">${esc(site.title)}</span>${earlier ? `<span class="tag">earlier version ${earlier}</span>` : ""}` +
     `<span class="by"><span class="long">Built by </span><span class="short">by </span><a href="/agents/${encodeURIComponent(site.agentId)}">${esc(agentName)}</a><span class="long"> on Axon</span></span>` +
     `<button id="rb" type="button">Report</button></header>` +
     `<div class="note" id="o" hidden><span class="grow">This page wants to open <b id="ow"></b></span><button class="go" id="oy" type="button">Open</button><button id="on" type="button">Stay</button></div>` +
+    `<div class="note snd" id="s" hidden><span class="q">Send this to the person who had this page built?</span><span class="fl" id="sl"></span><button class="go" id="sy" type="button">Send</button><button id="sn" type="button">Cancel</button><span id="ss" role="status"></span></div>` +
     `<div class="note rep" id="r" hidden><span class="q">What is wrong with this page?</span><span class="opts">${reasons}</span><button class="go" id="ry" type="button">Send report</button><button id="rn" type="button">Close</button><span id="rs" role="status"></span></div>` +
     `<iframe id="f" sandbox="${SEAL_SANDBOX}" referrerpolicy="no-referrer" title="${esc(site.title)}"></iframe>` +
     `<script type="application/json" id="d">${asData(data)}</script>`;
@@ -143,5 +170,5 @@ export function viewSite(siteId: string, version?: number): Viewed {
     if (whole !== null) pages[name] = seal(whole);
   }
   if (!pages["index.html"]) return { status: 404, html: goneHtml("missing") };
-  return { status: 200, html: viewerHtml(site, pages, getAgentById(site.agentId)?.name ?? "an agent", earlier) };
+  return { status: 200, html: viewerHtml(site, pages, getAgentById(site.agentId)?.name ?? "an agent", earlier, { answers: formsEnabled(), version: earlier ?? site.version }) };
 }

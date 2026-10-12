@@ -67,8 +67,17 @@ const ORDINARY = {
   "about.html": `<!doctype html><html><body><h1 id="h">ABOUT</h1><a id="back" href="index.html">Back</a></body></html>`,
 };
 
-type Mode = "viewer" | "bare" | "open" | "use";
-interface Run { hits: string[]; said: Record<string, string>; href: string; holder: Record<string, unknown> }
+// A page with a form, as an agent would build it: named fields, a submit button, and a thank-you of its own.
+const FORM = {
+  "index.html": `<!doctype html><html><body><h1 id="h">RSVP</h1>
+<form id="calc"><input name="Bill" id="bill" value="84"><button id="cgo">Work it out</button></form>
+<form data-collect name="rsvp" id="fm"><label>Name <input name="Name" id="nm" required></label><label>Coming <select name="Coming" id="cm"><option>Yes</option><option>No</option></select></label><label>Note <textarea name="Note" id="nt"></textarea></label><input type="file" name="Photo"><button id="go">Send</button></form>
+<p id="thanks" data-after-send hidden>THANKS</p>
+<script>window.__events = []; document.getElementById("fm").addEventListener("axon:sent", () => window.__events.push("sent")); document.getElementById("fm").addEventListener("axon:notsent", (e) => window.__events.push("notsent:" + e.detail.why));</script></body></html>`,
+};
+
+type Mode = "viewer" | "bare" | "open" | "use" | "form";
+interface Run { hits: string[]; said: Record<string, string>; href: string; holder: Record<string, unknown>; posted: unknown[] }
 
 interface Cdp { send(method: string, params?: object, sessionId?: string): Promise<Record<string, unknown>>; close(): void; contexts: { id: number; frameId?: string; sessionId?: string }[]; mainFrame: string }
 
@@ -107,9 +116,17 @@ async function connect(port: number): Promise<Cdp> {
 
 async function run(mode: Mode): Promise<Run> {
   const hits: string[] = [];
+  const posted: unknown[] = [];
   let pages: Record<string, string> = {};
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
+    // where the viewer page sends a form's answers: what arrives is kept, to be counted
+    if (url.pathname === "/api/sites/x/answers" && req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => { body += c; });
+      req.on("end", () => { try { posted.push(JSON.parse(body)); } catch { posted.push(body); } res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true })); });
+      return;
+    }
     if (url.pathname === "/hit" || url.pathname.startsWith("/api/")) {
       hits.push(url.pathname === "/hit" ? (url.searchParams.get("what") ?? "?") : "the report route");
       res.writeHead(200, { "content-type": "text/plain", "access-control-allow-origin": "*" });
@@ -117,10 +134,10 @@ async function run(mode: Mode): Promise<Run> {
     }
     if (url.pathname !== "/") { res.writeHead(404); return res.end(); }
     const cookie = { "set-cookie": "signin=PARENT-COOKIE; Path=/" };
-    if (mode === "viewer" || mode === "use") {
+    if (mode === "viewer" || mode === "use" || mode === "form") {
       // the real page, with the headers the route sends
       res.writeHead(200, { ...viewerHeaders(), ...cookie });
-      return res.end(viewerHtml({ siteId: "x", title: "Self test", agentId: "tester" }, pages, "Test agent"));
+      return res.end(viewerHtml({ siteId: "x", title: "Self test", agentId: "tester" }, pages, "Test agent", undefined, mode === "form" ? { answers: true, version: 1 } : {}));
     }
     // an ordinary page of Axon's holding the same frame: with the document sealed ("bare") or not at all ("open")
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-security-policy": AXON_POLICY, ...cookie });
@@ -134,7 +151,7 @@ f.srcdoc = ${JSON.stringify(pages["index.html"]).replace(/</g, "\\u003c")};
   server.on("upgrade", (req, socket) => { hits.push(new URL(req.url ?? "/", "http://x").searchParams.get("what") ?? "socket"); socket.destroy(); });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  pages = mode === "use" ? Object.fromEntries(Object.entries(ORDINARY).map(([k, v]) => [k, seal(v)])) : { "index.html": mode === "open" ? hostile(origin) : seal(hostile(origin)) };
+  pages = mode === "use" || mode === "form" ? Object.fromEntries(Object.entries(mode === "form" ? FORM : ORDINARY).map(([k, v]) => [k, seal(v)])) : { "index.html": mode === "open" ? hostile(origin) : seal(hostile(origin)) };
 
   const profile = mkdtempSync(join(tmpdir(), "seal-selftest-"));
   const port = 9300 + Math.floor(Math.random() * 500);
@@ -180,6 +197,39 @@ f.srcdoc = ${JSON.stringify(pages["index.html"]).replace(/</g, "\\u003c")};
       await value(`document.getElementById("rb").click()`);
       holder.reportOpen = await value(`!document.getElementById("r").hidden`);
       holder.windows = ((await cdp.send("Target.getTargets")).targetInfos as { type: string }[]).filter((t) => t.type === "page").length;
+    } else if (mode === "form") {
+      const strip = () => value(`JSON.stringify({ shown: !document.getElementById("s").hidden, text: document.getElementById("sl").textContent })`).then((v) => JSON.parse(String(v)) as { shown: boolean; text: string });
+      const frame = () => inFrame(`JSON.stringify({ busy: !!document.getElementById("fm").getAttribute("aria-busy"), formHidden: document.getElementById("fm").hidden, thanks: !document.getElementById("thanks").hidden, name: document.getElementById("nm").value, said: (document.querySelector("[data-axon-said]") || {}).textContent || "", events: window.__events })`).then((v) => JSON.parse(String(v)) as { busy: boolean; formHidden: boolean; thanks: boolean; name: string; said: string; events: string[] });
+      // a form that is not marked as collecting answers is the page's own: its button asks the visitor nothing
+      await inFrame(`document.getElementById("cgo").click()`);
+      await sleep(400);
+      holder.unmarked = { strip: (await strip()).shown, posted: posted.length, hits: hits.length };
+      // a form with a required field left empty is stopped by its own check, and nothing is asked
+      await inFrame(`document.getElementById("go").click()`);
+      await sleep(500);
+      holder.empty = { strip: (await strip()).shown, frame: await frame(), posted: posted.length };
+      // the visitor fills it in and presses its button
+      await inFrame(`document.getElementById("nm").value = "Ada Lovelace"; document.getElementById("nt").value = "Two of us.\\nNo nuts."; document.getElementById("go").click()`);
+      await sleep(500);
+      holder.asked = { strip: await strip(), frame: await frame(), posted: posted.length };
+      // they say no: nothing goes, and the form is theirs again
+      await value(`document.getElementById("sn").click()`);
+      await sleep(300);
+      holder.cancelled = { strip: (await strip()).shown, frame: await frame(), posted: posted.length };
+      await sleep(1400);
+      // the page itself asks, over and over, with words the visitor never typed: the holder asks the visitor, and
+      // sends nothing until they answer
+      await inFrame(`for (let i = 0; i < 6; i++) parent.postMessage({ axon: "form", id: 900 + i, form: "rsvp", fields: [["Name", "not the visitor " + i]] }, "*"); try { document.getElementById("fm").submit(); } catch (e) {}`);
+      await sleep(600);
+      holder.byItself = { strip: await strip(), posted: posted.length, hits: hits.length };
+      await value(`document.getElementById("sn").click()`);
+      await sleep(1700);
+      // again, and this time they say yes
+      await inFrame(`document.getElementById("go").click()`);
+      await sleep(500);
+      await value(`document.getElementById("sy").click()`);
+      await sleep(900);
+      holder.sent = { strip: (await strip()).shown, frame: await frame(), posted: posted.length };
     } else {
       // without the seal the hostile page can open a window of its own, which is one more place to look: the page that
       // wrote something down is the one that is read
@@ -191,7 +241,7 @@ f.srcdoc = ${JSON.stringify(pages["index.html"]).replace(/</g, "\\u003c")};
     }
     const href = String(await value("location.href"));
     cdp.close();
-    return { hits: [...new Set(hits)].sort(), said, href: href.replace(origin, ""), holder };
+    return { hits: [...new Set(hits)].sort(), said, href: href.replace(origin, ""), holder, posted };
   } finally {
     chrome.kill();
     server.close();
@@ -234,6 +284,21 @@ async function main(): Promise<void> {
   check("asking for a page outside the site, or an address that is not a web address, does nothing", h.afterNonsense.shown === false && h.afterNonsense.page === "HOME");
   check("the report panel opens", h.reportOpen === true);
   check("the page never left its address", used.href === "/", used.href);
+
+  const formed = await run("form");
+  type FrameSaid = { busy: boolean; formHidden: boolean; thanks: boolean; name: string; said: string; events: string[] };
+  const f = formed.holder as { unmarked: { strip: boolean; posted: number; hits: number }; empty: { strip: boolean; frame: FrameSaid; posted: number }; asked: { strip: { shown: boolean; text: string }; frame: FrameSaid; posted: number }; cancelled: { strip: boolean; frame: FrameSaid; posted: number }; byItself: { strip: { shown: boolean; text: string }; posted: number; hits: number }; sent: { strip: boolean; frame: FrameSaid; posted: number } };
+  const got = formed.posted[0] as { form?: string; fields?: [string, string][]; v?: number } | undefined;
+  console.log("\nA page with a form, filled in and sent as a visitor would:");
+  check("a form that is not marked as collecting answers is left to the page: nothing is asked and nothing goes", f.unmarked.strip === false && f.unmarked.posted === 0 && f.unmarked.hits === 0);
+  check("a form with a required field left empty is stopped by its own check: nothing is asked", f.empty.strip === false && f.empty.posted === 0 && f.empty.frame.busy === false, JSON.stringify(f.empty.frame));
+  check("a filled form is shown to the visitor before anything goes: what they typed, and nothing sent yet", f.asked.strip.shown && f.asked.strip.text.includes("Name: Ada Lovelace") && f.asked.strip.text.includes("Coming: Yes") && f.asked.posted === 0 && f.asked.frame.busy, f.asked.strip.text);
+  check("saying no sends nothing and gives the form back as it was", f.cancelled.strip === false && f.cancelled.posted === 0 && f.cancelled.frame.busy === false && f.cancelled.frame.name === "Ada Lovelace" && !f.cancelled.frame.thanks);
+  check("a page that asks by itself, again and again, gets one question put to the visitor and nothing sent", f.byItself.posted === 0 && f.byItself.hits === 0 && f.byItself.strip.shown && f.byItself.strip.text.includes("not the visitor 0") && !f.byItself.strip.text.includes("not the visitor 1"), f.byItself.strip.text);
+  check("saying yes sends exactly what was shown, once, with the form's name and the page's version", formed.posted.length === 1 && got?.form === "rsvp" && got?.v === 1 && JSON.stringify(got?.fields) === JSON.stringify([["Name", "Ada Lovelace"], ["Coming", "Yes"], ["Note", "Two of us.\nNo nuts."]]), JSON.stringify(formed.posted).slice(0, 200));
+  check("a file is never sent", !JSON.stringify(formed.posted).includes("Photo"));
+  check("the page is told it was sent, and shows its own thank-you in place of the form", f.sent.frame.events.includes("sent") && f.sent.frame.thanks && f.sent.frame.formHidden && f.sent.strip === false, JSON.stringify(f.sent.frame));
+  check("the form went nowhere by itself: the only request was the one the visitor allowed", formed.hits.length === 0 && formed.href === "/", `${formed.hits.join(", ")} ${formed.href}`);
 
   const failed = checks.filter((c) => !c.ok);
   console.log(`\n${checks.length - failed.length} of ${checks.length} checks passed${failed.length ? `. FAILED: ${failed.map((c) => c.name).join("; ")}` : "."}`);

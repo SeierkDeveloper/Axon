@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { filesOf, getSite, hideSite, newestSites, reportedSites, restoreSite, siteLimits, siteStats, sitesEnabled } from "@/lib/agentSites";
 import { dailyBuilds } from "@/lib/buildTool";
+import { answerStats, formsEnabled } from "@/lib/siteAnswers";
 import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest) {
     const files = filesOf(one);
     return NextResponse.json({ site, files: files.map((f) => ({ path: f.path, mime: f.mime, bytes: f.bytes, sha256: f.sha256 })), index: files.find((f) => f.path === "index.html")?.content.toString("utf8") ?? null }, { headers: { "Cache-Control": "no-store" } });
   }
-  return NextResponse.json({ enabled: sitesEnabled(), limits: { ...siteLimits(), buildsPerDay: dailyBuilds() }, stats: siteStats(), newest: newestSites(), reported: reportedSites() }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ enabled: sitesEnabled(), limits: { ...siteLimits(), buildsPerDay: dailyBuilds() }, stats: siteStats(), forms: { enabled: formsEnabled(), ...answerStats() }, newest: newestSites(), reported: reportedSites() }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(req: NextRequest) {

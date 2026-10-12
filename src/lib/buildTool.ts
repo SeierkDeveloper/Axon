@@ -15,6 +15,7 @@ import type { Agent } from "@/sdk/types";
 import type { LocalTool, ResolvedTools } from "./agentTools";
 import { addVersion, agentBuilds, createSite, filesOf, getSite, siteLimits, sitesEnabled, SITE, type Site, type SiteFileIn } from "./agentSites";
 import { checkRateLimit } from "./rateLimit";
+import { COLLECTS } from "./siteAnswers";
 import { logger } from "./logger";
 
 type Env = Record<string, string | undefined>;
@@ -75,6 +76,7 @@ export function buildTool(ctx: { taskId: string; agentId: string; ownerMark: str
       "Build a working web page or small app that the person opens at a link: a landing page, a calculator, a tracker, a quiz, a dashboard, a small tool. Use it when the person asks for something to be built. Not for an answer in words, a document or a picture.\n" +
       `Give the files whole, as you want them kept. ${SITE.entry} is the page that opens; it may use other files of the site by their plain names (style.css, app.js, logo.svg). File names are lowercase.\n` +
       "The page is shown sealed, so everything must be inside its files: no script, style, font or picture loaded from another site, no call over the network, no frame. Pictures are inline SVG or data: addresses. It has no storage: localStorage and cookies are not there, so keep what it needs in memory while it is open. Ordinary links to other sites are fine.\n" +
+      "A form can collect answers: a sign-up, an RSVP, a survey, an order. Write an ordinary <form> marked data-collect and named (<form data-collect name=\"rsvp\">), with a label and a name for every field, required on the ones that must be filled, and a submit button. Give it no action and write no code that sends it: when the visitor sends it they are shown what goes and asked to confirm, and the answers reach the person who had the page built, who reads them on Axon. For a thank-you of your own, put one element with the attributes data-after-send and hidden in the page: it is shown in place of the form once the answers are sent. A form cannot take files. A form without data-collect sends nothing: use that for a calculator or a filter, and do its work in your own script.\n" +
       "It never asks for a password, a recovery phrase, a private key or a card, never connects a wallet, and never poses as another company's sign-in. Such a page is refused.\n" +
       "Make it finished, not a sketch: real words instead of placeholder text, clear type and spacing, built for a phone first and good on a wide screen, every button doing what it says, sensible answers for empty or wrong input.\n" +
       `Calling it again changes what you built: give only the files you are changing (and the names of any to remove), the others stay as they are. This job can build ${limit} versions, so get it right rather than in many small steps. The person receives the link with your answer: do not paste the code into the answer.`,
@@ -135,7 +137,10 @@ export function buildTool(ctx: { taskId: string; agentId: string; ownerMark: str
       // whoever watches is told, and may take a moment over it (a picture of the page): the build stands whatever happens there
       try { await ctx.onBuilt?.({ site, version: kept.version, files: kept.files, bytes: kept.bytes, sha256: kept.sha256 }); } catch (err) { logger.warn("sites.on_built_failed", "A build could not be reported", { taskId: ctx.taskId, err }); }
       const left = limit - built;
-      return `Built "${site.title}": version ${kept.version}, ${kept.files} ${kept.files === 1 ? "file" : "files"}, ${kb(kept.bytes)}. The person gets the link to open it with your answer. Tell them in a sentence or two what it is and how to use it, without the code. ${left > 0 ? `You can change it ${left} more ${left === 1 ? "time" : "times"} in this job.` : "That was the last version this job can build."}`;
+      // a page with a form: the person is told where what people send will be
+      const form = files.some((f) => /\.html?$/i.test(f.path) && COLLECTS.test(typeof f.content === "string" ? f.content : f.content.toString("utf8")))
+        ? " It has a form: tell them that what people send through it is listed for them on Axon, under the page's link with this job, and can be downloaded as a file." : "";
+      return `Built "${site.title}": version ${kept.version}, ${kept.files} ${kept.files === 1 ? "file" : "files"}, ${kb(kept.bytes)}. The person gets the link to open it with your answer. Tell them in a sentence or two what it is and how to use it, without the code.${form} ${left > 0 ? `You can change it ${left} more ${left === 1 ? "time" : "times"} in this job.` : "That was the last version this job can build."}`;
     },
   };
 }
