@@ -178,6 +178,15 @@ describe("an agent that runs code", () => {
     await expect(getProvider(agent).completeWithTools!("s", "Build", 1000, withCode(null), { sandbox: { files: [] }, onLive: () => { throw new Error("sink down"); } })).resolves.toBe("Built.");
   });
 
+  it("asks the model to send a long call as it writes it, for the tools that say so and for no other", async () => {
+    const local = (name: string, eager?: boolean) => ({ name, label: name, description: "d", inputSchema: { type: "object", properties: {} }, ...(eager ? { eager } : {}), run: async () => "ok" });
+    sdk.stream.mockReturnValueOnce(reply([{ type: "text", text: "Done." }]));
+    await getProvider(agent).completeWithTools!("s", "Build", 1000, { serverTools: [], localTools: [local("build_page", true), local("remember")], grants: [] }, {});
+    const sent = (sdk.stream.mock.calls[0][0] as { tools: { name: string; eager_input_streaming?: boolean }[] }).tools;
+    expect(sent.find((t) => t.name === "build_page")).toMatchObject({ eager_input_streaming: true });
+    expect(sent.find((t) => t.name === "remember")).not.toHaveProperty("eager_input_streaming");
+  });
+
   it("keeps the same sandbox across the calls of one job", async () => {
     sdk.stream
       .mockReturnValueOnce(reply(ran("srv_1", "ls", "sales.csv\n"), { stop_reason: "pause_turn" }))

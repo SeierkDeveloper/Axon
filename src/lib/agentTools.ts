@@ -140,6 +140,13 @@ export interface LocalTool {
   inputSchema: Record<string, unknown>;
   /** Label used in the receipt trace — readable, not the internal id. */
   label: string;
+  /**
+   * For a tool whose call is long to write (the files of a page): the model sends the call as it writes it, a piece
+   * at a time, instead of holding each value back until it is whole. That is what lets a job's log say what is being
+   * written while it is written (see "writing" in ./providers). A call cut off at the length limit is never run,
+   * with or without this.
+   */
+  eager?: boolean;
   run(args: Record<string, unknown>): Promise<string>;
   /**
    * The same call, for a tool that can answer with a picture or a PDF as well as words (a look at a page, a file

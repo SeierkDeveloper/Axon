@@ -683,6 +683,8 @@ class AnthropicProvider implements ProviderClient {
         name: t.name,
         description: t.description,
         input_schema: t.inputSchema as Anthropic.Messages.Tool.InputSchema,
+        // a call that is long to write is sent as it is written, so it can be watched (see LocalTool.eager)
+        ...(t.eager ? { eager_input_streaming: true } : {}),
       })),
     ];
 

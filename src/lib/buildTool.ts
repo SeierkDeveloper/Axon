@@ -69,6 +69,8 @@ export function buildTool(ctx: { taskId: string; agentId: string; ownerMark: str
   return {
     name: "build_page",
     label: "build_page",
+    // the files of a page take most of a minute to write: sent as they are written, so the job's log can name them
+    eager: true,
     description:
       "Build a working web page or small app that the person opens at a link: a landing page, a calculator, a tracker, a quiz, a dashboard, a small tool. Use it when the person asks for something to be built. Not for an answer in words, a document or a picture.\n" +
       `Give the files whole, as you want them kept. ${SITE.entry} is the page that opens; it may use other files of the site by their plain names (style.css, app.js, logo.svg). File names are lowercase.\n` +

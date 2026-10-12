@@ -186,6 +186,8 @@ describe("building", () => {
     const d = tool().description;
     for (const must of [/index\.html is the page that opens/, /no script, style, font or picture loaded from another site/, /no call over the network/, /localStorage and cookies are not there/, /never asks for a password, a recovery phrase, a private key or a card/, /never connects a wallet/, /built for a phone first/, /do not paste the code into the answer/, /This job can build 3 versions/]) expect(d).toMatch(must);
     expect(tool({ paid: true }).description).toMatch(/This job can build 6 versions/);
+    // its call is long to write, so it is sent as it is written and can be watched
+    expect(tool().eager).toBe(true);
     expect(d).not.toMatch(/—/);
   });
 });
