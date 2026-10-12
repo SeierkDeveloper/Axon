@@ -273,7 +273,7 @@ export function noRoomForSite(a: { taskId: string; ownerMark?: string | null }, 
   const made = mark
     ? (db.prepare("SELECT COUNT(*) n FROM built_sites WHERE owner_mark = ? AND created_at > ?").get(mark, since) as { n: number }).n
     : (db.prepare("SELECT COUNT(*) n FROM built_sites WHERE owner_mark IS NULL AND task_id = ? AND created_at > ?").get(a.taskId, since) as { n: number }).n;
-  if (made >= limits.perOwnerDay) return `this person has had ${made} sites built in the last day, which is the most a day allows. An existing one can still be changed.`;
+  if (made >= limits.perOwnerDay) return `this person has had ${made} sites built in the last day, and a day allows ${limits.perOwnerDay}. An existing one can still be changed.`;
   if (storeBytes() >= limits.storeMegabytes * 1024 * 1024) {
     logger.warn("sites.store_full", "The store for built pages is full", { megabytes: limits.storeMegabytes });
     return "no more sites can be kept right now. Nothing was built.";

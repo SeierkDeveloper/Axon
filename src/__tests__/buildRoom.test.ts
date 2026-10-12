@@ -42,7 +42,7 @@ describe("room to build, asked before the agent starts", () => {
     const limits = siteLimits({ ...ON, AXON_SITE_PER_DAY: "2" });
     for (const taskId of ["a", "b"]) expect(createSite({ taskId, agentId: "agent-1", ownerMark: "0xabc", title: "A page" }, limits).ok).toBe(true);
     const why = noRoomToBuild({ taskId: "c", ownerMark: "0xabc", env: { ...ON, AXON_SITE_PER_DAY: "2" } });
-    expect(why).toMatch(/2 sites built in the last day/);
+    expect(why).toMatch(/2 sites built in the last day, and a day allows 2\./);
     expect(noRoomForSite({ taskId: "c", ownerMark: "0xabc" }, limits)).toBe(why);
     const refused = createSite({ taskId: "c", agentId: "agent-1", ownerMark: "0xabc", title: "A third" }, limits);
     expect(refused).toEqual({ ok: false, why });
@@ -55,7 +55,7 @@ describe("room to build, asked before the agent starts", () => {
     const made = createSite({ taskId: "a", agentId: "agent-1", ownerMark: "0xabc", title: "A page" }, limits);
     expect(made.ok).toBe(true);
     const env = { ...ON, AXON_SITE_PER_DAY: "1" };
-    expect(noRoomToBuild({ taskId: "b", ownerMark: "0xabc", env })).toMatch(/most a day allows/);
+    expect(noRoomToBuild({ taskId: "b", ownerMark: "0xabc", env })).toMatch(/a day allows 1\b/);
     expect(noRoomToBuild({ taskId: "b", ownerMark: "0xabc", continueSite: made.ok ? made.site.siteId : "", env })).toBeNull();
   });
 
@@ -81,7 +81,7 @@ describe("room to build, asked before the agent starts", () => {
   });
 
   it("the agent is told plainly, and told not to write the page out instead", () => {
-    const note = noRoomNote("this person has had 10 sites built in the last day, which is the most a day allows. An existing one can still be changed.");
+    const note = noRoomNote("this person has had 10 sites built in the last day, and a day allows 10. An existing one can still be changed.");
     expect(note).toMatch(/NOTHING CAN BE BUILT IN THIS JOB/);
     expect(note).toMatch(/10 sites built in the last day/);
     expect(note).toMatch(/You do not have the build tool/);
