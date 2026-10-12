@@ -2581,6 +2581,16 @@ const SPEC = {
       put: { tags: ["Allowance"] },
       delete: { summary: "All three need a full key", tags: ["Allowance"] },
     },
+
+    "/sites/{siteId}/answers": {
+      parameters: [{ name: "siteId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "A built page's form", tags: ["Sites"], security: [] },
+    },
+
+    "/sites/{siteId}/report": {
+      parameters: [{ name: "siteId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Without signing in, a few times an hour", tags: ["Sites"], security: [] },
+    },
   },
 };
 
