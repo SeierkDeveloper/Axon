@@ -33,6 +33,7 @@ import { agentReads, codeEnabled, filesEnabled } from "@/lib/agentFiles";
 import { mayDraw } from "@/lib/agentPictures";
 import { agentBrowses } from "@/lib/agentBrowser";
 import { agentBuilds } from "@/lib/agentSites";
+import { formsEnabled } from "@/lib/siteAnswers";
 import { getMcpServerByAgentId } from "@/lib/mcp";
 import { planEnabled, plannable } from "@/lib/planFirst";
 import { memoryEnabled } from "@/lib/agentMemory";
@@ -248,7 +249,7 @@ export default async function AgentProfilePage({
           canRemember={memoryEnabled()}
           canBringIn={bringInEnabled()}
           canLibrary={libraryEnabled()}
-          starters={startersFor(agent, { files: Boolean(reads?.text), code: runsCode, pictures: draws, office: runsCode && officeEnabled(), browser: browses })}
+          starters={startersFor(agent, { files: Boolean(reads?.text), code: runsCode, pictures: draws, office: runsCode && officeEnabled(), browser: browses, builds, forms: formsEnabled() })}
         />
 
         {/* Retain: the same hire on a schedule, paid from the allowance. Paid agents only. */}

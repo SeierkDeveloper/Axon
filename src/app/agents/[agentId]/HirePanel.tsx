@@ -735,6 +735,9 @@ export default function HirePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when this browser's key is known
   }, [canLibrary, memoryKey]);
 
+  const starterHint = (s: StarterJob): string =>
+    `Fills the box${s.sample ? ` and attaches ${s.sample.name}` : ""}${s.builds ? ". The agent builds it and gives you a link" : ""}`;
+
   // A starter job: its words go in the box, and its sample file is fetched and attached as if the person had
   // picked it. Nothing is hired until the person presses the button.
   async function pickStarter(s: StarterJob) {
@@ -803,12 +806,17 @@ export default function HirePanel({
       {(phase === "idle" || phase === "hiring" || (phase === "error" && !taskId)) && (
         <>
           {starters.length > 0 && phase === "idle" && turns.length === 0 && (
-            <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
-              <span className="mr-0.5 text-[11px] text-gray-400 dark:text-gray-500">Try one</span>
-              {starters.map((s) => (
-                <button key={s.id} type="button" onClick={() => void pickStarter(s)} disabled={Boolean(starting)} title={s.sample ? `Fills the box and attaches ${s.sample.name}` : "Fills the box"} className={`rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-60 ${task === s.task ? "border-teal-400 bg-teal-50 text-teal-800 dark:border-teal-700 dark:bg-teal-950/30 dark:text-teal-300" : "border-gray-200 text-gray-700 hover:border-teal-400 hover:text-teal-700 dark:border-gray-700 dark:text-gray-200 dark:hover:border-teal-600 dark:hover:text-teal-400"}`}>
-                  {starting === s.id ? "Attaching…" : s.label}
-                </button>
+            <div className="mb-2.5 space-y-1.5">
+              {/* what the agent answers in words or files, then what it builds: each on a line of its own */}
+              {[{ says: "Try one", jobs: starters.filter((s) => !s.builds) }, { says: "Build one", jobs: starters.filter((s) => s.builds) }].filter((row) => row.jobs.length > 0).map((row) => (
+                <div key={row.says} className="flex flex-wrap items-center gap-1.5">
+                  <span className="mr-0.5 text-[11px] text-gray-400 dark:text-gray-500">{row.says}</span>
+                  {row.jobs.map((s) => (
+                    <button key={s.id} type="button" onClick={() => void pickStarter(s)} disabled={Boolean(starting)} title={starterHint(s)} className={`rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-60 ${task === s.task ? "border-teal-400 bg-teal-50 text-teal-800 dark:border-teal-700 dark:bg-teal-950/30 dark:text-teal-300" : "border-gray-200 text-gray-700 hover:border-teal-400 hover:text-teal-700 dark:border-gray-700 dark:text-gray-200 dark:hover:border-teal-600 dark:hover:text-teal-400"}`}>
+                      {starting === s.id ? "Attaching…" : s.label}
+                    </button>
+                  ))}
+                </div>
               ))}
             </div>
           )}

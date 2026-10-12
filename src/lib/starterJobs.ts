@@ -7,6 +7,10 @@
 //
 // Which starters an agent is offered follows from what it lists as its abilities and from what it can do here
 // (read files, run code, make pictures, make Office files, use a browser). Off until AGENT_STARTERS=on.
+//
+// An agent that builds is offered building jobs beside those: a landing page, an RSVP form, a calculator. They are
+// kept as a list of their own, so the page can show them on a line of their own and an agent loses none of the
+// starters it had. Every one of them is worded so that the hire is given the build tool (./buildTool: asksToBuild).
 
 import type { Agent } from "@/sdk/types";
 
@@ -17,7 +21,13 @@ export function startersEnabled(env: Env = process.env): boolean {
 }
 
 /** What the agent can do on this server, beyond answering in words. */
-export interface StarterAbilities { files?: boolean; code?: boolean; pictures?: boolean; office?: boolean; browser?: boolean }
+export interface StarterAbilities {
+  files?: boolean; code?: boolean; pictures?: boolean; office?: boolean; browser?: boolean;
+  /** builds working pages and small apps */
+  builds?: boolean;
+  /** and a page it builds can collect what people send through a form */
+  forms?: boolean;
+}
 
 /** A sample file a starter attaches: served from /starters, uploaded like any file the person picks. */
 export interface StarterSample { name: string; path: string; type: string }
@@ -29,6 +39,8 @@ export interface StarterJob {
   /** what goes in the box */
   task: string;
   sample?: StarterSample;
+  /** a building job: the agent builds a page and gives a link to it */
+  builds?: true;
 }
 
 const SALES: StarterSample = { name: "sales.csv", path: "/starters/sales.csv", type: "text/csv" };
@@ -87,16 +99,42 @@ const ALL: Entry[] = [
     task: "Make this shorter and clearer without losing anything that matters: \"In order to be able to make sure that all of our customers are able to get the help that they need in a timely manner, we have made the decision to extend the hours during which our support team is available.\"" },
 ];
 
+// Building jobs, for an agent that builds. The ones that fit what the agent lists stand first; the last two fit any
+// agent, so every agent that builds has something to offer. None of them asks the page to remember anything: a built
+// page keeps nothing between two visits.
+const ANY = /^/;
+const BUILDING: Entry[] = [
+  { id: "build-dashboard", label: "Build a dashboard", when: /^(analysis|trading)$|data|sql|report|financ/i, needs: ["files"], sample: SALES,
+    task: "Build a dashboard page from the attached spreadsheet: revenue per month for each region as a chart, with the best month and the total refunds as two figures on top." },
+  { id: "build-calculator", label: "Build a calculator", when: /^(analysis|trading|planning|crypto|blockchain)$|data|sql|financ|budget|pric/i,
+    task: "Build a loan calculator: the amount, the yearly interest rate and the number of years go in, the monthly payment and the total interest come out, and both change as I type." },
+  { id: "build-quiz", label: "Make a quiz", when: /^(research|search|summari[sz]ation|education|teaching)$|tutor|learn|explain/i,
+    task: "Build a quiz page with eight questions about the solar system, one question at a time, and at the end the score with the right answer to each one I missed." },
+  { id: "build-countdown", label: "Make a countdown", when: /calendar|schedul|meeting|deadline|time zone|event/i,
+    task: "Build a countdown page to the next New Year at midnight UTC: days, hours, minutes and seconds, and a line that changes once the moment has passed." },
+  { id: "build-prices", label: "Build a price page", when: /^(writing|social|creative|marketing|sales)$|copywrit|brand/i,
+    task: "Build a price page for a note-taking app with three plans: Free, Pro at 8 dollars a month and Team at 20 dollars a month. Say what each one includes and mark Pro as the most popular." },
+  { id: "build-game", label: "Build a small game", when: /^(code|coding|programming|creative)$|develop|game/i,
+    task: "Build a memory game: sixteen cards face down in a grid, turn two at a time, pairs stay open, with a count of my moves and a button to play again." },
+  { id: "build-landing", label: "Build a landing page", when: ANY,
+    task: "Build a landing page for a small coffee roaster called Ember and Oak: a headline, three reasons to order from them, the opening hours and a button that scrolls to how to find the shop." },
+  { id: "build-rsvp", label: "Make an RSVP form", when: ANY, needs: ["forms"],
+    task: "Make an RSVP form for a birthday dinner on Saturday at 19:00: a name, how many are coming and anything they do not eat, with a thank you once it is sent." },
+];
+
 /** Offered to an agent nothing above fits: it is asked to show what it does. */
 const SHOW: StarterJob = { id: "show", label: "Show me what you do", task: "Show me what you are best at with one short, concrete example, then tell me what to ask you next." };
 
-export const STARTERS = { most: 4 } as const;
+export const STARTERS = { most: 4, building: 3 } as const;
 
-/** The starter jobs for an agent, the best fit first. Empty while starters are off. */
+/** The starter jobs for an agent, the best fit first, and after them its building jobs. Empty while starters are off. */
 export function startersFor(agent: Pick<Agent, "capabilities">, can: StarterAbilities = {}, env: Env = process.env): StarterJob[] {
   if (!startersEnabled(env)) return [];
   const lists = (agent.capabilities ?? []).map((c) => c.trim());
   const fit = ALL.filter((e) => lists.some((c) => e.when.test(c)) && (e.needs ?? []).every((n) => can[n]));
   const out: StarterJob[] = fit.slice(0, STARTERS.most).map(({ id, label, task, sample }) => ({ id, label, task, ...(sample ? { sample } : {}) }));
-  return out.length ? out : [SHOW];
+  // an agent that lists nothing still builds: it is offered the ones that fit any agent
+  const building: StarterJob[] = !can.builds ? [] : BUILDING.filter((e) => (lists.length ? lists : [""]).some((c) => e.when.test(c)) && (e.needs ?? []).every((n) => can[n]))
+    .slice(0, STARTERS.building).map(({ id, label, task, sample }) => ({ id, label, task, ...(sample ? { sample } : {}), builds: true as const }));
+  return [...(out.length ? out : [SHOW]), ...building];
 }
