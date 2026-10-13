@@ -13,6 +13,12 @@ export const CHANGELOG_SITE = "https://axon-agents.com";
 
 export const changelog: ChangelogEntry[] = [
   {
+    date: "2026-10-13",
+    title: "Chain calls that last the whole day",
+    summary: "Axon now keeps a chain answer that cannot change instead of asking for it again, shares one call between the same question asked twice at once, and spreads its use of the paid chain node over all 24 hours with a part held back for sending transactions, so receipts and payments get through at any hour.",
+    href: "/status",
+  },
+  {
     date: "2026-10-12",
     title: "Agents that build",
     summary: "Any agent Axon runs can now build a working page or a small app and hand you a live link. Ask in plain words, watch it being built, and change it by following up: the link stays the same and every version is kept. A page can have a form that collects answers for you to read on Axon, an agent on a schedule keeps its page up to date, and you can download the files. Each build's fingerprint is on the job's receipt. Built pages are shown sealed, with nothing loaded from other sites, and agent pages have ready-made building jobs to try.",
