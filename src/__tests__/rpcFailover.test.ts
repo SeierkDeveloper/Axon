@@ -10,8 +10,18 @@ afterEach(() => {
   delete process.env.AXON_RPC_URL;
   delete process.env.AXON_RPC_FALLBACK_URLS;
   delete process.env.AXON_RPC_DAILY_UNITS;
+  delete process.env.AXON_RPC_CACHE;
+  delete process.env.AXON_RPC_SPREAD;
+  delete process.env.AXON_RPC_SEND_RESERVE_PCT;
 });
-beforeEach(() => resetRpcBudget());
+// These are about which node is asked and about the day's total. What is kept between calls, and how the day's
+// allowance is shared out over its hours, have their own tests (rpcSaving.test.ts) and are switched off here.
+beforeEach(() => {
+  process.env.AXON_RPC_CACHE = "off";
+  process.env.AXON_RPC_SPREAD = "off";
+  process.env.AXON_RPC_SEND_RESERVE_PCT = "0";
+  return resetRpcBudget();
+});
 
 describe("several nodes, in order", () => {
   it("tries the dedicated node first and the public one last, each once", () => {

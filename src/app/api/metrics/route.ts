@@ -8,7 +8,8 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getRpcCircuitState } from "@/lib/evm";
-import { spentToday } from "@/lib/rpcBudget";
+import { readsAllowedBy, spentByMethod, spentToday } from "@/lib/rpcBudget";
+import { rpcCacheStats } from "@/lib/rpcCache";
 import { getGatewayCircuitState, listGatewayProviders } from "@/lib/gateway";
 
 export const runtime = "nodejs";
@@ -115,6 +116,34 @@ async function paidNodeMetric(): Promise<Metric> {
       { labels: { metric: "spent_today" }, value: spend.units },
       { labels: { metric: "calls_today" }, value: spend.calls },
       { labels: { metric: "daily_allowance" }, value: spend.allowance },
+      // of what was spent: on sending transactions, and on reads; and what reads may have used by this hour
+      { labels: { metric: "spent_sending" }, value: spend.sendUnits },
+      { labels: { metric: "spent_reads" }, value: spend.readUnits },
+      { labels: { metric: "reads_allowed_by_now" }, value: readsAllowedBy(Date.now(), spend.allowance) },
+    ],
+  };
+}
+
+async function paidNodeByMethod(): Promise<Metric> {
+  return {
+    name: "axon_rpc_paid_node_units_by_method",
+    help: "Compute units counted against the paid chain node today (UTC), by the kind of call",
+    type: "gauge",
+    samples: (await spentByMethod()).map((m) => ({ labels: { method: m.method }, value: m.units })),
+  };
+}
+
+function rpcCacheMetric(): Metric {
+  const c = rpcCacheStats();
+  return {
+    name: "axon_rpc_calls_saved",
+    help: "Chain calls this process did not have to make since it started: answered from what was kept, or sharing a call already on its way; and the calls it did make",
+    type: "gauge",
+    samples: [
+      { labels: { metric: "answered_from_kept" }, value: c.kept },
+      { labels: { metric: "shared_a_call" }, value: c.shared },
+      { labels: { metric: "calls_made" }, value: c.asked },
+      { labels: { metric: "answers_held" }, value: c.held },
     ],
   };
 }
@@ -176,6 +205,8 @@ export async function GET() {
     ...webhookMetrics(),
     rpcCircuitMetric(),
     await paidNodeMetric(),
+    await paidNodeByMethod(),
+    rpcCacheMetric(),
     gatewayCircuitMetrics(),
     mppMetrics(),
     uptimeMetric(),

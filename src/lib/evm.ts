@@ -15,6 +15,7 @@ import { CHAIN_ID, CHAIN_NAME, RPC_URL } from "./chain";
 import { normalizeAddress, sameAddress } from "./address";
 import { logger } from "./logger";
 import { countPaidCall, isPaidNode, mayUsePaidNode } from "./rpcBudget";
+import { throughRpcCache } from "./rpcCache";
 
 export const PAYMENT_RECEIVER_WALLET_ADDRESS =
   process.env.NEXT_PUBLIC_PAYMENT_RECEIVER_WALLET_ADDRESS ??
@@ -147,7 +148,12 @@ export function rpcCall<T>(method: string, params: unknown[]): Promise<T> {
  * busy, limited or unreachable hands over to the next; a real answer (a revert, a bad query) comes straight back,
  * since another node would say the same.
  */
-async function rawRpc<T>(method: string, params: unknown[]): Promise<T> {
+function rawRpc<T>(method: string, params: unknown[]): Promise<T> {
+  // what need not be asked is not asked (rpcCache.ts): an answer that cannot change, or one already on its way
+  return throughRpcCache<T>(method, params, () => askNodes<T>(method, params));
+}
+
+async function askNodes<T>(method: string, params: unknown[]): Promise<T> {
   let lastErr: unknown;
   for (const url of rpcUrls()) {
     // A paid node has a daily allowance. Once it is spent the node is passed over, and the public node (always the
