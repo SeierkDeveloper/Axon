@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getRpcCircuitState } from "@/lib/evm";
 import { readsAllowedBy, spentByMethod, spentToday } from "@/lib/rpcBudget";
-import { rpcCacheStats } from "@/lib/rpcCache";
+import { rpcCacheStats, rpcSavedToday } from "@/lib/rpcCache";
 import { getGatewayCircuitState, listGatewayProviders } from "@/lib/gateway";
 
 export const runtime = "nodejs";
@@ -133,6 +133,22 @@ async function paidNodeByMethod(): Promise<Metric> {
   };
 }
 
+async function rpcSavedMetric(): Promise<Metric> {
+  const d = await rpcSavedToday();
+  const all = d.kept + d.shared + d.asked;
+  return {
+    name: "axon_rpc_calls_saved_today",
+    help: "Today (UTC), for the site and the worker together: chain calls answered from what was kept, calls that shared one already on its way, calls made, and the share of all of them that was not made, in percent",
+    type: "gauge",
+    samples: [
+      { labels: { metric: "answered_from_kept" }, value: d.kept },
+      { labels: { metric: "shared_a_call" }, value: d.shared },
+      { labels: { metric: "calls_made" }, value: d.asked },
+      { labels: { metric: "not_made_percent" }, value: all ? Math.round(((d.kept + d.shared) * 1000) / all) / 10 : 0 },
+    ],
+  };
+}
+
 function rpcCacheMetric(): Metric {
   const c = rpcCacheStats();
   return {
@@ -207,6 +223,7 @@ export async function GET() {
     await paidNodeMetric(),
     await paidNodeByMethod(),
     rpcCacheMetric(),
+    await rpcSavedMetric(),
     gatewayCircuitMetrics(),
     mppMetrics(),
     uptimeMetric(),

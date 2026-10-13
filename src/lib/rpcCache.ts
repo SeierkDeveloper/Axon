@@ -36,6 +36,45 @@ export function resetRpcCache(): void {
   kept.clear();
   flying.clear();
   count.kept = count.shared = count.asked = 0;
+  written.kept = written.shared = written.asked = 0;
+}
+
+// ---- the day's count, for the site and the worker together ----
+
+const written = { kept: 0, shared: 0, asked: 0 };
+let timer: ReturnType<typeof setInterval> | null = null;
+
+/** Add what this process has counted since it last did so to the day's row. Never throws: a count is not worth a failed call. */
+export async function writeRpcSaved(nowMs = Date.now()): Promise<void> {
+  const d = { kept: count.kept - written.kept, shared: count.shared - written.shared, asked: count.asked - written.asked };
+  if (d.kept + d.shared + d.asked <= 0) return;
+  try {
+    const { getDb } = await import("./db");
+    getDb()
+      .prepare("INSERT INTO rpc_saved (day, kept, shared, asked) VALUES (?, ?, ?, ?) ON CONFLICT(day) DO UPDATE SET kept = kept + excluded.kept, shared = shared + excluded.shared, asked = asked + excluded.asked")
+      .run(new Date(nowMs).toISOString().slice(0, 10), d.kept, d.shared, d.asked);
+    written.kept += d.kept; written.shared += d.shared; written.asked += d.asked;
+  } catch {
+    // tried again with the next minute's count
+  }
+}
+
+/** Today's count from every process, as far as each has written it down (a minute behind at most). */
+export async function rpcSavedToday(nowMs = Date.now()): Promise<{ kept: number; shared: number; asked: number }> {
+  try {
+    const { getDb } = await import("./db");
+    const row = getDb().prepare("SELECT kept, shared, asked FROM rpc_saved WHERE day = ?").get(new Date(nowMs).toISOString().slice(0, 10)) as { kept: number; shared: number; asked: number } | undefined;
+    return row ?? { kept: 0, shared: 0, asked: 0 };
+  } catch {
+    return { kept: 0, shared: 0, asked: 0 };
+  }
+}
+
+/** Started by the first call that goes through: once a minute, and never a reason for the process to stay up. */
+function keepCount(): void {
+  if (timer || process.env.VITEST) return;
+  timer = setInterval(() => void writeRpcSaved(), 60_000);
+  timer.unref?.();
 }
 
 const isHexNumber = (v: unknown): boolean => typeof v === "string" && /^0x[0-9a-fA-F]+$/.test(v);
@@ -89,6 +128,7 @@ const copy = <T,>(v: T): T => (v !== null && typeof v === "object" ? structuredC
  */
 export async function throughRpcCache<T>(method: string, params: unknown[], ask: () => Promise<T>, nowMs: () => number = Date.now): Promise<T> {
   if (!rpcCacheOn() || !mayShare(method, params)) return ask();
+  keepCount();
   let key: string;
   try {
     key = `${method}:${JSON.stringify(params)}`;

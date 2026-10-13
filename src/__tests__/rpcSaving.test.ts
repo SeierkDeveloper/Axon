@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { rpcCall } from "@/lib/evm";
 import { RPC_URL } from "@/lib/chain";
 import { countPaidCall, isSending, mayUsePaidNode, readsAllowedBy, resetRpcBudget, sendReservePct, spentByMethod, spentToday, spreadOn, unitsFor } from "@/lib/rpcBudget";
-import { keepFor, resetRpcCache, rpcCacheStats, throughRpcCache } from "@/lib/rpcCache";
+import { keepFor, resetRpcCache, rpcCacheStats, rpcSavedToday, throughRpcCache, writeRpcSaved } from "@/lib/rpcCache";
 
 const ALCHEMY = "https://robinhood-mainnet.g.alchemy.com/v2/secret-key-123";
 const ENV = ["AXON_RPC_URL", "AXON_RPC_FALLBACK_URLS", "AXON_RPC_DAILY_UNITS", "AXON_RPC_CACHE", "AXON_RPC_SPREAD", "AXON_RPC_SEND_RESERVE_PCT"];
@@ -147,6 +147,29 @@ describe("a call that need not be made is not made", () => {
     await rpcCall("eth_getTransactionReceipt", ["0xabc"]);
     await rpcCall("eth_getTransactionReceipt", ["0xabc"]);
     expect(await spentToday()).toMatchObject({ units: unitsFor("eth_getTransactionReceipt"), calls: 1 });
+  });
+});
+
+describe("the day's count of what was saved", () => {
+  it("is written down for every process to add to, and only what is new each time", async () => {
+    const { getDb } = await import("@/lib/db");
+    getDb().prepare("DELETE FROM rpc_saved").run();
+    const day = Date.UTC(2026, 9, 14, 12);
+    const ask = async () => RECEIPT;
+    await throughRpcCache("eth_getTransactionReceipt", ["0xabc"], ask);
+    await throughRpcCache("eth_getTransactionReceipt", ["0xabc"], ask);
+    await throughRpcCache("eth_getTransactionReceipt", ["0xabc"], ask);
+    await writeRpcSaved(day);
+    expect(await rpcSavedToday(day)).toEqual({ kept: 2, shared: 0, asked: 1 });
+    // nothing new: nothing added
+    await writeRpcSaved(day);
+    expect(await rpcSavedToday(day)).toEqual({ kept: 2, shared: 0, asked: 1 });
+    // another process adds its own to the same day
+    getDb().prepare("UPDATE rpc_saved SET kept = kept + 10, asked = asked + 5 WHERE day = '2026-10-14'").run();
+    await throughRpcCache("eth_getTransactionReceipt", ["0xabc"], ask);
+    await writeRpcSaved(day);
+    expect(await rpcSavedToday(day)).toEqual({ kept: 13, shared: 0, asked: 6 });
+    expect(await rpcSavedToday(day + 86_400_000)).toEqual({ kept: 0, shared: 0, asked: 0 });
   });
 });
 
