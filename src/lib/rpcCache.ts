@@ -23,7 +23,7 @@ const kept = new Map<string, Kept>();
 const flying = new Map<string, Promise<unknown>>();
 const count = { kept: 0, shared: 0, asked: 0 };
 
-export function rpcCacheOn(env: NodeJS.ProcessEnv = process.env): boolean {
+function rpcCacheOn(env: NodeJS.ProcessEnv = process.env): boolean {
   return (env.AXON_RPC_CACHE ?? "").trim().toLowerCase() !== "off";
 }
 
