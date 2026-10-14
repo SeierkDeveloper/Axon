@@ -42,7 +42,7 @@ export const RESCUE = {
 } as const;
 
 /** The context keys that mark a job the network gave itself, or one that is part of something larger. */
-const NOT_A_HIRE = ["automated", "source", "rescueOf", "followUp", "followUpOf", "orchestration", "orchestratorTaskId", "subcontractOf", "retainerId", "triggerId", "autonomyTest"];
+export const NOT_A_HIRE = ["automated", "source", "rescueOf", "followUp", "followUpOf", "orchestration", "orchestratorTaskId", "subcontractOf", "retainerId", "triggerId", "autonomyTest"];
 
 /** Errors that say the job should not be tried elsewhere: a refusal, or a hirer who stopped or left. */
 const DO_NOT_MOVE = /declin|refus|not allowed|policy|client disconnected|stopped by|cancel/i;

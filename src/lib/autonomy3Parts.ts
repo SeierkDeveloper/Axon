@@ -9,3 +9,4 @@ import "./autonomy3Replay";
 import "./autonomy3Improve";
 import "./autonomy3Build";
 import "./autonomy3Upkeep";
+import "./autonomy3Judge";

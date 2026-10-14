@@ -227,6 +227,8 @@ export default function HirePanel({
   const [turnAgent, setTurnAgent] = useState<Helper>({ id: agentId, name: agentName, price: price ?? null });
   // the job was moved to another agent after this one could not finish it (Autonomy 3, no job dies)
   const [moved, setMoved] = useState<{ from: string; to: string; refunded: boolean } | null>(null);
+  // a second agent answered the job too and a judge picked the answer shown (Autonomy 3, two agents and a judge)
+  const [judged, setJudged] = useState<{ by: string | null } | null>(null);
   const [helper, setHelper] = useState<Helper | null>(null);
   const [picking, setPicking] = useState(false);
   // a follow-up's payment that already landed, kept so a failed send retries with it instead of paying again
@@ -319,7 +321,7 @@ export default function HirePanel({
         setPhase("error");
         return;
       }
-      const t = (await res.json()) as { rescued?: { taskId: string; claimToken: string; agentId: string; agentName: string }; rescuing?: boolean; status?: string; output?: string | null; outputFiles?: OutputFile[]; site?: Built; steps?: StepLine[]; pages?: Visited[]; sent?: Sent[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[]; plan?: OpenPlan; steer?: { open?: boolean; stoppable?: boolean; notesLeft?: number }; notes?: SentNote[]; remembered?: { id: string; text: string }[] };
+      const t = (await res.json()) as { rescued?: { taskId: string; claimToken: string; agentId: string; agentName: string }; rescuing?: boolean; judged?: { shown?: string; secondAgent?: { name?: string } }; status?: string; output?: string | null; outputFiles?: OutputFile[]; site?: Built; steps?: StepLine[]; pages?: Visited[]; sent?: Sent[]; followUp?: { open?: boolean; turnsLeft?: number }; question?: Asked; questions?: Asked[]; plan?: OpenPlan; steer?: { open?: boolean; stoppable?: boolean; notesLeft?: number }; notes?: SentNote[]; remembered?: { id: string; text: string }[] };
       if (cancelled.current) return;
       if (Array.isArray(t.steps)) setSteps((had) => (t.steps!.length >= had.length ? t.steps! : had));
       if (Array.isArray(t.pages)) setPages((had) => (t.pages!.length >= had.length ? t.pages! : had));
@@ -364,6 +366,7 @@ export default function HirePanel({
         setSite(t.site?.url ? t.site : null);
         setFollow(t.followUp ? { open: Boolean(t.followUp.open), turnsLeft: Number(t.followUp.turnsLeft) || 0 } : null);
         setNoted(Array.isArray(t.remembered) ? t.remembered : []);
+        setJudged(t.judged ? { by: t.judged.shown === "second" ? t.judged.secondAgent?.name || null : null } : null);
         setMemoryRead((n) => n + 1);
         setLibraryRead((n) => n + 1);
         setPhase("done");
@@ -418,7 +421,7 @@ export default function HirePanel({
         setTaskId(data.taskId);
         setClaim(data.claimToken);
         setFiles([]); // they belong to this hire now
-        setSteps([]); setPages([]); setSent([]); setMoved(null);
+        setSteps([]); setPages([]); setSent([]); setMoved(null); setJudged(null);
         setPhase("running");
         poll(data.taskId, data.claimToken, 0);
         return;
@@ -542,7 +545,7 @@ export default function HirePanel({
         setOutFiles([]);
     setSite(null);
         setSite(null);
-        setSteps([]); setPages([]); setSent([]); setMoved(null);
+        setSteps([]); setPages([]); setSent([]); setMoved(null); setJudged(null);
         setFiles([]);
         setFollow(null);
         setAsked([]);
@@ -717,7 +720,7 @@ export default function HirePanel({
     setTask("");
     setOutFiles([]);
     setReport(false);
-    setSteps([]); setPages([]); setSent([]); setMoved(null);
+    setSteps([]); setPages([]); setSent([]); setMoved(null); setJudged(null);
     setClaim(null);
   }
 
@@ -1091,6 +1094,11 @@ export default function HirePanel({
           {moved && (
             <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
               {moved.from} could not finish this, so Axon moved it to <span className="text-gray-800 dark:text-gray-200">{moved.to}</span>, free{moved.refunded ? ". Your payment was refunded" : ""}.
+            </p>
+          )}
+          {judged && (
+            <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+              Two agents worked on this; the better answer is shown{judged.by ? <>, written by <span className="text-gray-800 dark:text-gray-200">{judged.by}</span></> : ""}.
             </p>
           )}
           <p className="text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400 mb-1.5">{manyAgents ? `${turnAgent.name}: result` : "Result"}</p>

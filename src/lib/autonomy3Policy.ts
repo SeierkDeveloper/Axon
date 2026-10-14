@@ -27,7 +27,7 @@ export const PARTS: Record<Part, { name: string; does: string; spends: boolean }
   improve: { name: "Makes agents better and proves it", does: "a new version stays only if it beats the old one on the same jobs", spends: true },
   build: { name: "Builds the agents that are missing", does: "from the list of gaps; listed only if it passes the tests", spends: true },
   upkeep: { name: "Hires its own agents", does: "the network's chores are done by Axon agents, each with a receipt", spends: true },
-  judge: { name: "Two agents and a judge", does: "on a big job two agents work, a third picks the better result, the customer pays once", spends: false },
+  judge: { name: "Two agents and a judge", does: "on a big job two agents work, a third picks the better result, the customer pays once", spends: true },
   budget: { name: "Its own budget", does: "the network pays for its own work from a budget on chain", spends: false },
 };
 
@@ -54,6 +54,10 @@ export function partOn(part: Part, env: Env = process.env): boolean {
  * How many jobs a day each spending part starts. Counted on 136 agents: every agent tested every three days, each
  * attacked about once a week, two improvement attempts, one new agent every other day. With more agents each waits
  * a little longer for its turn; nothing stops.
+ *
+ * The judge is the one part whose jobs come from customers, not from the tick: a job that asked for two agents, or a
+ * big paid one. Three a day is what fits under the day's ceiling (worstDayUsd, about $2.20) next to the other parts at
+ * the judge's honest token limit below. Past the day's three, a job is done by its hired agent alone, as before.
  */
 export const JOBS_A_DAY: Partial<Record<Part, number>> = {
   test: 45,
@@ -61,6 +65,7 @@ export const JOBS_A_DAY: Partial<Record<Part, number>> = {
   improve: 2,
   build: 0.5,
   upkeep: 4,
+  judge: 3,
 };
 
 /**
@@ -118,6 +123,8 @@ export const JOB_TOKENS: Partial<Record<Part, { in: number; out: number }>> = {
   improve: { in: 30_000, out: 6_000 },
   build: { in: 50_000, out: 10_000 },
   upkeep: { in: 8_000, out: 2_000 },
+  // the second agent's answer and two grades: the job read three times, two answers read once each
+  judge: { in: 6_000, out: 1_100 },
 };
 
 /** Dollars per million tokens used to estimate what a job cost. An estimate for the admin page, not a bill. */

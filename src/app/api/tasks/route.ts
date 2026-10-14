@@ -19,6 +19,8 @@ import { agentReads, attachFiles, checkTaskFiles, CONTEXT_KEY, filesEnabled, lis
 import { bringInEnabled, carriedFiles, checkFollowUp, followNote, followUpEnabled, FOLLOW_KEY, type FollowCheck } from "@/lib/followUp";
 import { askEnabled, ASK_KEY } from "@/lib/ask";
 import { planEnabled, PLAN_KEY } from "@/lib/planFirst";
+import { partOn } from "@/lib/autonomy3Policy";
+import { JUDGE_KEY } from "@/lib/autonomy3Judge";
 import { memoryEnabled, memoryOwnerFor, memoryOwnerOf, setMemoryOwner } from "@/lib/agentMemory";
 import { libraryEnabled, libraryOwnerOf, setLibraryOwner } from "@/lib/library";
 import { getMcpServerByAgentId } from "@/lib/mcp";
@@ -245,6 +247,12 @@ async function handlePost(req: NextRequest) {
     return apiError("VALIDATION_ERROR", `context.${PLAN_KEY} is filled in by Axon. Send "planFirst": true instead.`, 400);
   }
   if (body.planFirst && planEnabled()) body.context = { ...(body.context ?? {}), [PLAN_KEY]: true };
+  // Two agents and a judge (Autonomy 3): the same way again. The wish is written into the job's context, so the job's
+  // commitment covers it; where the part is off it is simply not granted. The payment below is the same either way.
+  if (partOn("judge") && body.context && JUDGE_KEY in body.context) {
+    return apiError("VALIDATION_ERROR", `context.${JUDGE_KEY} is filled in by Axon. Send "bestOfTwo": true instead.`, 400);
+  }
+  if (body.bestOfTwo && partOn("judge")) body.context = { ...(body.context ?? {}), [JUDGE_KEY]: true };
 
   // Who the hirer is, for memory and the library alone: the wallet a hire was signed in with, and for a hire made
   // as "anonymous" the wallet of a key that came along with it (Mylo and an assistant hire free agents that way).
