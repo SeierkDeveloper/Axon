@@ -87,6 +87,8 @@ export async function retestPaused(retest: Retest = retestAgent, now = Date.now(
     .prepare(
       `SELECT agent_id, routing_passes FROM agents
        WHERE routing_paused_at IS NOT NULL AND (routing_retested_at IS NULL OR routing_retested_at < ?)
+         -- an agent paused for falling for an attack is re-tested by that attack (Autonomy 3), not by "does it answer"
+         AND COALESCE(routing_pause_reason, '') NOT LIKE 'attack:%'
        ORDER BY routing_retested_at IS NOT NULL, routing_retested_at LIMIT ?`,
     )
     .all(new Date(now - ROUTING_PAUSE.retestEveryHours * HOUR).toISOString(), ROUTING_PAUSE.maxRetestsPerRun) as

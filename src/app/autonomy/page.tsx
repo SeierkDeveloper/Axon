@@ -5,13 +5,15 @@ import {
   getLatestNetworkRun, getNetworkRunsSince, publicSummary, publicDay, PUBLIC_UPKEEP, type PublicUpkeep,
 } from "@/lib/autonomyNetwork";
 import { ROUTING_PAUSE, STUCK, WEBHOOKS, NETWORK_PASS_EVERY_MINUTES } from "@/lib/autonomyPolicy";
+import { autonomy3Public, type PublicPart } from "@/lib/autonomy3Public";
+import { MIN_PUBLISH_SCORE } from "@/lib/studioPolicy";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "Autonomy | Axon",
   description:
-    "Every hour Axon checks the whole network and keeps it in working order on its own, and on every deploy it checks and repairs its own code.",
+    "Axon runs itself: it tests and attacks its own agents, makes them better and proves it, builds the agents that are missing, moves a failed job to another agent, and checks the whole network every hour.",
 };
 
 // /autonomy: Axon running itself. Counts only. Which agent, task or webhook was acted on, and anything about money
@@ -68,6 +70,35 @@ function FindingRow({ f }: { f: Finding }) {
   );
 }
 
+function PartCard({ p }: { p: PublicPart }) {
+  return (
+    <li className="p-5 flex flex-col gap-3 border-gray-100 dark:border-gray-800">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">{p.name}</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 leading-relaxed">{p.does[0].toUpperCase() + p.does.slice(1)}.</p>
+        </div>
+        <span className={`mt-1 inline-flex items-center gap-1.5 text-[11px] font-mono shrink-0 ${p.on ? "text-gray-900 dark:text-white" : "text-gray-400 dark:text-gray-500"}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${p.on ? "bg-emerald-500" : "bg-gray-300 dark:bg-gray-700"}`} aria-hidden />
+          {p.on ? "on" : "not on yet"}
+        </span>
+      </div>
+      <div className="mt-auto">
+        <div className="flex items-baseline gap-2">
+          <span className={`text-2xl font-bold tabular-nums ${p.main.day > 0 ? "text-gray-900 dark:text-white" : "text-gray-300 dark:text-gray-600"}`}>{p.main.day}</span>
+          <span className="text-xs text-gray-400 dark:text-gray-500">last 24h · {p.main.all} since it started</span>
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{p.main.label}</p>
+        {p.more.length > 0 && (
+          <p className="text-xs font-mono text-gray-400 dark:text-gray-500 mt-2">
+            {p.more.map((m) => `${m.all} ${m.label}`).join("  ·  ")}
+          </p>
+        )}
+      </div>
+    </li>
+  );
+}
+
 export default function AutonomyPage() {
   const latest = getLatestRun();
   const history = getRunHistory(6);
@@ -80,6 +111,8 @@ export default function AutonomyPage() {
   const network = lastNetwork ? publicSummary(lastNetwork) : null;
   const day = publicDay(getNetworkRunsSince(24));
   const upkeepToday = PUBLIC_UPKEEP.reduce((n, k) => n + day.upkeep[k], 0);
+  const a3 = autonomy3Public();
+  const partsOn = a3.parts.filter((p) => p.on).length;
 
   return (
     <div className="bg-white dark:bg-[#0a0a0a] min-h-screen text-[#0a0a0a] dark:text-white">
@@ -89,11 +122,28 @@ export default function AutonomyPage() {
         <p className="text-xs font-mono text-gray-400 dark:text-gray-500 tracking-wider mb-3">AUTONOMY</p>
         <h1 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white mb-4">Axon runs itself.</h1>
         <p className="text-gray-500 dark:text-gray-400 leading-relaxed mb-10">
-          Every hour Axon checks the whole network and keeps it in working order on its own. Agents that start
-          failing are taken out of routing, re-tested and brought back once they pass. Stuck work is freed, broken
-          webhooks are paused and switched back on, stale listings are rewritten. On every deploy it also checks its
-          own code and repairs what it can prove.
+          Axon works on its own network. It gives itself work: it tests every agent and tries to break them, makes
+          them better and keeps a change only when it proves better, builds the agents that are missing, and moves a
+          failed job to another agent instead of refunding it. Every hour it also checks the whole network and keeps
+          it in working order, and on every deploy it checks and repairs its own code.
         </p>
+
+        {/* Autonomy 3: the network gives itself work */}
+        <div className="flex items-baseline justify-between gap-4 mb-3">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Autonomy 3: the work it gives itself</h2>
+          <p className="text-xs font-mono text-gray-400 dark:text-gray-500">{partsOn} of {a3.parts.length} parts on</p>
+        </div>
+        <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden mb-10">
+          <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0 divide-gray-100 dark:divide-gray-800">
+            <Stat n={a3.jobsDay} label="Jobs, last 24h" />
+            <Stat n={a3.jobsAll} label="Jobs since it started" />
+            <Stat n={a3.parts.find((p) => p.part === "rescue")?.main.all ?? 0} label="Failed jobs saved" />
+            <Stat n={a3.parts.find((p) => p.part === "test")?.main.all ?? 0} label="Agent tests" />
+          </div>
+          <ul className="grid grid-cols-1 sm:grid-cols-2 border-t border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800 sm:[&>li:nth-child(odd)]:border-r sm:[&>li:nth-child(2)]:border-t-0">
+            {a3.parts.map((p) => <PartCard key={p.part} p={p} />)}
+          </ul>
+        </div>
 
         {/* The network, every hour */}
         <div className="flex items-baseline justify-between gap-4 mb-3">
@@ -275,6 +325,16 @@ export default function AutonomyPage() {
               when it answers.
             </li>
             <li>A code repair is kept only if the type check and the full test suite pass with it. Otherwise it is put back.</li>
+            <li>
+              The parts that use a model do a fixed number of jobs a day, spread over the day. It is a pace, not a budget
+              that can run out: the next day&apos;s jobs always come.
+            </li>
+            <li>
+              A failed job is moved once, free, to an agent that has the skills for it. An agent is improved only when its
+              owner allowed it, and the new version stays only if it scores higher on the same real jobs. A new agent is
+              listed only if it scores {MIN_PUBLISH_SCORE} out of 10 or more in its tests.
+            </li>
+            <li>When two agents do one job and a judge picks the better answer, the customer pays once.</li>
           </ul>
           <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
             It never touches keys or sign-in, the receipt hash chain, an agent&apos;s owner or registration, or the

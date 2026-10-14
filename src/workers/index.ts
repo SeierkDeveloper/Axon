@@ -35,6 +35,9 @@ import { triggersEnabled } from "../lib/triggers";
 import { runChainTriggers } from "../lib/triggerChain";
 import { runPageTriggers } from "../lib/triggerPage";
 import { retryFileCommitments } from "../lib/outputCommitment";
+import { rescueTask } from "../lib/autonomy3Rescue";
+import { startJudge, JUDGE_KEY, type Judge } from "../lib/autonomy3Judge";
+import { TICK_MINUTES } from "../lib/autonomy3React";
 import type { SandboxFile } from "../lib/providers";
 import { runWithProvider, runWithProviderTools, getAgentMaxTokens } from "../lib/providers";
 import { limitsForAgent } from "../lib/agentTierLimits";
@@ -140,6 +143,8 @@ let pollTimer: NodeJS.Timeout | null = null;
 let healthTimer: NodeJS.Timeout | null = null;
 let thresholdTimer: NodeJS.Timeout | null = null;
 let allowanceTimer: NodeJS.Timeout | null = null;
+let autonomy3Timer: NodeJS.Timeout | null = null;
+let autonomy3Running = false;
 let allowanceRunning = false;
 let retainerTimer: NodeJS.Timeout | null = null;
 let triggerTimer: NodeJS.Timeout | null = null;
@@ -311,6 +316,8 @@ async function processTasks() {
         let stoppedByPerson = false;
         // set when this run stops to ask the person a question (see the ask tool below)
         let asked: Question | null = null;
+        // Autonomy 3, two agents and a judge: the second agent on this job, when it has one
+        let judge: Judge | null = null;
         try {
           const prices = PRICE_AGENTS.has(agent.agentId) ? livePrices : "";
           // Files handed over with the hire: the text of text files follows the task in the message, and PDFs and
@@ -329,10 +336,11 @@ async function processTasks() {
           // the mark that says the agent may ask is for the record and stays out of what the agent reads.
           if (askEnabled()) closeStrays(task.taskId);
           const answered = askEnabled() ? askedSoFar(task.taskId) : "";
-          const { [FOLLOW_KEY]: _followNote, [ASK_KEY]: _mayAsk, [PLAN_KEY]: _planFirst, ...said } = task.context ?? {};
+          const { [FOLLOW_KEY]: _followNote, [ASK_KEY]: _mayAsk, [PLAN_KEY]: _planFirst, [JUDGE_KEY]: _bestOfTwo, ...said } = task.context ?? {};
           void _followNote;
           void _mayAsk;
           void _planFirst;
+          void _bestOfTwo;
           // Plan first: where a job that asked for a plan stands. "plan": this run writes the plan (or writes it again)
           // and the job waits. "work": the plan is approved, and the agent is held to it.
           const stage = planStage(task, agent, { viaMcp: Boolean(mcpHandler) });
@@ -463,6 +471,8 @@ async function processTasks() {
           let tools = agent.tools?.length
             ? resolveAgentTools(agent.tools, { agentId: agent.agentId, taskId: task.taskId })
             : null;
+          // what its owner granted it, before this job adds anything: the judge reads it (only reading tools may be judged)
+          const granted = { grants: tools?.grants ?? [], localTools: tools?.localTools.length ?? 0 };
           // Running code. An agent Axon runs on Claude gets a sandbox for a hire that carries files, so what it says
           // about them is calculated rather than guessed; an agent whose owner granted "code_execution" has one
           // anyway. The hire's files are put into it, and whatever it writes there for the person is kept with the job.
@@ -489,7 +499,8 @@ async function processTasks() {
           // picture model draws it, and the file is kept with the job like any other the agent hands back.
           // A follow-up to a job that was about a picture is about that picture too, whatever its own few words say.
           const aboutPicture = (job: string) => mayDraw(agent, job, { viaMcp: Boolean(mcpHandler) });
-          if (aboutPicture(task.task) || (before && earlierTurns(task).some((t) => aboutPicture(t.task)))) {
+          const drawing = Boolean(aboutPicture(task.task) || (before && earlierTurns(task).some((t) => aboutPicture(t.task))));
+          if (drawing) {
             tools = withPictures(tools, pictureTool({ taskId: task.taskId, wallet: hirerWallet, paid: task.payment != null, onMade: (f) => live.say(madeLine(f)) }));
           }
           // Using the internet. A hire that is about a website gives the agent a browser of its own for the job: it
@@ -559,6 +570,8 @@ async function processTasks() {
           // Every call the agent makes goes into the flight recorder as it happens,
           // so the receipt shows what it did, not just what it said.
           let lastRefusal: string | null = "";
+          // a note the person sent while it worked: the second agent never saw it, so its answer would not be comparable
+          let steeredMidway = false;
           const onToolCall = (ev: ToolCallEvent) => {
             // a browser that did not do something says what and why, in the person's words; anything else just says it failed
             if (!ev.ok) {
@@ -592,6 +605,18 @@ async function processTasks() {
           // for, and the free lane is already the one benefit that costs money.
           const depth = await limitsForAgent(agent.agentId, task.payment !== null);
 
+          // Autonomy 3, two agents and a judge: on a job that asked for it, or a big paid one, a second agent starts on the
+          // same words now, at Axon's cost, so its answer is usually ready when this one is. Never stops this job: any
+          // trouble starting it and the job runs as it always did.
+          try {
+            judge = startJudge(task, agent, task.task + formatContext(said), {
+              viaMcp: Boolean(mcpHandler), ...granted, files: handed.files.length, report: wantsReport, sandbox: Boolean(sandbox),
+              office, browsing, building, drawing, steered: early.length > 0, followUp: Boolean(before),
+            });
+          } catch (e) {
+            logger.warn("autonomy3.judge_start_failed", "A second agent could not be started", { taskId: task.taskId, reason: e instanceof Error ? e.message : String(e) });
+          }
+
           // an agent with no tools has one step left, and it is the answer
           if (!mcpHandler && !hasTools(tools)) live.say("Writing the answer");
           const step = await captureModelStep(() =>
@@ -616,6 +641,7 @@ async function processTasks() {
                               const got = takeNotes(task.taskId);
                               if (!got.length) return null;
                               recordDelivered(task, got);
+                              steeredMidway = true;
                               live.say("Got your note. Taking it into account");
                               return notesMidway(got);
                             },
@@ -631,7 +657,7 @@ async function processTasks() {
           if (steering && wasStopped(task.taskId)) return;
           // it asked and still came back with words: the question stands, and the job waits for its answer
           if (asked && parkForAnswer(task.taskId)) return;
-          const output = step.result;
+          let output = step.result;
 
           // Flight recorder: the rich per-step event — input/output hashes, the
           // actually-used model, tokens, cost, and latency. Best-effort.
@@ -651,6 +677,15 @@ async function processTasks() {
             costUsd: estimateCostUsd(step.model, step.inputTokens, step.outputTokens),
             latencyMs: step.latencyMs,
           });
+
+          // Two agents and a judge: the better of the two answers is delivered, waiting at most a bounded time for the
+          // second agent and the grades. Payment and settlement below are exactly as for any job, whichever answer won.
+          if (judge) {
+            const verdict = await judge.decide(output, { steered: steeredMidway });
+            // stopped while the judge decided: the job is already called off, and nothing more is kept or delivered
+            if (steering && wasStopped(task.taskId)) return;
+            output = verdict.output;
+          }
 
           // The answer as a file, kept before the job completes so its commitment covers the file too.
           if (wantsReport) {
@@ -685,6 +720,8 @@ async function processTasks() {
           if (failTask(task.taskId, msg)) {
             refundPayment(task.taskId);
             refundDebitForTask(task.taskId);
+            // Autonomy 3: no job dies. In the same breath as the failure, so nobody reading the job sees one without the other.
+            try { rescueTask(task.taskId); } catch (e) { logger.warn("autonomy3.rescue_failed", "Moving a failed job did not work", { taskId: task.taskId, reason: e instanceof Error ? e.message : String(e) }); }
           }
           recordCircuitFailure(agent.agentId);
           logger.error("worker.task_failed", "Worker task execution failed", {
@@ -693,6 +730,8 @@ async function processTasks() {
             taskId: task.taskId,
           });
         } finally {
+          // a job that ended any other way than with an answer (failed, stopped, waiting on a question): its judge is closed
+          judge?.drop("the job did not end with an answer");
           if (timeoutTimer) clearTimeout(timeoutTimer);
           if (stopWatch) clearInterval(stopWatch);
           if (closeBrowser) void closeBrowser().catch(() => undefined);
@@ -792,6 +831,10 @@ function clearTimers(): void {
   if (thresholdTimer) {
     clearInterval(thresholdTimer);
     thresholdTimer = null;
+  }
+  if (autonomy3Timer) {
+    clearInterval(autonomy3Timer);
+    autonomy3Timer = null;
   }
   if (allowanceTimer) {
     clearInterval(allowanceTimer);
@@ -979,6 +1022,18 @@ export async function startWorkerLoops(): Promise<void> {
   thresholdTimer = setInterval(() => {
     checkAllThresholds();
   }, THRESHOLD_INTERVAL_MS);
+
+  // Autonomy 3's own timer: every few minutes each part that is switched on gets its go. Off (AUTONOMY3 not on) a tick
+  // returns at once. Skips a tick rather than overlap one still running.
+  autonomy3Timer = setInterval(() => {
+    if (autonomy3Running || shutdownRequested) return;
+    autonomy3Running = true;
+    import("../lib/autonomy3Parts")
+      .then(() => import("../lib/autonomy3"))
+      .then(({ tick }) => tick())
+      .catch((err) => logger.warn("autonomy3.tick_failed", "Autonomy 3's tick failed", { reason: err instanceof Error ? err.message : String(err) }))
+      .finally(() => { autonomy3Running = false; });
+  }, TICK_MINUTES * 60_000);
 
   // Settle or release allowance reservations the ledger has decided. Does nothing until allowances
   // are enabled. Skips a tick rather than overlap one still waiting on the chain.

@@ -1,3 +1,4 @@
+import { rescueTask } from "@/lib/autonomy3Rescue";
 import { NextRequest, NextResponse } from "next/server";
 import { failTask, getTaskById } from "@/lib/tasks";
 import { refundPayment } from "@/lib/payments";
@@ -39,6 +40,8 @@ export async function POST(
 
     refundPayment(taskId);
     refundDebitForTask(taskId);
+    // Autonomy 3: no job dies. An agent on its own server that gives up on a job is the commonest failure there is.
+    try { rescueTask(taskId); } catch { /* the tick picks it up */ }
 
     return NextResponse.json(task);
   });

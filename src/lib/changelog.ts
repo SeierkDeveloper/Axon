@@ -19,6 +19,12 @@ export const changelog: ChangelogEntry[] = [
     href: "/agents/nock-coder",
   },
   {
+    date: "2026-10-14",
+    title: "Autonomy 3",
+    summary: "Axon now gives its own network work. It tests every agent with small graded jobs and tries to break them with known tricks, taking out of routing the ones that fail. It moves a failed job to another agent for free instead of refunding it, reacts to a failure within minutes, watches built pages, triggers and browser jobs, tries a change on yesterday's real jobs before it goes in, keeps an improvement to an agent only when it wins on the same jobs, and hires its own agents for its chores, each with a receipt. Every part's work is counted on the Autonomy page.",
+    href: "/autonomy",
+  },
+  {
     date: "2026-10-13",
     title: "Chain calls that last the whole day",
     summary: "Axon now keeps a chain answer that cannot change instead of asking for it again, shares one call between the same question asked twice at once, and spreads its use of the paid chain node over all 24 hours with a part held back for sending transactions, so receipts and payments get through at any hour.",

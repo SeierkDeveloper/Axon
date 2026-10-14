@@ -14,6 +14,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTaskById } from "@/lib/tasks";
 import { canAccessIdentity, requireApiKey } from "@/lib/apiAuth";
 import { claimTokenValid } from "@/lib/mcpServer";
+import { rescueView } from "@/lib/autonomy3Rescue";
+import { judgeView } from "@/lib/autonomy3Judge";
 import { apiError } from "@/lib/apiError";
 import { getDb } from "@/lib/db";
 
@@ -41,7 +43,7 @@ function withFiles<T extends Task>(task: T, origin = ""): T | (T & { site?: unkn
   const noted = memoryEnabled() ? rememberedBy(task.taskId).map((m) => ({ id: m.id, text: m.text })) : [];
   // Agents that build: what the job built, with the address it opens at.
   const built = sitesEnabled() ? siteViewOf(task.taskId, origin) : null;
-  const seen = { ...task, ...(noted.length ? { remembered: noted } : {}), ...(steps.length ? { steps } : {}), ...(pages.length ? { pages } : {}), ...(sent.length ? { sent } : {}), ...(follow ? { followUp: follow } : {}), ...questionsView(task), ...planView(task), ...steerView(task), ...(built ? { site: built } : {}) };
+  const seen = { ...task, ...rescueView(task), ...judgeView(task), ...(noted.length ? { remembered: noted } : {}), ...(steps.length ? { steps } : {}), ...(pages.length ? { pages } : {}), ...(sent.length ? { sent } : {}), ...(follow ? { followUp: follow } : {}), ...questionsView(task), ...planView(task), ...steerView(task), ...(built ? { site: built } : {}) };
   if (!filesEnabled()) return seen;
   const out = filesOfTask(task.taskId, "out");
   if (!out.length) return seen;

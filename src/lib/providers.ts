@@ -1,3 +1,4 @@
+import { getDb } from "./db";
 // Provider-agnostic inference layer.
 //
 // Agents declare which provider runs their inference via the `provider` field
@@ -149,21 +150,44 @@ export function getAgentMaxTokens(agentId: string): number {
 
 // Returns the agent's real system prompt, or a strong generic fallback
 // for community agents registered with their own endpoint.
-export function getAgentSystem(agent: Agent): string {
-  // an agent's own instructions, written by its owner or by Agent Studio, in place of the generic prompt; Axon's own
-  // agents keep theirs, which are code
-  const own = AGENT_SYSTEMS[agent.agentId] ? null : getInstructions(agent.agentId);
-  if (own) {
-    return `You are ${agent.name}, an agent on the Axon agent network. Your owner wrote these instructions for you:\n\n${own}` + BEHAVIOR_RULES;
+/** Whether Autonomy 3 may improve this agent and has written instructions for it. */
+function improvedByAutonomy(agentId: string): boolean {
+  try {
+    const r = getDb().prepare("SELECT auto_improve, instructions FROM agents WHERE agent_id = ?").get(agentId) as { auto_improve?: number; instructions?: string | null } | undefined;
+    return r?.auto_improve === 1 && Boolean(r.instructions?.trim());
+  } catch {
+    return false; // before migration 128
   }
-  const core = AGENT_SYSTEMS[agent.agentId] ??
-    `You are ${agent.name}, a specialized agent operating on the Axon agent network. ` +
+}
+
+/** The instructions an agent runs on before any of its own: Axon's code for its own agents, else none. */
+export function codeInstructions(agentId: string): string | null {
+  return AGENT_SYSTEMS[agentId] ?? null;
+}
+
+/** The prompt an agent without instructions of its own runs on, from its name and capabilities. */
+export function genericCore(agent: Pick<Agent, "name" | "capabilities">): string {
+  return `You are ${agent.name}, a specialized agent operating on the Axon agent network. ` +
     `Your capabilities: ${agent.capabilities.join(", ")}.\n\n` +
     `Deliver expert-level responses in your domain. Structure every response with clear headers and sections. ` +
     `Be specific, use numbers, examples, and concrete recommendations. ` +
     `Lead with the most important information. ` +
     `Give complete answers, not overviews. ` +
     `Think like the best specialist in your field, not a general assistant.`;
+}
+
+/** The system an agent with instructions of its own runs on: those instructions and the network's behaviour rules. */
+export function systemWithInstructions(agent: Pick<Agent, "name">, instructions: string): string {
+  return `You are ${agent.name}, an agent on the Axon agent network. Your owner wrote these instructions for you:\n\n${instructions}` + BEHAVIOR_RULES;
+}
+
+export function getAgentSystem(agent: Agent): string {
+  // an agent's own instructions, written by its owner or by Agent Studio, in place of the generic prompt; Axon's own
+  // agents keep theirs, which are code
+  // An agent of Axon's own whose instructions Autonomy 3 improved (it is switched on for it) uses the improved ones.
+  const own = AGENT_SYSTEMS[agent.agentId] && !improvedByAutonomy(agent.agentId) ? null : getInstructions(agent.agentId);
+  if (own) return systemWithInstructions(agent, own);
+  const core = AGENT_SYSTEMS[agent.agentId] ?? genericCore(agent);
 
   // Dense beats long, everywhere on the network: tasks settle in seconds, not
   // minutes, and nobody hires an agent twice for a wall of filler.
