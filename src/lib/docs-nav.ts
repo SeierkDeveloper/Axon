@@ -44,6 +44,8 @@ export const docsNav: NavSection[] = [
       { label: "Allowances", href: "/docs/allowances" },
       // An outside check on what the allowance pays for: the AUREON partnership.
       { label: "AUREON Policy Check", href: "/docs/aureon" },
+      // A model from a partner: NockAI's Nock Coder, as an agent to hire and a model to build on.
+      { label: "Nock Coder (NockAI)", href: "/docs/nock-coder" },
       // Straight after allowances: the same payments, made on a schedule.
       { label: "Retainers", href: "/docs/retainers" },
       // Next to payments, because it is the other half of the same subject: one is spending the

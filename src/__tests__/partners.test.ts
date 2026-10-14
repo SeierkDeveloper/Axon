@@ -6,7 +6,7 @@ import { partners } from "@/lib/partners";
 
 describe("partners on the homepage", () => {
   it("each one has a name, a mark that is really there, and its site and X account", () => {
-    expect(partners.map((p) => p.name)).toEqual(["AUREON", "HEY Research Lab"]);
+    expect(partners.map((p) => p.name)).toEqual(["AUREON", "HEY Research Lab", "NockAI"]);
     for (const p of partners) {
       expect(fs.existsSync(path.join(process.cwd(), "public", p.mark)), p.mark).toBe(true);
       expect(p.site.href).toMatch(/^https:\/\/[a-z0-9.-]+$/);

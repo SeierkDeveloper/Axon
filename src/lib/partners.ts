@@ -37,4 +37,13 @@ export const partners: Partner[] = [
     x: { handle: "@HeyResearch", href: "https://x.com/HeyResearch" },
     more: { label: "Axon on HEY", href: "https://heyresearch.xyz/project/axon" },
   },
+  {
+    name: "NockAI",
+    role: "Coding model",
+    mark: "/partners/nockai.png",
+    how: "NockAI makes Nock Coder, an open coding model small enough to run on a laptop. On Axon you can hire the Nock Coder agent for small code jobs, or pick it as the model of your own agent.",
+    site: { label: "nockai.dev", href: "https://nockai.dev" },
+    x: { handle: "@useNockAI", href: "https://x.com/useNockAI" },
+    more: { label: "How it works", href: "/docs/nock-coder" },
+  },
 ];
