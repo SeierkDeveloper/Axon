@@ -44,7 +44,8 @@ export async function POST(req: NextRequest) {
   if (body.upkeep) {
     const filed = fileFinished();
     const next = nextChore(Date.now());
-    const hired = next ? upkeepTurn(Date.now(), { ...process.env, AUTONOMY3_UPKEEP: "on", AUTONOMY3_UPKEEP_A_DAY: "1000" }) : null;
+    // with "its own budget" on (AUTONOMY3_BUDGET) and a budget key set, this may be a paid hire from the network's allowance
+    const hired = next ? await upkeepTurn(Date.now(), { ...process.env, AUTONOMY3_UPKEEP: "on", AUTONOMY3_UPKEEP_A_DAY: "1000" }) : null;
     return NextResponse.json({ filed, hired });
   }
   // { "build": "<skill>" | "next" }: build an agent for a missing skill now (needs AUTONOMY3_BUILDER_WALLET). A Studio

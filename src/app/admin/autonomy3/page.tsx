@@ -4,6 +4,7 @@ import SiteNav from "@/components/SiteNav";
 import { autonomy3State, recentJobs } from "@/lib/autonomy3";
 import "@/lib/autonomy3Parts";
 import { latestReport } from "@/lib/autonomy3Upkeep";
+import { budgetState, BUDGET_KEY_ENV } from "@/lib/autonomy3Budget";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Autonomy 3 | Axon Admin", robots: { index: false, follow: false } };
@@ -47,6 +48,8 @@ export default async function AdminAutonomy3Page({ searchParams }: { searchParam
   const s = autonomy3State();
   const lastWatch = recentJobs(1, "watch")[0];
   const report = latestReport();
+  // read from the record and the budget key's reservations: no chain call from this page
+  const budget = budgetState();
   const watched = ((lastWatch?.detail ?? {}) as { found?: { kind: string; subject?: string; what: string }[] }).found ?? [];
   const onCount = s.parts.filter((p) => p.on).length;
 
@@ -87,6 +90,35 @@ export default async function AdminAutonomy3Page({ searchParams }: { searchParam
             </li>
           ))}
         </ul>
+
+        <h2 className={head}>The network&apos;s budget</h2>
+        <div className={`${card} px-5 py-4 text-sm`}>
+          {!budget.set ? (
+            <p className="text-gray-500">
+              {budget.on ? "Switched on, but no budget is set" : "Switched off"}: chores go to free agents. A budget is an allowance key for the wallet that funds it, in <span className="font-mono">{BUDGET_KEY_ENV}</span>.
+            </p>
+          ) : (
+            <>
+              <p className="text-gray-800 dark:text-gray-200">
+                {budget.on ? "Paying" : "Set but switched off"} from <span className="font-mono text-xs">{budget.wallet}</span> with key <span className="font-mono text-xs">{budget.keyPrefix}</span>.
+                {` Today ${budget.spentToday} committed, ${budget.leftToday} left under the key's daily limit of ${budget.perDay} (at most ${budget.perTask} a job). The key expires ${budget.expiresAt?.slice(0, 10)}.`}
+              </p>
+              <p className="mt-1 text-xs text-gray-500">What is left in the allowance itself is on chain and shown on the funding wallet&apos;s dashboard; a refusal for an empty allowance is noted below.</p>
+            </>
+          )}
+          {budget.payments.length > 0 && (
+            <ul className="mt-3 divide-y divide-gray-100 dark:divide-gray-800">
+              {budget.payments.map((p) => (
+                <li key={`${p.at}-${p.receipt}`} className="py-1.5 text-xs flex flex-wrap gap-x-3">
+                  <span className="font-mono text-gray-500">{ago(p.at)}</span>
+                  <span className="text-gray-800 dark:text-gray-200">{p.price} to {p.agent} for the {p.chore}</span>
+                  {p.receipt && <a className="underline text-gray-500" href={p.receipt}>receipt</a>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {budget.lastFellBack && <p className="mt-2 text-xs text-gray-500">Last time it did not pay, {ago(budget.lastFellBack.at)}: {budget.lastFellBack.summary}</p>}
+        </div>
 
         <h2 className={head}>What the watch found last{lastWatch ? `, ${ago(lastWatch.startedAt)}` : ""}</h2>
         {!lastWatch ? (

@@ -10,11 +10,17 @@
 // The hire goes through the worker like any other (context source "axon-autonomy-upkeep", so it is never counted as
 // a customer's job, never moved by "no job dies" and never replayed). A later tick reads the finished job and files its
 // result; the record keeps the job's receipt.
+//
+// With "its own budget" on (lib/autonomy3Budget, AUTONOMY3_BUDGET), a chore may go to a PAID agent that runs on Axon,
+// paid from the network's allowance like any allowance hire. Whenever the budget cannot pay (unset, empty, refused,
+// expired, no paid agent within its limit), the chore goes to a free agent exactly as before.
 
 import { getDb } from "./db";
 import { createTask, getTaskById } from "./tasks";
 import { getAgentById } from "./agents";
 import { rankAgents } from "./routing";
+import { parsePaymentAmount } from "./money";
+import { payForChore, type Pay } from "./autonomy3Budget";
 import { partOn } from "./autonomy3Policy";
 import { startJob, finishJob, mayStart, recentJobs, onTick, type TickContext } from "./autonomy3";
 import type { Agent } from "@/sdk/types";
@@ -51,6 +57,22 @@ export function choreAgent(chore: Chore, not: string[] = []): Agent | null {
   return null;
 }
 
+/**
+ * The paid agent for a chore, for the budget: runs on Axon (a chore's material is the network's own record, so it never
+ * goes to a server of somebody else's), not an orchestrator, priced in ETH at or under the budget's per-task limit.
+ * The best for the skill first, as for a free one.
+ */
+export function paidChoreAgent(chore: Chore, not: string[], maxPerTaskWei: bigint): Agent | null {
+  for (const capability of SKILLS[chore]) {
+    const fit = rankAgents({ capability, exclude: not, candidateLimit: 12 }).find((c) => {
+      const wei = c.agent.price ? parsePaymentAmount(c.agent.price)?.wei ?? null : null;
+      return wei !== null && wei > 0n && wei <= maxPerTaskWei && !c.agent.endpoint && !c.agent.orchestrator;
+    });
+    if (fit) return fit.agent;
+  }
+  return null;
+}
+
 /** Yesterday's record of Autonomy 3, as plain counts and lines for the report writer. */
 export function yesterdayInWords(nowMs: number): string {
   const day = Math.floor(nowMs / DAY) * DAY - DAY;
@@ -77,27 +99,35 @@ ${task.slice(0, 1_500)}
 ITS ANSWER:
 ${answer.slice(0, 1_500)}`;
 
-/** Hire one agent for a chore, recorded as a running job with the task as its subject. */
-function hire(chore: Chore, about: string | null, task: string, nowMs: number, not: string[] = []): { taskId: string; agentId: string } | null {
-  const agent = choreAgent(chore, not);
+export interface NextChore { chore: Chore; about: string | null; task: string; not: string[]; /** this chore and no other, for paying it once */ key: string }
+
+/**
+ * Hire one agent for a chore, recorded as a running job with the task as its subject: a paid one from the network's
+ * budget when that is on and can pay, else a free one as always.
+ */
+async function hire(next: NextChore, nowMs: number, env: Env, pay?: Pay): Promise<{ taskId: string; agentId: string; paid: boolean } | null> {
+  const context = { source: UPKEEP.source, automated: true, chore: next.chore, ...(next.about ? { about: next.about } : {}) };
+  const paid = await payForChore({ choreKey: next.key, chore: next.chore === "report" ? "daily report" : "second opinion", pick: (max) => paidChoreAgent(next.chore, next.not, max), task: next.task, context, hirer: UPKEEP.hirer }, nowMs, env, pay);
+  if (paid) return startJob("upkeep", paid.taskId, nowMs) ? { ...paid, paid: true } : null;
+  const agent = choreAgent(next.chore, next.not);
   if (!agent) return null;
-  const t = createTask({ fromAgent: UPKEEP.hirer, toAgent: agent.agentId, task, context: { source: UPKEEP.source, automated: true, chore, ...(about ? { about } : {}) } });
+  const t = createTask({ fromAgent: UPKEEP.hirer, toAgent: agent.agentId, task: next.task, context });
   if (!startJob("upkeep", t.taskId, nowMs)) return null;
-  return { taskId: t.taskId, agentId: agent.agentId };
+  return { taskId: t.taskId, agentId: agent.agentId, paid: false };
 }
 
 /** The next chore that is due: the report once a day, else a second opinion on a weak test that has none. */
-export function nextChore(nowMs: number): { chore: Chore; about: string | null; task: string; not: string[] } | null {
+export function nextChore(nowMs: number): NextChore | null {
   const today = Math.floor(nowMs / DAY) * DAY;
   const reportedToday = getDb().prepare("SELECT 1 FROM autonomy3_jobs j JOIN tasks t ON t.task_id = j.subject WHERE j.part = 'upkeep' AND j.started_at >= ? AND json_extract(t.context, '$.chore') = 'report' LIMIT 1").get(new Date(today).toISOString());
-  if (!reportedToday && nowMs - today >= UPKEEP.reportAfterMinutes * 60_000) return { chore: "report", about: null, task: REPORT_TASK(yesterdayInWords(nowMs)), not: [] };
+  if (!reportedToday && nowMs - today >= UPKEEP.reportAfterMinutes * 60_000) return { chore: "report", about: null, task: REPORT_TASK(yesterdayInWords(nowMs)), not: [], key: `report:${new Date(today).toISOString().slice(0, 10)}` };
   const weak = getDb().prepare(`SELECT j.id, j.subject, j.detail FROM autonomy3_jobs j WHERE j.part = 'test' AND j.started_at >= ?
       AND json_extract(j.detail, '$.score') < ? AND NOT EXISTS (SELECT 1 FROM tasks t WHERE json_extract(t.context, '$.source') = ? AND json_extract(t.context, '$.about') = j.id)
       ORDER BY j.started_at DESC LIMIT 1`).get(new Date(nowMs - 3 * DAY).toISOString(), UPKEEP.reviewBelow, UPKEEP.source) as { id: string; subject: string; detail: string } | undefined;
   if (weak) {
     const agent = getAgentById(weak.subject);
     const d = JSON.parse(weak.detail ?? "{}") as { task?: string; answer?: string; feedback?: string };
-    if (agent && d.task && d.answer) return { chore: "review", about: weak.id, task: REVIEW_TASK(agent, d.task, d.answer, d.feedback ?? ""), not: [agent.agentId] };
+    if (agent && d.task && d.answer) return { chore: "review", about: weak.id, task: REVIEW_TASK(agent, d.task, d.answer, d.feedback ?? ""), not: [agent.agentId], key: `review:${weak.id}` };
   }
   return null;
 }
@@ -113,7 +143,7 @@ export function fileFinished(nowMs = Date.now()): number {
     const receipt = `/r/${t.taskId}`;
     if (t.status === "completed" && t.output) {
       const what = ctx.chore === "report" ? `${by} wrote yesterday's report` : `${by} gave a second opinion on a weak test`;
-      finishJob(j.id, { outcome: "done", summary: what, detail: { chore: ctx.chore, about: ctx.about ?? null, by: t.toAgent, receipt, text: t.output.slice(0, 2_000) } }, nowMs);
+      finishJob(j.id, { outcome: "done", summary: what, detail: { chore: ctx.chore, about: ctx.about ?? null, by: t.toAgent, receipt, payment: t.payment ?? null, text: t.output.slice(0, 2_000) } }, nowMs);
       filed++;
     } else if (t.status === "failed" || t.status === "cancelled" || nowMs - Date.parse(t.createdAt) > UPKEEP.giveUpHours * 3_600_000) {
       finishJob(j.id, { outcome: "failed", summary: `${by} did not finish the ${ctx.chore ?? "chore"}`, detail: { chore: ctx.chore, by: t.toAgent, receipt, error: (t.error ?? "not done in time").slice(0, 200) } }, nowMs);
@@ -123,13 +153,13 @@ export function fileFinished(nowMs = Date.now()): number {
 }
 
 /** On a tick: file what finished (free), then hire for the next chore when it is the part's turn. */
-export function upkeepTurn(nowMs = Date.now(), env: Env = process.env): { taskId: string; agentId: string; chore: Chore } | null {
+export async function upkeepTurn(nowMs = Date.now(), env: Env = process.env, pay?: Pay): Promise<{ taskId: string; agentId: string; chore: Chore; paid: boolean } | null> {
   if (!partOn("upkeep", env)) return null;
   fileFinished(nowMs);
   if (!mayStart("upkeep", nowMs, env)) return null;
   const next = nextChore(nowMs);
   if (!next) return null;
-  const hired = hire(next.chore, next.about, next.task, nowMs, next.not);
+  const hired = await hire(next, nowMs, env, pay);
   return hired ? { ...hired, chore: next.chore } : null;
 }
 
@@ -149,4 +179,4 @@ export function latestReport(): { text: string; by: string; receipt: string; at:
   return j && d?.text ? { text: d.text, by: d.by ?? "", receipt: d.receipt ?? "", at: j.finishedAt ?? j.startedAt } : null;
 }
 
-onTick("upkeep", async ({ nowMs, env }: TickContext) => { upkeepTurn(nowMs, env); });
+onTick("upkeep", async ({ nowMs, env }: TickContext) => { await upkeepTurn(nowMs, env); });

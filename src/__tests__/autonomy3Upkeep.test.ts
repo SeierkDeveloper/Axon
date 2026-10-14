@@ -38,11 +38,11 @@ describe("hires its own agents: who", () => {
 });
 
 describe("hires its own agents: the daily report", () => {
-  it("hires a writing agent for yesterday's report once a day, after the replay, as a real job of the network's own", () => {
+  it("hires a writing agent for yesterday's report once a day, after the replay, as a real job of the network's own", async () => {
     finishJob(startJob("rescue", "t-1", NOW - 10 * 3_600_000)!, { outcome: "moved", summary: "X failed it; moved to Y" }, NOW - 10 * 3_600_000);
     expect(yesterdayInWords(NOW)).toMatch(/rescue moved: 1[\s\S]*X failed it; moved to Y/);
     expect(nextChore(Date.parse("2026-10-14T00:10:00Z"))).toBeNull(); // before the replay is in
-    const hired = upkeepTurn(NOW, ON)!;
+    const hired = (await upkeepTurn(NOW, ON))!;
     expect(hired).toMatchObject({ chore: "report", agentId: "writer" });
     const t = getTaskById(hired.taskId)!;
     expect(t).toMatchObject({ fromAgent: UPKEEP.hirer, status: "queued" });
@@ -51,8 +51,8 @@ describe("hires its own agents: the daily report", () => {
     expect(nextChore(NOW + 60_000)?.chore).not.toBe("report"); // once a day
   });
 
-  it("files the report when the job is done, with its receipt", () => {
-    const { taskId } = upkeepTurn(NOW, ON)!;
+  it("files the report when the job is done, with its receipt", async () => {
+    const { taskId } = (await upkeepTurn(NOW, ON))!;
     startTask(taskId, "worker");
     completeTask(taskId, "Yesterday the network moved one failed job and found nothing else wrong. A healthy day.");
     expect(fileFinished(NOW + 60_000)).toBe(1);
@@ -60,8 +60,8 @@ describe("hires its own agents: the daily report", () => {
     expect(recentJobs(5, "upkeep")[0]).toMatchObject({ outcome: "done", summary: "Agent writer wrote yesterday's report" });
   });
 
-  it("records a chore that failed", () => {
-    const { taskId } = upkeepTurn(NOW, ON)!;
+  it("records a chore that failed", async () => {
+    const { taskId } = (await upkeepTurn(NOW, ON))!;
     failTask(taskId, "model down");
     fileFinished(NOW + 60_000);
     expect(recentJobs(5, "upkeep")[0]).toMatchObject({ outcome: "failed" });
@@ -69,12 +69,12 @@ describe("hires its own agents: the daily report", () => {
 });
 
 describe("hires its own agents: second opinions", () => {
-  it("asks a reviewing agent about a weak test answer, and makes-agents-better reads what it said", () => {
+  it("asks a reviewing agent about a weak test answer, and makes-agents-better reads what it said", async () => {
     finishJob(startJob("upkeep", "report-done", NOW - 1000)!, { outcome: "done" }, NOW - 1000); // today's report slot is not this test's point
     getDb().prepare("INSERT INTO tasks (task_id, from_agent, to_agent, task, context, status, created_at) VALUES ('report-done', ?, 'writer', 'r', ?, 'completed', ?)").run(UPKEEP.hirer, JSON.stringify({ source: UPKEEP.source, chore: "report" }), new Date(NOW).toISOString());
     const testJob = weakTest("translator");
     const NOON = NOW + 11 * 3_600_000; // the day's second chore is due by then
-    const hired = upkeepTurn(NOON, ON)!;
+    const hired = (await upkeepTurn(NOON, ON))!;
     expect(hired).toMatchObject({ chore: "review", agentId: "editor" });
     expect(getTaskById(hired.taskId)!.task).toMatch(/mixed du and Sie[\s\S]*Danke Sie du/);
     startTask(hired.taskId, "worker");
@@ -89,7 +89,7 @@ describe("hires its own agents: second opinions", () => {
 
 describe("hires its own agents: the day's number", () => {
   it("does nothing switched off, and runs on the tick", async () => {
-    expect(upkeepTurn(NOW, {})).toBeNull();
+    expect(await upkeepTurn(NOW, {})).toBeNull();
     await tick(NOW, ON);
     expect(recentJobs(5, "upkeep")).toHaveLength(1);
   });
