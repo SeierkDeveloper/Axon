@@ -45,6 +45,34 @@ export function startJob(part: Part, subject: string | null = null, nowMs = Date
   }
 }
 
+/**
+ * Open a job only if no job of this part is recorded for the same subject yet, for the parts that may act on a thing
+ * once (a failed job is moved once). Returns null when one is already there.
+ */
+export function claimJob(part: Part, subject: string, nowMs = Date.now()): string | null {
+  const id = randomUUID();
+  try {
+    const db = getDb();
+    const taken = db.prepare("SELECT 1 FROM autonomy3_jobs WHERE part = ? AND subject = ? LIMIT 1").get(part, subject);
+    if (taken) return null;
+    const { changes } = db.prepare("INSERT OR IGNORE INTO autonomy3_jobs (id, part, subject, started_at) VALUES (?, ?, ?, ?)").run(id, part, subject, new Date(nowMs).toISOString());
+    return changes === 1 ? id : null;
+  } catch (err) {
+    logger.warn("autonomy3.job_not_recorded", "An Autonomy 3 job could not be recorded, so it was not started", { part, reason: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
+}
+
+/** The job of a part about one subject, if there is one. */
+export function jobFor(part: Part, subject: string): Autonomy3Job | null {
+  try {
+    const r = getDb().prepare("SELECT * FROM autonomy3_jobs WHERE part = ? AND subject = ? ORDER BY started_at DESC LIMIT 1").get(part, subject) as Row | undefined;
+    return r ? fromRow(r) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Close a job with how it ended. */
 export function finishJob(id: string, end: { outcome: string; summary?: string; detail?: unknown; costUsd?: number }, nowMs = Date.now()): void {
   try {

@@ -1,7 +1,8 @@
 import { timingSafeEqual } from "crypto";
 import type { Metadata } from "next";
 import SiteNav from "@/components/SiteNav";
-import { autonomy3State } from "@/lib/autonomy3";
+import { autonomy3State, recentJobs } from "@/lib/autonomy3";
+import "@/lib/autonomy3Parts";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Autonomy 3 | Axon Admin", robots: { index: false, follow: false } };
@@ -43,6 +44,8 @@ export default async function AdminAutonomy3Page({ searchParams }: { searchParam
   }
 
   const s = autonomy3State();
+  const lastWatch = recentJobs(1, "watch")[0];
+  const watched = ((lastWatch?.detail ?? {}) as { found?: { kind: string; subject?: string; what: string }[] }).found ?? [];
   const onCount = s.parts.filter((p) => p.on).length;
 
   return (
@@ -72,6 +75,23 @@ export default async function AdminAutonomy3Page({ searchParams }: { searchParam
             </li>
           ))}
         </ul>
+
+        <h2 className={head}>What the watch found last{lastWatch ? `, ${ago(lastWatch.startedAt)}` : ""}</h2>
+        {!lastWatch ? (
+          <p className={`${card} px-5 py-4 text-sm text-gray-500`}>The watch has not looked yet.</p>
+        ) : watched.length === 0 ? (
+          <p className={`${card} px-5 py-4 text-sm text-gray-500`}>{lastWatch.summary}</p>
+        ) : (
+          <ul className={`${card} divide-y divide-gray-100 dark:divide-gray-800`}>
+            {watched.map((f, i) => (
+              <li key={`${f.kind}-${f.subject ?? i}`} className="px-5 py-2.5 text-sm">
+                <span className="font-mono text-xs text-gray-500 mr-3">{f.kind}</span>
+                {f.subject && <span className="font-mono text-xs text-gray-500 mr-3">{f.subject}</span>}
+                <span className="text-gray-800 dark:text-gray-200">{f.what}</span>
+              </li>
+            ))}
+          </ul>
+        )}
 
         <h2 className={head}>Latest jobs</h2>
         {s.jobs.length === 0 ? (

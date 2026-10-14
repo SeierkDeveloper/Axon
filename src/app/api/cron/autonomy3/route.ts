@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { tick } from "@/lib/autonomy3";
+import "@/lib/autonomy3Parts";
 import { noteCronRun } from "@/lib/cronRuns";
 
 export const runtime = "nodejs";

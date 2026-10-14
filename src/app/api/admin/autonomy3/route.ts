@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { autonomy3State } from "@/lib/autonomy3";
+import "@/lib/autonomy3Parts";
 
 export const runtime = "nodejs";
 

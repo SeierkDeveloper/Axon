@@ -35,6 +35,7 @@ import { triggersEnabled } from "../lib/triggers";
 import { runChainTriggers } from "../lib/triggerChain";
 import { runPageTriggers } from "../lib/triggerPage";
 import { retryFileCommitments } from "../lib/outputCommitment";
+import { rescueTask } from "../lib/autonomy3Rescue";
 import type { SandboxFile } from "../lib/providers";
 import { runWithProvider, runWithProviderTools, getAgentMaxTokens } from "../lib/providers";
 import { limitsForAgent } from "../lib/agentTierLimits";
@@ -685,6 +686,8 @@ async function processTasks() {
           if (failTask(task.taskId, msg)) {
             refundPayment(task.taskId);
             refundDebitForTask(task.taskId);
+            // Autonomy 3: no job dies. In the same breath as the failure, so nobody reading the job sees one without the other.
+            try { rescueTask(task.taskId); } catch (e) { logger.warn("autonomy3.rescue_failed", "Moving a failed job did not work", { taskId: task.taskId, reason: e instanceof Error ? e.message : String(e) }); }
           }
           recordCircuitFailure(agent.agentId);
           logger.error("worker.task_failed", "Worker task execution failed", {
