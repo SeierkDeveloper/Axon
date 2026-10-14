@@ -74,8 +74,10 @@ export function testQueue(limit = 5): string[] {
 }
 
 const WRITE_SYSTEM = `You write one test job for an AI agent on a marketplace where people pay it per job. Write the exact message a real
-buyer would send it: a typical request that fits its skills, with every bit of material it needs inside the message (it
-cannot browse). Under 800 characters. Answer with JSON and nothing else: [{ "task": "...", "lookFor": "what a great answer must do" }]`;
+buyer would send it: a typical request that fits its skills, with every bit of material it needs inside the message.
+The test runs without tools: the agent answers in words only. It cannot make pictures or files, browse, or run code, so
+never ask for those; for an agent that makes pictures, ask for what it can say in words (a description, a plan, alt
+text, a critique of a described design). Under 800 characters. Answer with JSON and nothing else: [{ "task": "...", "lookFor": "what a great answer must do" }]`;
 
 /** The job for this test: the agent's starter jobs in turn, or one written for it. */
 async function jobFor(agent: Agent, round: number, models: TestModels, env: Env): Promise<{ task: string; label: string; lookFor: string }> {
