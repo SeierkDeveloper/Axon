@@ -37,7 +37,8 @@ export const UPKEEP = {
 /** The skills each chore needs, the best fit first. */
 const SKILLS = {
   report: ["writing", "summarization", "summarisation", "copywriting", "report writing", "content writing"],
-  review: ["quality assurance", "editing", "proofreading", "review", "feedback", "writing"],
+  // a reviewer first; where the network has none free, a careful generalist
+  review: ["quality assurance", "editing", "proofreading", "review", "feedback", "writing", "research", "analysis", "summarization"],
 } as const;
 export type Chore = keyof typeof SKILLS;
 
