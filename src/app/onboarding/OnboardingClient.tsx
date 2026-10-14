@@ -24,7 +24,7 @@ type AgentForm = {
   agentId: string;
   name: string;
   capabilities: string;
-  provider: "anthropic" | "openai" | "grok" | "ollama";
+  provider: "anthropic" | "openai" | "grok" | "nock" | "ollama";
   providerModel: string;
   endpoint: string;
   price: string;
@@ -32,7 +32,7 @@ type AgentForm = {
 
 type TestState = "idle" | "running" | "done" | "error";
 
-const PROVIDERS = ["anthropic", "openai", "grok", "ollama"] as const;
+const PROVIDERS = ["anthropic", "openai", "grok", "nock", "ollama"] as const;
 
 function slugify(value: string): string {
   return value
@@ -407,7 +407,7 @@ function StepRegister({
             <input
               value={form.providerModel}
               onChange={(e) => set("providerModel", e.target.value)}
-              placeholder={form.provider === "anthropic" ? "claude-haiku-4-5-20251001" : form.provider === "openai" ? "gpt-4o-mini" : form.provider === "grok" ? "grok-4.5" : "llama3"}
+              placeholder={form.provider === "anthropic" ? "claude-haiku-4-5-20251001" : form.provider === "openai" ? "gpt-4o-mini" : form.provider === "grok" ? "grok-4.5" : form.provider === "nock" ? "Nock Coder (default)" : "llama3"}
               className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm font-mono text-gray-900 dark:text-white outline-none focus:border-gray-500"
             />
           </div>

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 
 type Step = "auth" | "configure" | "review" | "done";
-type Provider = "anthropic" | "openai" | "grok" | "ollama" | "external";
+type Provider = "anthropic" | "openai" | "grok" | "nock" | "ollama" | "external";
 
 interface AuthState {
   apiKey: string;
@@ -60,6 +60,7 @@ const PROVIDER_LABELS: Record<Provider, string> = {
   anthropic: "Anthropic (Claude)",
   openai: "OpenAI (GPT)",
   grok: "xAI (Grok)",
+  nock: "NockAI (Nock Coder)",
   ollama: "Ollama (self-hosted)",
   external: "External HTTP endpoint",
 };
@@ -68,6 +69,7 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   anthropic: "claude-haiku-4-5-20251001",
   openai: "gpt-4o-mini",
   grok: "grok-4.5",
+  nock: "",
   ollama: "",
   external: "",
 };
@@ -273,7 +275,7 @@ export default function PublishWizard() {
     }
     // Only for hosted agents: an external one runs its own inference, and the
     // API rejects grants alongside an endpoint.
-    if (form.provider !== "external" && form.tools.length > 0) {
+    if (form.provider !== "external" && form.provider !== "nock" && form.tools.length > 0) {
       body.tools = form.tools;
     }
 
@@ -495,6 +497,13 @@ export default function PublishWizard() {
             </Field>
           )}
 
+          {form.provider === "nock" && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed -mt-2">
+              Nock Coder is an open coding model by NockAI, small enough to run on a laptop. It is made for small code
+              jobs: a function, a fix, a snippet. It runs through Surplus at $0.03 per million tokens, without tools.
+            </p>
+          )}
+
           {form.provider === "ollama" && (
             <Field label="Ollama endpoint" hint="Public HTTPS URL to your Ollama-compatible API.">
               <input
@@ -519,7 +528,7 @@ export default function PublishWizard() {
             </Field>
           )}
 
-          {form.provider !== "external" && (
+          {form.provider !== "external" && form.provider !== "nock" && (
             <Field
               label="Tools (optional)"
               hint="Let this agent go and look before it answers. Every call it makes is recorded in the task's receipt."
@@ -594,7 +603,7 @@ export default function PublishWizard() {
               {form.providerModel.trim() && <ReviewRow label="Model" value={form.providerModel} mono />}
               {form.provider === "ollama" && form.providerEndpoint && <ReviewRow label="Ollama endpoint" value={form.providerEndpoint} mono />}
               {form.provider === "external" && form.endpoint && <ReviewRow label="Endpoint" value={form.endpoint} mono />}
-              {form.provider !== "external" && (
+              {form.provider !== "external" && form.provider !== "nock" && (
                 <ReviewRow
                   label="Tools"
                   value={

@@ -13,6 +13,7 @@ function listingMode(agent: Agent) {
   if (agent.endpoint) return "External endpoint";
   if (agent.provider === "ollama") return "Self-hosted model";
   if (agent.provider === "grok") return `${agent.providerModel ?? "Grok 4.5"} (xAI)`;
+  if (agent.provider === "nock") return "Nock Coder (NockAI)";
   return "Managed model";
 }
 

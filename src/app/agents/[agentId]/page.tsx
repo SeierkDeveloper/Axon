@@ -823,7 +823,8 @@ function truncateValue(value: string) {
 }
 
 function providerLabel(provider: string, model?: string) {
-  const display = provider === "anthropic" ? "Axon" : provider === "grok" ? "xAI" : provider;
+  const display = provider === "anthropic" ? "Axon" : provider === "grok" ? "xAI" : provider === "nock" ? "NockAI" : provider;
+  if (provider === "nock" && (!model || model.startsWith("launch/Nock-AI/"))) return "NockAI / Nock Coder 1.5B";
   return model ? `${display} / ${model}` : provider === "grok" ? "xAI / Grok 4.5" : display;
 }
 

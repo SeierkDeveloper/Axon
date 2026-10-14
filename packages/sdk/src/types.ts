@@ -1,6 +1,6 @@
 // ─── Agent ────────────────────────────────────────────────────────────────────
 
-export type InferenceProvider = "anthropic" | "ollama" | "openai" | "grok";
+export type InferenceProvider = "anthropic" | "ollama" | "openai" | "grok" | "nock";
 export type VerificationStatus = "unverified" | "reachable" | "x402_compliant" | "unreachable" | "platform" | "modulr";
 
 export interface Agent {

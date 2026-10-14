@@ -219,6 +219,25 @@ describe("OpenAICompatibleProvider.complete: happy path (grok)", () => {
   });
 });
 
+describe("OpenAICompatibleProvider.complete: happy path (nock)", () => {
+  it("returns content and hits Surplus with Nock Coder and the server's key", async () => {
+    process.env.SURPLUS_API_KEY = "test-surplus-key";
+    mockPublicHttpFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ choices: [{ message: { content: "```ts\nconst x = 1;\n```" } }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    const provider = getProvider(makeAgent({ provider: "nock" }));
+    expect(await provider.complete("system", "message")).toContain("const x = 1;");
+    const [url, init] = mockPublicHttpFetch.mock.calls.at(-1)!;
+    expect(url).toBe("https://api.surplusllm.com/api/v1/chat/completions");
+    expect((JSON.parse((init as RequestInit).body as string) as { model: string }).model).toBe("launch/Nock-AI/nock-coder-1.5b@18859c0");
+    expect(JSON.stringify((init as RequestInit).headers)).toContain("test-surplus-key");
+    delete process.env.SURPLUS_API_KEY;
+  });
+});
+
 describe("OpenAICompatibleProvider.complete: HTTP error response", () => {
   it("throws and includes status when provider returns non-OK", async () => {
     mockPublicHttpFetch.mockResolvedValueOnce(

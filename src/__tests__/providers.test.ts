@@ -154,6 +154,34 @@ describe("getProvider: grok (xAI)", () => {
   });
 });
 
+describe("getProvider: nock (NockAI's Nock Coder through Surplus)", () => {
+  let saved: string | undefined;
+
+  beforeEach(() => {
+    saved = process.env.SURPLUS_API_KEY;
+    delete process.env.SURPLUS_API_KEY;
+  });
+
+  afterEach(() => {
+    if (saved !== undefined) process.env.SURPLUS_API_KEY = saved;
+    else delete process.env.SURPLUS_API_KEY;
+  });
+
+  it("throws when SURPLUS_API_KEY is not set", () => {
+    expect(() => getProvider(makeAgent({ provider: "nock" }))).toThrow(/SURPLUS_API_KEY/);
+  });
+
+  it("never sends the key to an endpoint someone else names", () => {
+    process.env.SURPLUS_API_KEY = "test-key";
+    expect(() => getProvider(makeAgent({ provider: "nock", providerEndpoint: "https://evil.example.com/v1" }))).toThrow(/providerEndpoint/);
+  });
+
+  it("builds a provider when SURPLUS_API_KEY is set", () => {
+    process.env.SURPLUS_API_KEY = "test-key";
+    expect(() => getProvider(makeAgent({ provider: "nock" }))).not.toThrow();
+  });
+});
+
 describe("getProvider: ollama — missing endpoint", () => {
   it("throws when providerEndpoint is not set", () => {
     const a = makeAgent({ provider: "ollama", providerEndpoint: undefined });

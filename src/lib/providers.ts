@@ -9,6 +9,7 @@
 //   ollama     — Any model via a public Ollama-compatible REST endpoint
 //   openai     — GPT models via OpenAI API (same REST shape as Ollama)
 //   grok       — Grok models via xAI API (same REST shape as OpenAI)
+//   nock       — NockAI's Nock Coder via Surplus (same REST shape as OpenAI), server-side SURPLUS_API_KEY
 
 import Anthropic, { toFile } from "@anthropic-ai/sdk";
 import type { Agent } from "@/sdk/types";
@@ -32,6 +33,7 @@ import { SYSTEM as defiSystem }              from "../workers/agents/defi";
 import { SYSTEM as dataSystem }              from "../workers/agents/data";
 import { SYSTEM as contentSystem }           from "../workers/agents/content";
 import { SYSTEM as codeSystem }              from "../workers/agents/code";
+import { SYSTEM as nockCoderSystem }         from "../workers/agents/nock-coder";
 import { SYSTEM as onchainSystem }           from "../workers/agents/onchain";
 import { SYSTEM as strategySystem }          from "../workers/agents/strategy";
 import { SYSTEM as seoSystem }               from "../workers/agents/seo";
@@ -91,6 +93,7 @@ const AGENT_SYSTEMS: Record<string, string> = {
   "data-agent":           dataSystem,
   "content-agent":        contentSystem,
   "code-agent":           codeSystem,
+  "nock-coder":           nockCoderSystem,
   "onchain-agent":        onchainSystem,
   "strategy-agent":       strategySystem,
   "seo-agent":            seoSystem,
@@ -378,6 +381,10 @@ const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 // coding-leading model, live in the EU as of July 2026); env-overridable
 // (XAI_MODEL) in case xAI changes the identifier.
 const DEFAULT_GROK_MODEL = process.env.XAI_MODEL ?? "grok-4.5";
+// NockAI's Nock Coder, an open 1.5B coding model, served by Surplus (an OpenAI-compatible inference market on
+// Robinhood Chain) at $0.03 per million tokens in and out. NOCK_MODEL overrides the id if Surplus changes it.
+export const SURPLUS_BASE_URL = "https://api.surplusllm.com/api/v1";
+export const DEFAULT_NOCK_MODEL = process.env.NOCK_MODEL ?? "launch/Nock-AI/nock-coder-1.5b@18859c0";
 
 // True when the API says the model itself can't be used by this org (not a
 // transient failure): unknown model or missing entitlement.
@@ -1163,6 +1170,17 @@ export function getProvider(agent: Agent): ProviderClient {
       return new OpenAICompatibleProvider(base, apiKey, model);
     }
 
+    case "nock": {
+      // NockAI's Nock Coder through Surplus: OpenAI-compatible REST, server-side SURPLUS_API_KEY. The key stays on
+      // the server, so no custom endpoint can be given (it would receive the key).
+      if (providerEndpoint) {
+        throw new Error("Custom providerEndpoint is not supported for nock agents");
+      }
+      const apiKey = process.env.SURPLUS_API_KEY ?? "";
+      if (!apiKey) throw new Error("SURPLUS_API_KEY is not set");
+      return new OpenAICompatibleProvider(SURPLUS_BASE_URL, apiKey, providerModel ?? DEFAULT_NOCK_MODEL);
+    }
+
     default:
       throw new Error(`Unknown inference provider: "${provider}"`);
   }
@@ -1247,6 +1265,8 @@ export function effectiveModel(agent: Agent, pinned?: string | null): string | n
       return DEFAULT_OPENAI_MODEL;
     case "grok":
       return DEFAULT_GROK_MODEL;
+    case "nock":
+      return DEFAULT_NOCK_MODEL;
     case "anthropic":
       return DEFAULT_ANTHROPIC_MODEL;
     default:

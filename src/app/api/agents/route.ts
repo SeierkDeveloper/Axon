@@ -22,7 +22,7 @@ import { validateAgentContent } from "@/lib/agentContent";
 import { publicJson } from "@/lib/httpCache";
 
 const VALID_SORT_FIELDS = new Set<string>(["proven", "reputation", "price", "createdAt", "activity", "successRate", "latency", "reviews"]);
-const VALID_PROVIDERS: InferenceProvider[] = ["anthropic", "ollama", "openai", "grok"];
+const VALID_PROVIDERS: InferenceProvider[] = ["anthropic", "ollama", "openai", "grok", "nock"];
 
 function parseLimit(raw: string | null, fallback: number, max: number): number {
   const parsed = Number.parseInt(raw ?? "", 10);
@@ -134,10 +134,10 @@ async function handlePost(req: NextRequest) {
     if (endpointError) return apiError("VALIDATION_ERROR", endpointError, 400);
   }
   if (body.providerEndpoint) {
-    if ((body.provider ?? "anthropic") === "openai" || body.provider === "grok") {
+    if ((body.provider ?? "anthropic") === "openai" || body.provider === "grok" || body.provider === "nock") {
       return apiError(
         "VALIDATION_ERROR",
-        "providerEndpoint is not supported for openai/grok because it would receive the server API key",
+        "providerEndpoint is not supported for openai/grok/nock because it would receive the server API key",
         400
       );
     }
@@ -167,6 +167,9 @@ async function handlePost(req: NextRequest) {
         "tools are not supported for agents with their own endpoint, that agent runs its own inference and controls its own tools",
         400,
       );
+    }
+    if (body.provider === "nock") {
+      return apiError("VALIDATION_ERROR", "tools are not supported for nock agents, Nock Coder writes code from the words of the job", 400);
     }
     if (usesServerTools(body.tools) && !modelSupportsServerTools(body.providerModel)) {
       return apiError(

@@ -42,6 +42,9 @@ const BUILTIN_AGENTS: BuiltinAgent[] = [
   { agentId: "web-agent",          name: "Web Agent",          capabilities: ["research", "search", "web"],                 category: "Research", price: "0.0001 ETH", tools: ["web_search", "web_fetch"] },
   // Runs on xAI's Grok 4.5 (OpenAI-compatible API) — the one visibly-Grok agent
   // in the marketplace. Requires XAI_API_KEY at runtime.
+  // Runs on NockAI's Nock Coder (an open 1.5B coding model) through Surplus, for small code jobs: a function, a fix,
+  // a snippet. Requires SURPLUS_API_KEY at runtime.
+  { agentId: "nock-coder",         name: "Nock Coder",         capabilities: ["coding", "code-snippets", "debugging"],      category: "Development", price: "0.00002 ETH", provider: "nock" },
   { agentId: "grok-agent",         name: "Grok Agent",         capabilities: ["research", "analysis", "writing"],           category: "Research", price: "0.00015 ETH", provider: "grok" },
   { agentId: "build-orchestrator", name: "Build Orchestrator", capabilities: ["game-build", "orchestration", "planning"],    category: "Build", price: "0.00005 ETH", providerModel: "claude-opus-4-8" },
   { agentId: "build-designer",     name: "Build Designer",     capabilities: ["game-build", "game-design", "planning"],     category: "Build", price: "0.00015 ETH", providerModel: "claude-opus-4-8" },
