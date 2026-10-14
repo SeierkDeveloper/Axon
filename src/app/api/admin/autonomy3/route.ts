@@ -5,6 +5,7 @@ import { attackAgent, attackQueue, KINDS, type AttackKind } from "@/lib/autonomy
 import { compareRules, withRules, type Rules } from "@/lib/autonomy3Replay";
 import { improveAgent3, setAutoImprove } from "@/lib/autonomy3Improve";
 import { buildFor, missingSkills, builderWallet } from "@/lib/autonomy3Build";
+import { nextChore, fileFinished, upkeepTurn } from "@/lib/autonomy3Upkeep";
 import { autonomy3On } from "@/lib/autonomy3Policy";
 import "@/lib/autonomy3Parts";
 
@@ -31,12 +32,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (!autonomy3On()) return NextResponse.json({ error: "Autonomy 3 is off (AUTONOMY3)" }, { status: 409 });
-  const body = (await req.json().catch(() => ({}))) as { build?: string; improve?: string; optIn?: boolean; test?: string; attack?: string; kind?: string; replay?: { day?: string; rescue?: Partial<Rules["rescue"]>; failing?: Partial<Rules["failing"]> } };
+  const body = (await req.json().catch(() => ({}))) as { upkeep?: boolean; build?: string; improve?: string; optIn?: boolean; test?: string; attack?: string; kind?: string; replay?: { day?: string; rescue?: Partial<Rules["rescue"]>; failing?: Partial<Rules["failing"]> } };
   // { "replay": { "day"?: "YYYY-MM-DD", "rescue"?: {...}, "failing"?: {...} } }: a recorded day under today's rules and the
   // proposed ones, side by side. Costs nothing: no job is run again. Yesterday when no day is given.
   if (body.replay) {
     const day = body.replay.day && /^\d{4}-\d{2}-\d{2}$/.test(body.replay.day) ? Date.parse(`${body.replay.day}T00:00:00Z`) : Math.floor(Date.now() / 86_400_000) * 86_400_000 - 86_400_000;
     return NextResponse.json(compareRules(day, withRules({ rescue: body.replay.rescue, failing: body.replay.failing })));
+  }
+  // { "upkeep": true }: file the chores that finished, then hire an agent for the next chore now, outside the day's
+  // number (the report, or a second opinion on a weak test). One small hire, about a cent.
+  if (body.upkeep) {
+    const filed = fileFinished();
+    const next = nextChore(Date.now());
+    const hired = next ? upkeepTurn(Date.now(), { ...process.env, AUTONOMY3_UPKEEP: "on", AUTONOMY3_UPKEEP_A_DAY: "1000" }) : null;
+    return NextResponse.json({ filed, hired });
   }
   // { "build": "<skill>" | "next" }: build an agent for a missing skill now (needs AUTONOMY3_BUILDER_WALLET). A Studio
   // build: a writer call and test rounds, about 10 to 30 cents. { "build": "gaps" } lists the missing skills, free.

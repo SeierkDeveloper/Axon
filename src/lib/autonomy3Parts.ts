@@ -8,3 +8,4 @@ import "./autonomy3Attack";
 import "./autonomy3Replay";
 import "./autonomy3Improve";
 import "./autonomy3Build";
+import "./autonomy3Upkeep";

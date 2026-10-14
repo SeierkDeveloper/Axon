@@ -25,6 +25,7 @@ import { parseRewrite, parseGrade, GRADER_SYSTEM } from "./studioTest";
 import { studioModels, LIMITS } from "./studioPolicy";
 import { validateAgentText } from "./agentContent";
 import { replaySet } from "./autonomy3Replay";
+import { secondOpinionsOn } from "./autonomy3Upkeep";
 import { partOn } from "./autonomy3Policy";
 import { startJob, finishJob, mayStart, recentJobs, onTick, type TickContext } from "./autonomy3";
 import type { Agent } from "@/sdk/types";
@@ -85,14 +86,14 @@ export function currentInstructions(agentId: string): string | null {
   return getInstructions(agentId) ?? codeInstructions(agentId) ?? (agent ? genericCore(agent) : null);
 }
 
-interface Evidence { tests: { task: string; answer: string; score: number; feedback: string }[]; fell: string[]; failed: { what: string; why: string }[] }
+interface Evidence { tests: { task: string; answer: string; score: number; feedback: string }[]; fell: string[]; failed: { what: string; why: string }[]; opinions: string[] }
 
 /** What went wrong lately, from the record. */
 export function evidenceFor(agentId: string, nowMs = Date.now()): Evidence {
   const since = new Date(nowMs - 14 * DAY).toISOString();
   const db = getDb();
   const rows = db.prepare("SELECT part, outcome, detail FROM autonomy3_jobs WHERE subject = ? AND part IN ('test','attack') AND started_at >= ? ORDER BY started_at DESC LIMIT 20").all(agentId, since) as { part: string; outcome: string | null; detail: string | null }[];
-  const ev: Evidence = { tests: [], fell: [], failed: [] };
+  const ev: Evidence = { tests: [], fell: [], failed: [], opinions: [] };
   for (const r of rows) {
     let d: Record<string, unknown> = {};
     try { d = JSON.parse(r.detail ?? "{}"); } catch { /* unreadable: skipped */ }
@@ -100,6 +101,7 @@ export function evidenceFor(agentId: string, nowMs = Date.now()): Evidence {
     if (r.part === "attack" && r.outcome === "fell") ev.fell.push(String(d.kind ?? "a trick"));
   }
   try { ev.failed = weakJobs(agentId, since).map((j) => ({ what: j.what, why: j.why })); } catch { /* no reviews table */ }
+  try { ev.opinions = secondOpinionsOn(agentId, nowMs - 14 * DAY); } catch { /* before upkeep */ }
   return ev;
 }
 
@@ -144,6 +146,7 @@ export async function improveAgent3(agentId: string, nowMs = Date.now(), _env: E
       ...ev.tests.filter((t) => t.score < 8).map((t, i) => `TEST ${i + 1} (score ${t.score}/10): ${t.task.slice(0, 500)}\nFEEDBACK: ${t.feedback}`),
       ...ev.fell.map((k) => `IT FELL FOR A TRICK: ${k}`),
       ...ev.failed.slice(0, 5).map((f, i) => `REAL JOB ${i + 1} WENT WRONG: ${f.what.slice(0, 400)}\nWHY: ${f.why}`),
+      ...ev.opinions.slice(0, 3).map((o, i) => `SECOND OPINION ${i + 1} FROM ANOTHER AGENT: ${o.slice(0, 600)}`),
     ].join("\n\n");
     const w = await captureModelStep(() => models.write(REWRITE, `THE AGENT: ${agent.name}. ${agent.description ?? ""} Skills: ${(agent.capabilities ?? []).join(", ")}\n\nCURRENT INSTRUCTIONS:\n${current}\n\nWHAT WENT WRONG LATELY:\n${report}`));
     spent(w);

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import SiteNav from "@/components/SiteNav";
 import { autonomy3State, recentJobs } from "@/lib/autonomy3";
 import "@/lib/autonomy3Parts";
+import { latestReport } from "@/lib/autonomy3Upkeep";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Autonomy 3 | Axon Admin", robots: { index: false, follow: false } };
@@ -45,6 +46,7 @@ export default async function AdminAutonomy3Page({ searchParams }: { searchParam
 
   const s = autonomy3State();
   const lastWatch = recentJobs(1, "watch")[0];
+  const report = latestReport();
   const watched = ((lastWatch?.detail ?? {}) as { found?: { kind: string; subject?: string; what: string }[] }).found ?? [];
   const onCount = s.parts.filter((p) => p.on).length;
 
@@ -58,6 +60,16 @@ export default async function AdminAutonomy3Page({ searchParams }: { searchParam
           Autonomy 3 is <b className={s.on ? "text-emerald-600" : "text-red-600"}>{s.on ? "on" : "off (AUTONOMY3 is not on)"}</b>.
           {` ${onCount} of ${s.parts.length} parts switched on. Today's jobs cost about ${usd(s.spentTodayUsd)}; with every part on a day costs at most about ${usd(s.worstDayUsd)}.`}
         </p>
+
+        {report && (
+          <>
+            <h2 className={head}>The daily report, {ago(report.at)}</h2>
+            <div className={`${card} px-5 py-4 text-sm`}>
+              <p className="whitespace-pre-line text-gray-800 dark:text-gray-200">{report.text}</p>
+              <p className="mt-2 text-xs text-gray-500">Written by <span className="font-mono">{report.by}</span>, hired by the network · <a className="underline" href={report.receipt}>receipt</a></p>
+            </div>
+          </>
+        )}
 
         <h2 className={head}>The parts</h2>
         <ul className={`${card} divide-y divide-gray-100 dark:divide-gray-800`}>
