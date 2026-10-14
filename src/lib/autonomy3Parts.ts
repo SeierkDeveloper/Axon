@@ -6,3 +6,5 @@ import "./autonomy3React";
 import "./autonomy3Test";
 import "./autonomy3Attack";
 import "./autonomy3Replay";
+import "./autonomy3Improve";
+import "./autonomy3Build";
