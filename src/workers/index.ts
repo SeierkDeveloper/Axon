@@ -36,6 +36,7 @@ import { runChainTriggers } from "../lib/triggerChain";
 import { runPageTriggers } from "../lib/triggerPage";
 import { retryFileCommitments } from "../lib/outputCommitment";
 import { rescueTask } from "../lib/autonomy3Rescue";
+import { TICK_MINUTES } from "../lib/autonomy3React";
 import type { SandboxFile } from "../lib/providers";
 import { runWithProvider, runWithProviderTools, getAgentMaxTokens } from "../lib/providers";
 import { limitsForAgent } from "../lib/agentTierLimits";
@@ -141,6 +142,8 @@ let pollTimer: NodeJS.Timeout | null = null;
 let healthTimer: NodeJS.Timeout | null = null;
 let thresholdTimer: NodeJS.Timeout | null = null;
 let allowanceTimer: NodeJS.Timeout | null = null;
+let autonomy3Timer: NodeJS.Timeout | null = null;
+let autonomy3Running = false;
 let allowanceRunning = false;
 let retainerTimer: NodeJS.Timeout | null = null;
 let triggerTimer: NodeJS.Timeout | null = null;
@@ -796,6 +799,10 @@ function clearTimers(): void {
     clearInterval(thresholdTimer);
     thresholdTimer = null;
   }
+  if (autonomy3Timer) {
+    clearInterval(autonomy3Timer);
+    autonomy3Timer = null;
+  }
   if (allowanceTimer) {
     clearInterval(allowanceTimer);
     allowanceTimer = null;
@@ -982,6 +989,18 @@ export async function startWorkerLoops(): Promise<void> {
   thresholdTimer = setInterval(() => {
     checkAllThresholds();
   }, THRESHOLD_INTERVAL_MS);
+
+  // Autonomy 3's own timer: every few minutes each part that is switched on gets its go. Off (AUTONOMY3 not on) a tick
+  // returns at once. Skips a tick rather than overlap one still running.
+  autonomy3Timer = setInterval(() => {
+    if (autonomy3Running || shutdownRequested) return;
+    autonomy3Running = true;
+    import("../lib/autonomy3Parts")
+      .then(() => import("../lib/autonomy3"))
+      .then(({ tick }) => tick())
+      .catch((err) => logger.warn("autonomy3.tick_failed", "Autonomy 3's tick failed", { reason: err instanceof Error ? err.message : String(err) }))
+      .finally(() => { autonomy3Running = false; });
+  }, TICK_MINUTES * 60_000);
 
   // Settle or release allowance reservations the ledger has decided. Does nothing until allowances
   // are enabled. Skips a tick rather than overlap one still waiting on the chain.
