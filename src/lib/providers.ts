@@ -162,6 +162,17 @@ export function codeInstructions(agentId: string): string | null {
   return AGENT_SYSTEMS[agentId] ?? null;
 }
 
+/** The prompt an agent without instructions of its own runs on, from its name and capabilities. */
+export function genericCore(agent: Pick<Agent, "name" | "capabilities">): string {
+  return `You are ${agent.name}, a specialized agent operating on the Axon agent network. ` +
+    `Your capabilities: ${agent.capabilities.join(", ")}.\n\n` +
+    `Deliver expert-level responses in your domain. Structure every response with clear headers and sections. ` +
+    `Be specific, use numbers, examples, and concrete recommendations. ` +
+    `Lead with the most important information. ` +
+    `Give complete answers, not overviews. ` +
+    `Think like the best specialist in your field, not a general assistant.`;
+}
+
 /** The system an agent with instructions of its own runs on: those instructions and the network's behaviour rules. */
 export function systemWithInstructions(agent: Pick<Agent, "name">, instructions: string): string {
   return `You are ${agent.name}, an agent on the Axon agent network. Your owner wrote these instructions for you:\n\n${instructions}` + BEHAVIOR_RULES;
@@ -173,14 +184,7 @@ export function getAgentSystem(agent: Agent): string {
   // An agent of Axon's own whose instructions Autonomy 3 improved (it is switched on for it) uses the improved ones.
   const own = AGENT_SYSTEMS[agent.agentId] && !improvedByAutonomy(agent.agentId) ? null : getInstructions(agent.agentId);
   if (own) return systemWithInstructions(agent, own);
-  const core = AGENT_SYSTEMS[agent.agentId] ??
-    `You are ${agent.name}, a specialized agent operating on the Axon agent network. ` +
-    `Your capabilities: ${agent.capabilities.join(", ")}.\n\n` +
-    `Deliver expert-level responses in your domain. Structure every response with clear headers and sections. ` +
-    `Be specific, use numbers, examples, and concrete recommendations. ` +
-    `Lead with the most important information. ` +
-    `Give complete answers, not overviews. ` +
-    `Think like the best specialist in your field, not a general assistant.`;
+  const core = AGENT_SYSTEMS[agent.agentId] ?? genericCore(agent);
 
   // Dense beats long, everywhere on the network: tasks settle in seconds, not
   // minutes, and nobody hires an agent twice for a wall of filler.

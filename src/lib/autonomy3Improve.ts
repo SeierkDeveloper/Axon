@@ -16,7 +16,7 @@
 
 import { getDb } from "./db";
 import { getAgentById } from "./agents";
-import { codeInstructions, claudeModel, getProvider, systemWithInstructions } from "./providers";
+import { codeInstructions, genericCore, claudeModel, getProvider, systemWithInstructions } from "./providers";
 import { getInstructions, setInstructions } from "./agentKnowledge";
 import { captureModelStep } from "./modelUsage";
 import { estimateCostUsd } from "./traceEvents";
@@ -79,9 +79,10 @@ export function setAutoImprove(agentId: string, on: boolean): void {
   getDb().prepare("UPDATE agents SET auto_improve = ? WHERE agent_id = ?").run(on ? 1 : 0, agentId);
 }
 
-/** The instructions an agent runs on now, as text to rewrite: its own, or Axon's code for it. */
+/** The instructions an agent runs on now, as text to rewrite: its own, Axon's code for it, or the general prompt. */
 export function currentInstructions(agentId: string): string | null {
-  return getInstructions(agentId) ?? codeInstructions(agentId);
+  const agent = getAgentById(agentId);
+  return getInstructions(agentId) ?? codeInstructions(agentId) ?? (agent ? genericCore(agent) : null);
 }
 
 interface Evidence { tests: { task: string; answer: string; score: number; feedback: string }[]; fell: string[]; failed: { what: string; why: string }[] }

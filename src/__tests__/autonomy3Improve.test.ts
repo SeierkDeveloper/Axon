@@ -78,6 +78,18 @@ describe("makes agents better: one attempt", () => {
   });
 });
 
+describe("makes agents better: an agent on the general prompt", () => {
+  it("improves an agent with no instructions of its own from the general prompt, and going back clears them", async () => {
+    createAgent({ agentId: "plain", name: "Plain", capabilities: ["translation"], publicKey: "pk-plain", provider: "anthropic", reputation: 5, createdAt: "2026-10-01T00:00:00Z" } as Agent);
+    tested("plain", 4); tested("plain", 5, NOW - 7_200_000);
+    setAutoImprove("plain", true);
+    expect(getInstructions("plain")).toBeNull();
+    expect((await improveAgent3("plain", NOW, ON, models(9)))?.outcome).toBe("kept");
+    expect(getAgentSystem(getAgentById("plain")!)).toMatch(/never mix du and Sie/);
+    expect(recentJobs(5, "improve")[0].detail).toMatchObject({ previous: null });
+  });
+});
+
 describe("makes agents better: slipping", () => {
   it("puts the old instructions back when the tests after the change score lower than before", async () => {
     agent("t");
