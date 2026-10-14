@@ -4,3 +4,5 @@ import "./autonomy3Rescue";
 import "./autonomy3Watch";
 import "./autonomy3React";
 import "./autonomy3Test";
+import "./autonomy3Attack";
+import "./autonomy3Replay";

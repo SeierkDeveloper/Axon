@@ -90,10 +90,10 @@ function failingNow(agentId: string): boolean {
  * of its own, not an orchestrator), is free, and is not failing. Most skills in common first, then the router's own
  * ranking (Proof Score, load). Null when there is none.
  */
-export function pickRescuer(failed: Agent, hirer: string): Agent | null {
+export function pickRescuer(failed: Agent, hirer: string, sharedSkills: number = RESCUE.sharedSkills): Agent | null {
   const skills = [...new Set((failed.capabilities ?? []).map((c) => c.toLowerCase()))];
   if (!skills.length) return null;
-  const need = Math.max(1, Math.ceil(skills.length * RESCUE.sharedSkills));
+  const need = Math.max(1, Math.ceil(skills.length * sharedSkills));
   const seen = new Map<string, { agent: Agent; score: number }>();
   for (const capability of skills) {
     for (const c of rankAgents({ capability, exclude: [failed.agentId, hirer], candidateLimit: 24 })) {
