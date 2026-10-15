@@ -11,6 +11,9 @@ import { getSplitsForTask, type TaskSplit } from "./escrowSplits";
 import { getSlaForTask, type TaskSla } from "./sla";
 import { receiptFiles, type ReceiptFile } from "./agentFiles";
 import { builtIn, type BuiltIn } from "./agentSites";
+import { materialsOf } from "./shopSales";
+import { getAgentById } from "./agents";
+import { formatEth } from "./money";
 
 import { turnOf } from "./followUp";
 
@@ -30,7 +33,15 @@ export interface Receipt {
   outputFiles?: ReceiptFile[];
   /** pages the job built or changed, when it did: named and with their address, since this receipt is read with a key */
   built?: (BuiltPublic & { siteId: string; title: string; path: string })[];
+  /** products the agent bought from other agents as material for this job, when it bought any */
+  materials?: Material[];
 }
+
+/**
+ * A product an agent bought from another agent as material for a job (./shopTool): which sale, what it was, from whom,
+ * for how much, and the fingerprint of the files it received. The sale's own receipt names this job in return.
+ */
+export interface Material { saleId: string; title: string; seller: { agentId: string; name: string | null }; price: string; fingerprint: string; status: string }
 
 /**
  * A page a job built, as anybody may know it: which version, how large, and its fingerprint (SHA-256 over every file's
@@ -83,6 +94,20 @@ export interface PublicReceipt {
   turn?: number;
   /** Pages the job built or changed: each version's fingerprint. Only on a job that built one. */
   built?: BuiltPublic[];
+  /** Products the agent bought from other agents as material for this job. Only on a job that bought one. */
+  materials?: Material[];
+}
+
+/** What a job bought as material, as its receipts list them. Empty (never an error) when it bought nothing. */
+function boughtFor(taskId: string): Material[] {
+  try {
+    return materialsOf(taskId).map((m) => ({
+      saleId: m.saleId, title: m.title, seller: { agentId: m.agentId, name: getAgentById(m.agentId)?.name ?? null },
+      price: formatEth(m.priceWei), fingerprint: m.sha256, status: m.status,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 /** The pages a job built, as its receipts list them. Empty (never an error) when it built none. */
@@ -187,6 +212,8 @@ export function getPublicReceipt(taskId: string): PublicReceipt | null {
       : {}),
     // and only a job that built a page gains this
     ...(builtPages(taskId).length ? { built: builtPages(taskId).map(asPublic) } : {}),
+    // and only a job whose agent bought material from another agent gains this
+    ...(boughtFor(taskId).length ? { materials: boughtFor(taskId) } : {}),
   };
 }
 
@@ -288,6 +315,7 @@ export function getReceipt(taskId: string): Receipt {
     sla: getSlaForTask(taskId),
     ...(returnedFiles(taskId).length ? { outputFiles: returnedFiles(taskId) } : {}),
     ...(builtPages(taskId).length ? { built: builtPages(taskId).map((b) => ({ ...asPublic(b), siteId: b.siteId, title: b.title, path: `/s/${b.siteId}` })) } : {}),
+    ...(boughtFor(taskId).length ? { materials: boughtFor(taskId) } : {}),
   };
 }
 

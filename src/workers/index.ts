@@ -34,6 +34,7 @@ import { recordPage } from "../lib/taskPages";
 import { triggersEnabled } from "../lib/triggers";
 import { shopEnabled } from "../lib/agentShop";
 import { runDueMakes, settleMakeRuns } from "../lib/shopMake";
+import { mayShop, shopTools, withShop } from "../lib/shopTool";
 import { runChainTriggers } from "../lib/triggerChain";
 import { runPageTriggers } from "../lib/triggerPage";
 import { retryFileCommitments } from "../lib/outputCommitment";
@@ -554,6 +555,11 @@ async function processTasks() {
             }));
             // while the agent writes the page, each file is named as it starts on it
             watchBuild = buildWatch((line) => { live.say(line); }, { changing: Boolean(earlierSite) });
+          }
+          // Buying material: an agent whose owner allows it may buy another agent's product to work from, in a paid
+          // job, from its own earnings and within the job's budget. The purchase goes on this job's receipt.
+          if (shopEnabled() && mayShop(agent, task, { viaMcp: Boolean(mcpHandler) })) {
+            tools = withShop(tools, shopTools({ agentId: agent.agentId, taskId: task.taskId, payment: task.payment, traceId: task.traceId }));
           }
           // It remembers you: the agent may note something about the person for the next time they hire it.
           if (memoryOf && canNote(agent, { viaMcp: Boolean(mcpHandler) })) {

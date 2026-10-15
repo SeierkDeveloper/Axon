@@ -8,10 +8,11 @@ import { useCallback, useEffect, useState } from "react";
 
 interface Page { siteId: string; title: string; version: number; url: string }
 interface Mine { productId: string; title: string; description: string; price: string; sold: number; onSale: boolean; available: boolean; preview: string; madeByAgent: boolean }
-interface Rules { minPrice: string; maxPrice: string; titleChars: number; descriptionChars: number; kindChars: number; makeEveryHours: { min: number; max: number }; makePerDayMax: number }
+interface Rules { minPrice: string; maxPrice: string; titleChars: number; descriptionChars: number; kindChars: number; makeEveryHours: { min: number; max: number }; makePerDayMax: number; materialMaxPerJob: string }
 interface Run { runId: string; at: string; status: string; productId: string | null; error: string | null }
 interface Make { can: boolean; on: boolean; kind: string | null; price: string | null; everyHours: number; perDay: number; nextAt: string | null; runs: Run[] }
-interface Data { products: Mine[]; pages: Page[]; settings: { make: Make }; rules: Rules }
+interface BuySetting { can: boolean; on: boolean; maxPerJob: string | null }
+interface Data { products: Mine[]; pages: Page[]; settings: { make: Make; buy: BuySetting }; rules: Rules }
 
 const EVERY = [4, 6, 12, 24, 48, 72, 168];
 const everyText = (h: number) => (h % 24 === 0 ? (h === 24 ? "every day" : h === 168 ? "every week" : `every ${h / 24} days`) : `every ${h} hours`);
@@ -30,6 +31,8 @@ export default function ShopOwner({ agentId, apiKey, onChanged }: { agentId: str
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   // making products on its own: what is typed, before it is saved
   const [make, setMake] = useState<{ kind: string; price: string; everyHours: number; perDay: number } | null>(null);
+  // buying material for its jobs: the most for one job, before it is saved
+  const [buyMax, setBuyMax] = useState<string | null>(null);
 
   const auth = { authorization: `Bearer ${apiKey}` };
   const fetchData = useCallback(() => fetch(`/api/shop/agents/${encodeURIComponent(agentId)}`, { headers: { authorization: `Bearer ${apiKey}` } }).then((r) => (r.ok ? (r.json() as Promise<Data>) : null)), [agentId, apiKey]);
@@ -75,8 +78,16 @@ export default function ShopOwner({ agentId, apiKey, onChanged }: { agentId: str
     setBusy(null);
   };
 
+  const saveBuying = async (on: boolean) => {
+    if (!data) return;
+    setBusy("buy"); setMsg(null);
+    const ok = await done(await fetch(`/api/shop/agents/${encodeURIComponent(agentId)}`, { method: "PUT", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ buy: { on, maxEth: buyMax ?? strip(data.settings.buy.maxPerJob ?? "") } }) }), on ? "Saved. In paid jobs it may now buy material." : "It no longer buys material.");
+    if (ok) setBuyMax(null);
+    setBusy(null);
+  };
+
   if (!data) return null;
-  const m = data.settings.make;
+  const m = data.settings.make, b = data.settings.buy;
   const form = make ?? { kind: m.kind ?? "", price: strip(m.price ?? ""), everyHours: m.everyHours, perDay: m.perDay };
   return (
     <div className="mt-4 rounded-xl border border-dashed border-gray-300 p-4 dark:border-gray-700">
@@ -157,6 +168,19 @@ export default function ShopOwner({ agentId, apiKey, onChanged }: { agentId: str
               ))}
             </ul>
           )}
+        </div>
+      )}
+      {b.can && (
+        <div className="mt-4 border-t border-gray-200 pt-3 dark:border-gray-800">
+          <p className="text-sm font-medium text-gray-900 dark:text-white">Let it buy material for its jobs</p>
+          <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+            {b.on ? `On: in a paid job it may spend up to ${b.maxPerJob} on other agents' products, from its own earnings.` : `In a paid job it may buy another agent's product to work from, paid from its own earnings and never more than the job's price. At most ${data.rules.materialMaxPerJob} a job.`}
+          </p>
+          <div className="mt-2 flex gap-2">
+            <input value={buyMax ?? strip(b.maxPerJob ?? "")} onChange={(e) => setBuyMax(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="Most for one job, in ETH" aria-label="Most to spend on material in one job, in ETH" className={`${input} w-48 font-mono`} />
+            <button type="button" onClick={() => void saveBuying(true)} disabled={busy !== null || !(buyMax ?? b.maxPerJob)} className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-gray-900">{b.on ? "Save" : "Switch on"}</button>
+            {b.on && <button type="button" onClick={() => void saveBuying(false)} disabled={busy !== null} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-700 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300">Switch off</button>}
+          </div>
         </div>
       )}
       {msg && <p className={`mt-2 text-xs ${msg.ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>{msg.text}</p>}

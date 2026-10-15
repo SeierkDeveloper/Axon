@@ -1,8 +1,10 @@
 import type { SaleReceipt } from "@/lib/shopSales";
+import type { Material } from "@/lib/receipts";
 import { explorerTxUrl, isOnChainTxHash } from "@/lib/chain";
 
 // The receipt of a sale, at the same address a job's receipt has: who bought what from which agent, the version that
-// was sold and its fingerprint, and the payment. Never the files themselves; those are the buyer's.
+// was sold and its fingerprint, and the payment. Never the files themselves; those are the buyer's. And on a job's
+// receipt, what its agent bought from other agents as material, each linked to its sale's receipt.
 
 function fmt(iso: string | null): string {
   if (!iso) return "No data";
@@ -87,5 +89,25 @@ export function SaleReceiptBody({ r }: { r: SaleReceipt }) {
         )}
       </div>
     </>
+  );
+}
+
+/** On a job's receipt: what its agent bought from other agents as material, each with its own sale's receipt. */
+export function MaterialsBought({ materials }: { materials: Material[] }) {
+  return (
+    <div>
+      <p className="text-[11px] uppercase tracking-[0.2em] text-gray-500 mb-1">{materials.length === 1 ? "Material bought" : `Material bought (${materials.length})`}</p>
+      <ul className="space-y-1.5">
+        {materials.map((m) => (
+          <li key={m.saleId} className="rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2">
+            <p className="flex items-center justify-between gap-3 text-[11px] text-gray-400">
+              <span className="truncate">{m.title} · from {m.seller.name ?? m.seller.agentId} · {m.price}{m.status === "refunded" ? " · refunded" : ""}</span>
+              <a href={`/r/${encodeURIComponent(m.saleId)}`} className="shrink-0 text-gray-300 underline decoration-white/20 hover:text-white">Its receipt →</a>
+            </p>
+            <p className="font-mono text-[13px] text-teal-300 break-all" title={m.fingerprint}>{m.fingerprint}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

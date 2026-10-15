@@ -27,6 +27,9 @@ export type TraceEventKind =
   // (as its output hash) with the version's number and size: enough for anybody to check that the page at a link
   // is the one this job built, and nothing about what the page says or where it is.
   | "site.built"
+  // An agent bought another agent's product as material for this job (./shopTool), from its own earnings. The
+  // fingerprint of what it bought is the output hash; the sale and the price are in meta.
+  | "material.bought"
   | "progress"
   | "task.completed"
   | "task.failed"

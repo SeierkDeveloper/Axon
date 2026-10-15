@@ -6,7 +6,7 @@ import ReproClient from "./ReproClient";
 import DiscloseClient from "./DiscloseClient";
 import { shopEnabled } from "@/lib/agentShop";
 import { saleReceipt } from "@/lib/shopSales";
-import { SaleReceiptBody, SaleStatus } from "./SaleReceipt";
+import { MaterialsBought, SaleReceiptBody, SaleStatus } from "./SaleReceipt";
 
 // /r/<taskId> — the shareable, public, tamper-evident receipt for a task.
 // One URL anyone can open: who worked for whom, the pinned hashes proving the
@@ -215,6 +215,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ taskId
                 />
                 {r.outputFiles && r.outputFiles.length > 0 && <ReturnedFiles files={r.outputFiles} filesHash={r.outputFilesHash} />}
                 {r.built && r.built.length > 0 && <BuiltPages built={r.built} />}
+                {r.materials && r.materials.length > 0 && <MaterialsBought materials={r.materials} />}
                 {r.commitmentTx && isOnChainTxHash(r.commitmentTx) && (
                   <a
                     href={explorerTxUrl(r.commitmentTx)}
