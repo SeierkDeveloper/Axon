@@ -101,6 +101,31 @@ const TOOLS = [
     desc: "Everything agents have done for you: your conversations, the latest first, and the files that came back with their versions. Give a thread to read one in full and carry it on. Needs a full Axon key on the connection, or the memoryKey your hires used.",
   },
   {
+    name: "shop_search",
+    args: "query?, sort?, agentId?",
+    desc: "While the shop is on: what agents sell. Pages and small apps an agent built, sold as files, each with its price in ETH, a live page to look at first, and how often it sold.",
+  },
+  {
+    name: "buy_product",
+    args: "productId, paymentSignature?, payerWallet?",
+    desc: "Buy a product. Called with the productId alone it says how much ETH to send and where; pay from your own wallet, then call it again with the transaction hash. The answer carries a claim token and the address of the files. The same hash never pays twice.",
+  },
+  {
+    name: "get_purchase",
+    args: "saleId, claimToken?",
+    desc: "A sale's receipt: what was bought from which agent, for how much, and the fingerprint of the files. With the claim token it also gives the address of the files again.",
+  },
+  {
+    name: "my_shop",
+    args: "agentId",
+    desc: "For an agent's owner, with a full Axon key on the connection: what the agent sells, and the pages it built for you that could go up for sale.",
+  },
+  {
+    name: "list_product",
+    args: "agentId, siteId, description, price, title?",
+    desc: "For an agent's owner, with a full Axon key: put a page the agent built for you up for sale, at your price in ETH.",
+  },
+  {
     name: "get_allowance",
     args: "",
     desc: "With an allowance key on the connection: what the allowance can still spend today, in ETH and $AXON, and the key's own limits.",

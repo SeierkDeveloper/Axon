@@ -1,4 +1,4 @@
-type InferenceProvider = "anthropic" | "ollama" | "openai" | "grok";
+type InferenceProvider = "anthropic" | "ollama" | "openai" | "grok" | "nock";
 type VerificationStatus = "unverified" | "reachable" | "x402_compliant" | "unreachable" | "platform" | "modulr";
 interface Agent {
     agentId: string;
@@ -486,6 +486,176 @@ interface LibraryFile extends TaskFile {
     };
     createdAt: string;
     receipt: string;
+}
+/**
+ * A product in the shop: one version of a page an agent built, put up for sale by the agent's owner. `price` is for
+ * reading; `priceWei` is the exact amount. `preview` opens the live page at the version that is sold, and
+ * `fingerprint` is what the buyer's receipt will carry.
+ */
+interface Product {
+    productId: string;
+    agentId: string;
+    agentName: string;
+    title: string;
+    description: string;
+    price: string;
+    priceWei: string;
+    sold: number;
+    /** made and listed by the agent on its own, not by its owner */
+    madeByAgent: boolean;
+    version: number;
+    fingerprint: string;
+    preview: string;
+    available: boolean;
+    listedAt: string;
+}
+/** How to pay for a product: the exact amount in wei, sent in ETH on Robinhood Chain to `payTo`. */
+interface ProductPayment {
+    payTo: string;
+    amount: string;
+    amountWei: string;
+    currency: "ETH";
+    chainId: number;
+    then: string;
+}
+/** A sale's receipt, which anybody may read. Never the files themselves. */
+interface SaleReceipt {
+    saleId: string;
+    status: "paid" | "delivered" | "refunded";
+    product: {
+        productId: string;
+        title: string;
+        version: number;
+        fingerprint: string;
+    };
+    seller: {
+        agentId: string;
+        name: string | null;
+    };
+    buyer: {
+        id: string;
+        kind: "wallet" | "agent";
+        name: string | null;
+    };
+    /** the job an agent bought it for, as material */
+    forTaskId: string | null;
+    price: string;
+    priceWei: string;
+    settlement: {
+        amount: number;
+        currency: string;
+        status: string;
+        signature: string | null;
+        settledAt: string | null;
+    } | null;
+    notes: PaymentNote[];
+    createdAt: string;
+    deliveredAt: string | null;
+}
+/**
+ * What a purchase returns. `claimToken` opens the files again (`downloadPurchase`); it comes once, with the first
+ * answer for a payment. The same payment sent again returns the same sale with `alreadyBought` and no key.
+ */
+interface Purchase {
+    saleId: string;
+    receipt: SaleReceipt;
+    receiptUrl: string;
+    claimToken?: string;
+    files?: string;
+    alreadyBought?: boolean;
+    note?: string;
+}
+/** A purchase as the buyer's wallet lists it. */
+interface PurchaseListItem extends SaleReceipt {
+    receiptUrl: string;
+    files?: string;
+}
+/** How to buy: with a payer that sends the ETH itself, or with a payment already sent. */
+type BuyProductOptions = {
+    pay: X402PayFunction;
+} | {
+    paymentSignature: string;
+    payerWallet: string;
+    quotedWei?: string;
+};
+interface ListProductsOptions {
+    query?: string;
+    sort?: "newest" | "sold" | "price";
+    agentId?: string;
+    limit?: number;
+}
+interface ListProductOptions {
+    agentId: string;
+    siteId: string;
+    title?: string;
+    description: string;
+    price: string;
+}
+/** What an agent may do in the shop by itself, as its owner sets it. */
+interface ShopSettings {
+    make: {
+        can: boolean;
+        on: boolean;
+        kind: string | null;
+        price: string | null;
+        everyHours: number;
+        perDay: number;
+        nextAt: string | null;
+        runs: {
+            runId: string;
+            at: string;
+            status: string;
+            taskId: string | null;
+            productId: string | null;
+            error: string | null;
+        }[];
+    };
+    buy: {
+        can: boolean;
+        on: boolean;
+        maxPerJob: string | null;
+    };
+}
+interface ShopSettingsInput {
+    make?: {
+        on: boolean;
+        kind?: string;
+        price?: string;
+        everyHours?: number;
+        perDay?: number;
+    };
+    buy?: {
+        on: boolean;
+        maxEth?: string;
+    };
+}
+/** The shop as an agent's owner reads it. */
+interface OwnerShop {
+    products: (Product & {
+        onSale: boolean;
+    })[];
+    pages: {
+        siteId: string;
+        title: string;
+        version: number;
+        updatedAt: string;
+        url: string;
+    }[];
+    settings: ShopSettings;
+    rules: {
+        minPrice: string;
+        maxPrice: string;
+        perAgent: number;
+        titleChars: number;
+        descriptionChars: number;
+        kindChars: number;
+        makeEveryHours: {
+            min: number;
+            max: number;
+        };
+        makePerDayMax: number;
+        materialMaxPerJob: string;
+    };
 }
 /** How `waitForTask` (and `hire`) deal with a job that pauses on its hirer. */
 interface WaitOptions extends HirerOptions {
@@ -2277,4 +2447,4 @@ interface MindRewardShare {
     endAt: number;
 }
 
-export type { LibraryOptions as $, ApprovalRequest as A, AgentMetrics as B, CreateProfileOptions as C, DelegateOptions as D, Receipt as E, FindAgentsOptions as F, GrantMandateOptions as G, HirerOptions as H, HireOptions as I, HireResult as J, RunOptions as K, ListPurchasesOptions as L, RunResult as M, AxonToolsOptions as N, AxonTool as O, PurchasesView as P, QuorumTask as Q, RegisterOptions as R, SignMandate as S, TaskRequest as T, UpdateAgentOptions as U, VerifyOptions as V, WatchPurchasesOptions as W, X402PayFunction as X, FollowUpOptions as Y, WaitOptions as Z, TaskNote as _, CommerceProfile as a, ExplorerFeed as a$, AgentMemory as a0, Conversation as a1, ConversationTurn as a2, LibraryFile as a3, LibraryPage as a4, BuiltPageView as a5, PageAnswer as a6, PageFingerprint as a7, UploadedFile as a8, FileVersion as a9, GetTaskHistoryOptions as aA, RegisterGatewayProviderOptions as aB, GatewayProvider as aC, GatewayCallOptions as aD, GatewayCallResult as aE, X402Currency as aF, RegisterWebhookOptions as aG, Webhook as aH, WebhookDelivery as aI, CreateOpenTaskOptions as aJ, OpenTask as aK, ListOpenTasksOptions as aL, Bid as aM, SplitRecipient as aN, TaskSplitsView as aO, CreateWorkflowTemplateOptions as aP, WorkflowTemplate as aQ, InstantiateTemplateOptions as aR, AttestCapabilityOptions as aS, CapabilityAttestation as aT, DefineSlaOptions as aU, TaskSla as aV, FileAbuseReportOptions as aW, AbuseReport as aX, FeePolicy as aY, ProtocolInfo as aZ, ProtocolNegotiation as a_, AllowanceStatus as aa, CreateAllowanceKeyOptions as ab, CreatedAllowanceKey as ac, AllowanceKey as ad, CreateRetainerOptions as ae, Retainer as af, RetainerLimits as ag, UpdateRetainerOptions as ah, RetainerRun as ai, ListTokenMindsOptions as aj, TokenMindPage as ak, TokenMind as al, ListMindThoughtsOptions as am, MindThought as an, MindRewardShare as ao, MindBriefState as ap, SetMindBriefResult as aq, AgentRetainers as ar, RouteHireOptions as as, RoutingInfo as at, PlanOptions as au, PlanResult as av, SubcontractOptions as aw, SubcontractResult as ax, OptimizeResult as ay, PaymentNote as az, SpendMandate as b, Review as b$, SystemStatus as b0, SubmitBidOptions as b1, AcceptBidOptions as b2, X402Requirements as b3, RegisterMcpServerOptions as b4, McpServer as b5, McpToolRecord as b6, CallMcpToolOptions as b7, StartMissionOptions as b8, Mission as b9, ExplorerTask as bA, FeeTier as bB, FileSource as bC, MindActionKind as bD, MindBooks as bE, MindBrief as bF, MindFees as bG, MindMove as bH, MindOrder as bI, MindPlan as bJ, MindPromises as bK, MindReport as bL, MindState as bM, MindTrackRecord as bN, MindTreasury as bO, MissionStatus as bP, OpenTaskStatus as bQ, PaymentHandlerDescriptor as bR, PaymentInstrument as bS, PaymentNoteKind as bT, PaymentStatus as bU, PlanView as bV, PlannedStep as bW, PurchaseStatus as bX, QuorumStatus as bY, ReceiptDelivery as bZ, RetainerSchedule as b_, OpenChannelOptions as ba, OpenChannelResult as bb, PaymentChannel as bc, ReproductionProof as bd, WorkerMetrics as be, X402PaymentOption as bf, AgentRuntimeOptions as bg, AxonAgent as bh, AbuseReason as bi, AbuseStatus as bj, AgentContext as bk, AgentRating as bl, AgentRunHandler as bm, AllowanceAccount as bn, AllowanceKeyLimitsView as bo, ApiErrorBody as bp, ApiErrorCode as bq, BidStatus as br, BuiltPage as bs, BuiltPageVersion as bt, ComponentStatus as bu, DefineSplitsOptions as bv, DelegationResult as bw, DelegationStep as bx, EndpointUptime as by, ExplorerSettlement as bz, PurchaseIntent as c, SentForm as c0, SlaStatus as c1, SpendSummary as c2, SplitPayout as c3, StepShot as c4, TaskSplit as c5, TaskStatus as c6, TokenMindEvent as c7, TokenMindSummary as c8, TokenMindTotals as c9, VisitedPage as ca, WebhookEventType as cb, WorkflowStep as cc, PaymentOptionsView as d, ApproveOptions as e, ApproveResult as f, WatchHandle as g, AutoApprovePolicy as h, ParsedAuthorisation as i, PurchaseExpectation as j, AxonConfig as k, AuthChallenge as l, AuthVerifyResult as m, Agent as n, CapabilitySummary as o, SendTaskOptions as p, TaskProgress as q, TaskHandler as r, TaskResult as s, CreateQuorumOptions as t, QuorumResult as u, Workflow as v, GetTransactionsOptions as w, Transaction as x, AgentBalance as y, Reputation as z };
+export type { LibraryOptions as $, ApprovalRequest as A, AgentMetrics as B, CreateProfileOptions as C, DelegateOptions as D, Receipt as E, FindAgentsOptions as F, GrantMandateOptions as G, HirerOptions as H, HireOptions as I, HireResult as J, RunOptions as K, ListPurchasesOptions as L, RunResult as M, AxonToolsOptions as N, AxonTool as O, PurchasesView as P, QuorumTask as Q, RegisterOptions as R, SignMandate as S, TaskRequest as T, UpdateAgentOptions as U, VerifyOptions as V, WatchPurchasesOptions as W, X402PayFunction as X, FollowUpOptions as Y, WaitOptions as Z, TaskNote as _, CommerceProfile as a, WorkflowTemplate as a$, AgentMemory as a0, Conversation as a1, ConversationTurn as a2, LibraryFile as a3, LibraryPage as a4, BuiltPageView as a5, PageAnswer as a6, PageFingerprint as a7, ListProductsOptions as a8, Product as a9, MindBriefState as aA, SetMindBriefResult as aB, AgentRetainers as aC, RouteHireOptions as aD, RoutingInfo as aE, PlanOptions as aF, PlanResult as aG, SubcontractOptions as aH, SubcontractResult as aI, OptimizeResult as aJ, PaymentNote as aK, GetTaskHistoryOptions as aL, RegisterGatewayProviderOptions as aM, GatewayProvider as aN, GatewayCallOptions as aO, GatewayCallResult as aP, X402Currency as aQ, RegisterWebhookOptions as aR, Webhook as aS, WebhookDelivery as aT, CreateOpenTaskOptions as aU, OpenTask as aV, ListOpenTasksOptions as aW, Bid as aX, SplitRecipient as aY, TaskSplitsView as aZ, CreateWorkflowTemplateOptions as a_, ProductPayment as aa, BuyProductOptions as ab, Purchase as ac, SaleReceipt as ad, PurchaseListItem as ae, OwnerShop as af, ListProductOptions as ag, ShopSettingsInput as ah, ShopSettings as ai, UploadedFile as aj, FileVersion as ak, AllowanceStatus as al, CreateAllowanceKeyOptions as am, CreatedAllowanceKey as an, AllowanceKey as ao, CreateRetainerOptions as ap, Retainer as aq, RetainerLimits as ar, UpdateRetainerOptions as as, RetainerRun as at, ListTokenMindsOptions as au, TokenMindPage as av, TokenMind as aw, ListMindThoughtsOptions as ax, MindThought as ay, MindRewardShare as az, SpendMandate as b, OpenTaskStatus as b$, InstantiateTemplateOptions as b0, AttestCapabilityOptions as b1, CapabilityAttestation as b2, DefineSlaOptions as b3, TaskSla as b4, FileAbuseReportOptions as b5, AbuseReport as b6, FeePolicy as b7, ProtocolInfo as b8, ProtocolNegotiation as b9, ApiErrorBody as bA, ApiErrorCode as bB, BidStatus as bC, BuiltPage as bD, BuiltPageVersion as bE, ComponentStatus as bF, DefineSplitsOptions as bG, DelegationResult as bH, DelegationStep as bI, EndpointUptime as bJ, ExplorerSettlement as bK, ExplorerTask as bL, FeeTier as bM, FileSource as bN, MindActionKind as bO, MindBooks as bP, MindBrief as bQ, MindFees as bR, MindMove as bS, MindOrder as bT, MindPlan as bU, MindPromises as bV, MindReport as bW, MindState as bX, MindTrackRecord as bY, MindTreasury as bZ, MissionStatus as b_, ExplorerFeed as ba, SystemStatus as bb, SubmitBidOptions as bc, AcceptBidOptions as bd, X402Requirements as be, RegisterMcpServerOptions as bf, McpServer as bg, McpToolRecord as bh, CallMcpToolOptions as bi, StartMissionOptions as bj, Mission as bk, OpenChannelOptions as bl, OpenChannelResult as bm, PaymentChannel as bn, ReproductionProof as bo, WorkerMetrics as bp, X402PaymentOption as bq, AgentRuntimeOptions as br, AxonAgent as bs, AbuseReason as bt, AbuseStatus as bu, AgentContext as bv, AgentRating as bw, AgentRunHandler as bx, AllowanceAccount as by, AllowanceKeyLimitsView as bz, PurchaseIntent as c, PaymentHandlerDescriptor as c0, PaymentInstrument as c1, PaymentNoteKind as c2, PaymentStatus as c3, PlanView as c4, PlannedStep as c5, PurchaseStatus as c6, QuorumStatus as c7, ReceiptDelivery as c8, RetainerSchedule as c9, Review as ca, SentForm as cb, SlaStatus as cc, SpendSummary as cd, SplitPayout as ce, StepShot as cf, TaskSplit as cg, TaskStatus as ch, TokenMindEvent as ci, TokenMindSummary as cj, TokenMindTotals as ck, VisitedPage as cl, WebhookEventType as cm, WorkflowStep as cn, PaymentOptionsView as d, ApproveOptions as e, ApproveResult as f, WatchHandle as g, AutoApprovePolicy as h, ParsedAuthorisation as i, PurchaseExpectation as j, AxonConfig as k, AuthChallenge as l, AuthVerifyResult as m, Agent as n, CapabilitySummary as o, SendTaskOptions as p, TaskProgress as q, TaskHandler as r, TaskResult as s, CreateQuorumOptions as t, QuorumResult as u, Workflow as v, GetTransactionsOptions as w, Transaction as x, AgentBalance as y, Reputation as z };

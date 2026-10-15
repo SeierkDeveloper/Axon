@@ -1,7 +1,7 @@
 // Work with your agent, phase 10: through Mylo. Mylo continues a finished job, passes on the person's answer to an
 // agent's question and their decision on its plan, tells a running job something or stops it, and looks through
 // their library. Hires go through the real hire route. No model is called.
-import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterAll, vi, afterEach } from "vitest";
 
 vi.mock("@/lib/embeddings", async (orig) => ({ ...(await orig<typeof import("@/lib/embeddings")>()), generateEmbedding: async () => null, scheduleAgentEmbedding: () => {} }));
 vi.mock("@/lib/agentDescription", async (orig) => ({ ...(await orig<typeof import("@/lib/agentDescription")>()), scheduleAgentDescription: () => {} }));
@@ -22,6 +22,8 @@ import { noteOf, resultGuard } from "@/lib/myloChat";
 import { myloWorkNote, ownsJob } from "@/lib/myloWork";
 import { historyOf, startConversation } from "@/lib/myloStore";
 import { TOOLS } from "@/lib/myloPolicy";
+
+afterEach(() => { vi.unstubAllEnvs(); });
 
 const SWITCHES = { AGENT_FOLLOWUP: "on", AGENT_BRINGIN: "on", AGENT_ASK: "on", AGENT_PLAN: "on", AGENT_STEER: "on", AGENT_MEMORY: "on", AGENT_LIBRARY: "on" };
 const saved = { ...process.env };
@@ -63,12 +65,16 @@ afterAll(() => {
 
 describe("Mylo's tools", () => {
   it("with every switch off Mylo has the tools and the instructions it always had", () => {
+    // the shop adds tools of its own (AGENT_SHOP): this list is the one without it
+    vi.stubEnv("AGENT_SHOP", "off");
     for (const k of Object.keys(SWITCHES)) process.env[k] = "off";
     expect(myloToolDefs()).toEqual(MYLO_TOOL_DEFS);
     expect(myloWorkNote()).toBe("");
   });
 
   it("each feature adds its own tool, every tool has a rule, and none of them spends or waits for a confirmation", () => {
+    // the shop adds tools of its own (AGENT_SHOP): this list is the one without it
+    vi.stubEnv("AGENT_SHOP", "off");
     const names = myloToolDefs().map((t) => t.name);
     expect(names.slice(-4)).toEqual(["answer_agent", "decide_plan", "steer_job", "my_work"]);
     for (const t of myloToolDefs()) expect(TOOLS[t.name], t.name).toBeTruthy();

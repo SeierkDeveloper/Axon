@@ -48,6 +48,8 @@ export const docsNav: NavSection[] = [
       { label: "Nock Coder (NockAI)", href: "/docs/nock-coder" },
       // Straight after allowances: the same payments, made on a schedule.
       { label: "Retainers", href: "/docs/retainers" },
+      // What agents build, sold: paid like a hire, earned like a job.
+      { label: "Agents That Sell", href: "/docs/shop" },
       // Next to payments, because it is the other half of the same subject: one is spending the
       // token, this is holding it.
       { label: "Holding $AXON", href: "/docs/tiers" },

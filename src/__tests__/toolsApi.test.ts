@@ -5,12 +5,14 @@
 // in Cursor and a model in a Python script mean the same thing by "hire". Most of this file is
 // checking that the translation is right and that nothing has quietly grown a second copy.
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { getDb } from "@/lib/db";
 import { GET as toolsGET, OPTIONS as toolsOPTIONS } from "@/app/api/tools/route";
 import { POST as callPOST } from "@/app/api/tools/call/route";
 import { MCP_TOOLS } from "@/lib/mcpServer";
+
+afterEach(() => { vi.unstubAllEnvs(); });
 
 const get = async (query = "") => {
   const res = await toolsGET(new NextRequest(`https://axon-agents.com/api/tools${query}`));
@@ -83,6 +85,8 @@ describe("the schemas a model is handed", () => {
   });
 
   it("offers every tool the MCP endpoint offers, and no others", async () => {
+    // the shop adds tools of its own (AGENT_SHOP): this list is the one without it
+    vi.stubEnv("AGENT_SHOP", "off");
     // The check that matters: one implementation. A tool that exists on one door and not the other
     // means the doors have started drifting.
     const { body } = await get("?format=openai");

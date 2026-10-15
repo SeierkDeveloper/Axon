@@ -3,7 +3,7 @@
 // receipt; (3) paid hires return payment requirements instead of running; (4)
 // task outputs are readable ONLY with the claim token issued at hire time.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as mcpPOST, GET as mcpGET } from "@/app/mcp/route";
 import { claimTokenFor } from "@/lib/mcpServer";
@@ -11,6 +11,8 @@ import { createAgent } from "@/lib/agents";
 import { createTask, startTask, completeTask } from "@/lib/tasks";
 import { getDb } from "@/lib/db";
 import type { Agent } from "@/sdk/types";
+
+afterEach(() => { vi.unstubAllEnvs(); });
 
 let n = 0;
 function makeAgent(overrides: Partial<Agent> = {}): Agent {
@@ -73,6 +75,8 @@ describe("MCP endpoint: protocol surface", () => {
   });
 
   it("tools/list exposes the marketplace and retainer tools", async () => {
+    // the shop adds tools of its own (AGENT_SHOP): this list is the one without it
+    vi.stubEnv("AGENT_SHOP", "off");
     const res = await rpc("tools/list");
     const json = (await res.json()) as { result: { tools: { name: string }[] } };
     const names = json.result.tools.map((t) => t.name);

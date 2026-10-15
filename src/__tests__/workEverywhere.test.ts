@@ -1,6 +1,6 @@
 // Work with your agent, phase 10: everywhere. What a hire can do on the site it can do from an assistant (the tool
 // layer), from Mylo and from the SDK. This file is the tool layer and the hire route's part in it. No model is called.
-import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,6 +22,8 @@ import { memoryOwnerOf } from "@/lib/agentMemory";
 import { libraryOwnerOf } from "@/lib/library";
 import { handleMcpMessage, claimTokenFor, mcpTools, agentToolset, MCP_TOOLS } from "@/lib/mcpServer";
 import { POST as hire } from "@/app/api/tasks/route";
+
+afterEach(() => { vi.unstubAllEnvs(); });
 
 const SWITCHES = { AGENT_FOLLOWUP: "on", AGENT_BRINGIN: "on", AGENT_ASK: "on", AGENT_PLAN: "on", AGENT_STEER: "on", AGENT_MEMORY: "on", AGENT_LIBRARY: "on", AGENT_FILES: "on", AGENT_OFFICE: "on" };
 const KEY = "k".repeat(40);
@@ -61,11 +63,15 @@ afterAll(() => {
 
 describe("the tool list", () => {
   it("with every switch off it is exactly what it was", () => {
+    // the shop adds tools of its own (AGENT_SHOP): this list is the one without it
+    vi.stubEnv("AGENT_SHOP", "off");
     for (const k of Object.keys(SWITCHES)) process.env[k] = "off";
     expect(mcpTools()).toEqual(MCP_TOOLS);
   });
 
   it("each feature adds its own part and nothing else", () => {
+    // the shop adds tools of its own (AGENT_SHOP): this list is the one without it
+    vi.stubEnv("AGENT_SHOP", "off");
     for (const k of Object.keys(SWITCHES)) process.env[k] = "off";
     const hireProps = () => Object.keys(mcpTools().find((t) => t.name === "hire_agent")!.inputSchema.properties);
     const before = hireProps();

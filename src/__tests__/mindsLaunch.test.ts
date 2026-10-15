@@ -204,6 +204,8 @@ describe("Mylo getting a launch ready", () => {
   const ctx = (w: string) => ({ wallet: w, owner: w, conversationId: startConversation(w, "t").id });
 
   it("is the tool it always was while Agent Minds is off", async () => {
+    // the shop adds tools of its own (AGENT_SHOP): this list is the one without it
+    vi.stubEnv("AGENT_SHOP", "off");
     vi.stubEnv("AGENT_MINDS", "off");
     expect(myloToolDefs()).toBe(MYLO_TOOL_DEFS);
     const out = await runTool("launch_token", { name: "Ledger Lens", ticker: "lens", what_the_agent_does: "Reads a company's filings and explains what changed" }, ctx(wallet()));
@@ -212,6 +214,8 @@ describe("Mylo getting a launch ready", () => {
   });
 
   it("fills in the one launch screen from a sentence, for a new agent", async () => {
+    // the shop adds tools of its own (AGENT_SHOP): this list is the one without it
+    vi.stubEnv("AGENT_SHOP", "off");
     vi.stubEnv("AGENT_MINDS", "on");
     const def = myloToolDefs().find((t) => t.name === "launch_token")!;
     expect(def.description).toMatch(/new agent/);

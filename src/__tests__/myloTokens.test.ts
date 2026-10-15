@@ -1,5 +1,5 @@
 // Mylo meets the minds, phase 1: Mylo reads the board of tokens launched here, as the launch page shows it to anyone.
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("@/lib/ethPrice", () => ({ ethUsd: async () => 2000 }));
 
@@ -9,6 +9,8 @@ import { TOOLS, toolGate } from "@/lib/myloPolicy";
 import { upsertToken } from "@/lib/mindsStore";
 import { findTokens } from "@/lib/mindsStats";
 import { startConversation } from "@/lib/myloStore";
+
+afterEach(() => { vi.unstubAllEnvs(); });
 
 let n = 0;
 const addr = () => `0x${(++n + 7_700_000).toString(16).padStart(40, "0")}`;
@@ -33,6 +35,8 @@ beforeEach(() => { vi.stubEnv("AGENT_MINDS", "on"); });
 
 describe("Mylo reading the board", () => {
   it("is a tool the policy knows, open to anyone, and only there with Agent Minds on", async () => {
+    // the shop adds tools of its own (AGENT_SHOP): this list is the one without it
+    vi.stubEnv("AGENT_SHOP", "off");
     for (const d of MINDS_TOOL_DEFS) expect(TOOLS[d.name]).toBeTruthy();
     expect(toolGate("token_board", false)).toEqual({ ok: true, confirm: false });
     expect(myloToolDefs().map((t) => t.name)).toContain("token_board");
