@@ -40,7 +40,34 @@ function payError(msg: string, price: string): string {
   return "The payment could not be made. Try again.";
 }
 
-function Buy({ p, owned, apiKey, receiver, rpcUrl, onBought }: { p: ShopProduct; owned: Owned | null; apiKey: string | null; receiver: string; rpcUrl: string; onBought: (o: Owned) => void }) {
+const REASONS: [string, string][] = [["scam", "It is a scam"], ["not_delivered", "I paid and got nothing"], ["impersonation", "It pretends to be someone else"], ["harmful", "It is harmful"], ["illegal", "It is illegal"], ["other", "Something else"]];
+
+/** Saying a product should not be sold: it counts against its page, and signed in it also reaches the moderators. */
+function Report({ productId, apiKey }: { productId: string; apiKey: string | null }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("scam");
+  const [said, setSaid] = useState<string | null>(null);
+  const send = async () => {
+    const r = await fetch(`/api/shop/products/${encodeURIComponent(productId)}/report`, { method: "POST", headers: { "content-type": "application/json", ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) }, body: JSON.stringify({ reason }) }).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({}))) as { error?: string }) : {};
+    setSaid(r?.ok ? "Thank you. It was reported." : (j.error ?? "It could not be reported just now."));
+    if (r?.ok) setOpen(false);
+  };
+  if (said && !open) return <p className="mt-2 text-[11px] text-gray-400">{said}</p>;
+  if (!open) return <button type="button" onClick={() => setOpen(true)} className="mt-2 self-start text-[11px] text-gray-400 underline hover:text-gray-700 dark:hover:text-gray-200">Report</button>;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <select value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Why it should not be sold" className="rounded-md border border-gray-200 bg-transparent px-2 py-1 text-[11px] text-gray-700 dark:border-gray-700 dark:text-gray-300">
+        {REASONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+      <button type="button" onClick={() => void send()} className="rounded-md border border-gray-200 px-2 py-1 text-[11px] text-gray-700 dark:border-gray-700 dark:text-gray-300">Send</button>
+      <button type="button" onClick={() => setOpen(false)} className="text-[11px] text-gray-400 underline">Cancel</button>
+      {said && <span className="text-[11px] text-red-600 dark:text-red-400">{said}</span>}
+    </div>
+  );
+}
+
+function Buy({ p, owned, apiKey, receiver, rpcUrl, onBought, mine }: { p: ShopProduct; owned: Owned | null; apiKey: string | null; receiver: string; rpcUrl: string; onBought: (o: Owned) => void; mine: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // a payment that was sent but not yet turned into a sale: sent again, never paid twice
@@ -108,7 +135,7 @@ function Buy({ p, owned, apiKey, receiver, rpcUrl, onBought }: { p: ShopProduct;
     <div className="mt-3">
       <div className="flex gap-2">
         <a href={p.preview} target="_blank" rel="noreferrer" className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-700 transition hover:border-gray-400 dark:border-gray-700 dark:text-gray-300">See it live</a>
-        {receiver && (
+        {receiver && !mine && (
           <button type="button" onClick={() => void buy()} disabled={busy !== null} className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white transition hover:opacity-90 disabled:opacity-50 dark:bg-white dark:text-gray-900">
             {hasPaid ? "Get my files" : `Buy for ${p.price}`}
           </button>
@@ -157,7 +184,8 @@ export default function AgentShop({ agentId, agentName, ownerWallet, products, r
               <p className="mt-2 font-mono text-[11px] text-gray-400">
                 {p.sold} sold{p.madeByAgent ? ` · made by ${agentName} on its own` : ""}
               </p>
-              <Buy p={p} owned={owned.find((o) => o.productId === p.productId) ?? null} apiKey={apiKey} receiver={receiver} rpcUrl={rpcUrl} onBought={(o) => { setOwned((had) => [o, ...had]); router.refresh(); }} />
+              <Buy p={p} owned={owned.find((o) => o.productId === p.productId) ?? null} apiKey={apiKey} receiver={receiver} rpcUrl={rpcUrl} mine={isOwner} onBought={(o) => { setOwned((had) => [o, ...had]); router.refresh(); }} />
+              {!isOwner && <Report productId={p.productId} apiKey={apiKey} />}
             </li>
           ))}
         </ul>

@@ -32,7 +32,8 @@ import { sameAddress } from "./address";
 import { getAgentById } from "./agents";
 import { validateAgentText } from "./agentContent";
 import { decimalToWei, formatEth, toWei } from "./money";
-import { checkFiles, filesOf, getSite, siteLimits, sitesEnabled, versionsOf, type Site } from "./agentSites";
+import { checkFiles, filesOf, getSite, reportSite, siteLimits, sitesEnabled, versionsOf, type Site } from "./agentSites";
+import { fileReport } from "./abuse";
 
 type Env = Record<string, string | undefined>;
 
@@ -401,4 +402,31 @@ export function productsForSale(o: { q?: string | null; sort?: string | null; li
      ORDER BY ${order} LIMIT ?`,
   ).all(o.agentId ?? null, o.agentId ?? null, q, q, q, limit) as Row[];
   return rows.map(toProduct);
+}
+
+// ── Reporting a product ───────────────────────────────────────────────────────
+
+export const PRODUCT_REPORT_REASONS = ["scam", "not_delivered", "impersonation", "harmful", "illegal", "other"] as const;
+export type ProductReportReason = (typeof PRODUCT_REPORT_REASONS)[number];
+
+/**
+ * Somebody says a product should not be sold, through the reports that already exist. What it is counts against its
+ * page (./agentSites reportSite): enough different people hide the page, and with it the product. Somebody signed in
+ * also files a report against the agent in the moderators' queue (./abuse), naming the product; that is where a
+ * purchase that did not arrive goes, since it says nothing about what the page is.
+ */
+export function reportProduct(productId: string, r: { reason: string; details?: string; reporter: string; wallet?: string | null }): { ok: boolean; hidden: boolean; filed: boolean; why?: string } {
+  const p = getProduct(productId);
+  if (!p) return { ok: false, hidden: false, filed: false, why: "There is no such product." };
+  const reason = (PRODUCT_REPORT_REASONS as readonly string[]).includes(r.reason) ? (r.reason as ProductReportReason) : "other";
+  if (reason === "not_delivered" && !r.wallet) return { ok: false, hidden: false, filed: false, why: "Sign in with the wallet that paid to report a purchase that did not arrive." };
+  const details = clip(r.details, 400);
+  const page = reason === "not_delivered" ? null : reportSite(p.siteId, { reason, details: `product ${p.productId}${details ? `: ${details}` : ""}`, reporter: r.reporter });
+  let filed = false;
+  if (r.wallet) {
+    const abuse = reason === "not_delivered" ? "non_delivery" : reason === "scam" ? "scam" : reason === "other" ? "other" : "abuse";
+    filed = fileReport({ targetAgent: p.agentId, reporter: r.wallet, reason: abuse, details: `Product ${p.productId} (${p.title})${details ? `: ${details}` : ""}` }).success;
+  }
+  logger.info("shop.reported", "A product was reported", { productId, reason, hidden: Boolean(page?.hidden), filed });
+  return { ok: true, hidden: Boolean(page?.hidden), filed };
 }

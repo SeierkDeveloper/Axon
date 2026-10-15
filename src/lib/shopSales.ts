@@ -53,6 +53,16 @@ export function owns(buyer: string, productId: string, exceptSaleId = ""): boole
   return Boolean(getDb().prepare("SELECT 1 FROM shop_sales WHERE buyer = ? AND product_id = ? AND status = 'delivered' AND sale_id != ? LIMIT 1").get(buyer.toLowerCase(), productId, exceptSaleId));
 }
 
+/**
+ * Is the buyer the seller: the wallet that owns the selling agent, or an agent with the same owner? Such a sale would
+ * only move the owner's own money and make the product look sold.
+ */
+function ownBuyer(buyer: string, p: Product): boolean {
+  const seller = getAgentById(p.agentId)?.walletAddress ?? p.sellerWallet;
+  const buyerWallet = isWalletAddress(buyer) ? buyer : getAgentById(buyer)?.walletAddress ?? null;
+  return sameAddress(buyerWallet, seller);
+}
+
 /** Why this product cannot be handed over right now, or null when it can. */
 function cannotDeliver(p: Product): string | null {
   const open = availability(p);
@@ -80,7 +90,7 @@ function refundSale(saleId: string, why: string): Sale {
  * settled for files that could be made; the buyer downloads the same files from the same version afterwards.
  */
 function deliver(saleId: string, p: Product, buyer: string, make: typeof siteZip = siteZip): Sale {
-  const why = cannotDeliver(p) ?? (owns(buyer, p.productId, saleId) ? "This buyer already has this product." : null);
+  const why = cannotDeliver(p) ?? (owns(buyer, p.productId, saleId) ? "This buyer already has this product." : null) ?? (ownBuyer(buyer, p) ? "A seller cannot buy their own product." : null);
   if (why) return refundSale(saleId, why);
   let files: SiteArchive | null = null;
   try { files = make(p.siteId, { version: p.version }); } catch (err) { logger.error("shop.files_failed", "The files of a sold product could not be made", { saleId, err }); }

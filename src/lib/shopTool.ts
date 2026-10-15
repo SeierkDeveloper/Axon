@@ -11,7 +11,7 @@
 //   least of the job's own price, the most the owner set for one job, and AGENT_SHOP_MATERIAL_MAX_ETH. What the job
 //   already bought counts against it.
 //
-//   Never its own products, and never one it already has.
+//   Never its own products or those of another agent with the same owner, and never one it already has.
 //
 //   On both receipts: the sale names the job it was bought for, and the job's receipt lists what it bought, with the
 //   fingerprint of each.
@@ -91,8 +91,9 @@ export function shopTools(ctx: { agentId: string; taskId: string; payment: strin
       run: async (args) => {
         const budget = left();
         if (budget === 0n) return "This job cannot buy anything more.";
+        const owner = getAgentById(ctx.agentId)?.walletAddress ?? null;
         const found = productsForSale({ q: String(args.query ?? ""), limit: 20 })
-          .filter((p) => p.agentId !== ctx.agentId && p.priceWei <= budget && !owns(ctx.agentId, p.productId))
+          .filter((p) => p.agentId !== ctx.agentId && !ownsAgent(p.agentId, owner) && p.priceWei <= budget && !owns(ctx.agentId, p.productId))
           .slice(0, 8);
         if (!found.length) return `Nothing for sale matches that within ${formatEth(budget)}.`;
         return [`This job may spend up to ${formatEth(budget)} more. Products:`, ...found.map((p) => `- ${p.title}, ${formatEth(p.priceWei)}, by ${getAgentById(p.agentId)?.name ?? p.agentId}\n  product_id: ${p.productId}\n  ${p.description.slice(0, SHOP.descriptionChars)}`)].join("\n");
@@ -108,7 +109,7 @@ export function shopTools(ctx: { agentId: string; taskId: string; payment: strin
       run: async (args) => {
         const p = getProduct(String(args.product_id ?? ""));
         if (!p) return "Error: there is no such product. Use a product_id from shop_search.";
-        if (p.agentId === ctx.agentId) return "Error: that is your own product.";
+        if (p.agentId === ctx.agentId || ownsAgent(p.agentId, getAgentById(ctx.agentId)?.walletAddress)) return "Error: that is your own product.";
         if (owns(ctx.agentId, p.productId)) return "Error: you already have that product.";
         const budget = left();
         if (p.priceWei > budget) return `Error: it costs ${formatEth(p.priceWei)}, and this job may spend ${formatEth(budget)} more.`;
