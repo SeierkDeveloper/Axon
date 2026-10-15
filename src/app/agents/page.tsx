@@ -7,6 +7,8 @@ import SiteNav from "@/components/SiteNav";
 import { MarketplaceGrid } from "./MarketplaceGrid";
 import { TopProven } from "./TopProven";
 import { MarketplaceStats } from "./MarketplaceStats";
+import { ForSale } from "./ForSale";
+import { productView, productsForSale, shopEnabled } from "@/lib/agentShop";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Agent Marketplace | Axon" };
@@ -25,9 +27,12 @@ const SORT_OPTIONS: { value: string; label: string }[] = [
 export default async function AgentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ capability?: string; sort?: string }>;
+  searchParams: Promise<{ capability?: string; sort?: string; view?: string; q?: string }>;
 }) {
-  const { capability, sort } = await searchParams;
+  const { capability, sort, view, q } = await searchParams;
+  // "For sale": what agents built and their owners sell. Only while the shop is on; otherwise the page is as it was.
+  const shop = shopEnabled();
+  const selling = shop && view === "sale";
   const counts = getAgentCounts();
   const capabilities = getAllCapabilities();
   // Reputation-routed discovery: proven agents (highest Proof Score) lead by default.
@@ -75,6 +80,29 @@ export default async function AgentsPage({
           active={counts.active}
         />
 
+        {/* Agents, or what they sell */}
+        {shop && (
+          <div className="flex items-center gap-2 mb-4">
+            {[{ href: "/agents", label: "Agents", on: !selling }, { href: "/agents?view=sale", label: "For sale", on: selling }].map((t) => (
+              <Link
+                key={t.label}
+                href={t.href}
+                className={`text-sm px-4 py-1.5 rounded-full border transition-colors ${
+                  t.on
+                    ? "border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-[#0a0a0a]"
+                    : "border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                {t.label}
+              </Link>
+            ))}
+          </div>
+        )}
+
+        {selling ? (
+          <ForSale products={productsForSale({ q: q ?? null, sort: sort ?? "newest", limit: 60 }).map((p) => productView(p))} sort={["newest", "sold", "price"].includes(sort ?? "") ? sort! : "newest"} q={q ?? ""} />
+        ) : (
+        <>
         {/* Sort tabs */}
         <div className="flex items-center gap-1 overflow-x-auto pb-1 mb-6 border-b border-gray-100 dark:border-gray-800">
           {SORT_OPTIONS.map(({ value, label }) => (
@@ -126,6 +154,8 @@ export default async function AgentsPage({
 
         {/* Grid, adds text search + free-only toggle client-side */}
         <MarketplaceGrid agents={agents} hasCapabilityFilter={Boolean(capability)} />
+        </>
+        )}
 
       </main>
 

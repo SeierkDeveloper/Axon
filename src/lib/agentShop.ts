@@ -380,3 +380,25 @@ export function productsOfAgent(agentId: string, o: { all?: boolean; limit?: num
   ).all(agentId, o.all ? 1 : 0, limit) as Row[];
   return rows.map(toProduct);
 }
+
+export type ShopSort = "newest" | "sold" | "price";
+export const SHOP_SORTS: readonly ShopSort[] = ["newest", "sold", "price"];
+
+/**
+ * What is for sale across every agent: on sale, its page up. Newest first, best selling first, or cheapest first; with
+ * `q`, only products whose title or words say it.
+ */
+export function productsForSale(o: { q?: string | null; sort?: string | null; limit?: number; agentId?: string | null } = {}): Product[] {
+  const limit = Math.max(1, Math.min(SHOP.most, Math.floor(o.limit ?? SHOP.page)));
+  const sort = (SHOP_SORTS as readonly string[]).includes(o.sort ?? "") ? (o.sort as ShopSort) : "newest";
+  const q = clip(o.q, 80).toLowerCase().replace(/[%_\\]/g, "");
+  // price is kept as whole wei in text: ordered by its length first, then as text, which is the order of the numbers
+  const order = sort === "sold" ? "p.sold DESC, p.created_at DESC" : sort === "price" ? "LENGTH(p.price_wei) ASC, p.price_wei ASC, p.created_at DESC" : "p.created_at DESC, p.rowid DESC";
+  const rows = getDb().prepare(
+    `SELECT p.* FROM shop_products p JOIN built_sites s ON s.site_id = p.site_id
+     WHERE p.status = 'listed' AND s.status = 'live' AND (? IS NULL OR p.agent_id = ?)
+       AND (? = '' OR LOWER(p.title) LIKE '%' || ? || '%' OR LOWER(p.description) LIKE '%' || ? || '%')
+     ORDER BY ${order} LIMIT ?`,
+  ).all(o.agentId ?? null, o.agentId ?? null, q, q, q, limit) as Row[];
+  return rows.map(toProduct);
+}
