@@ -118,6 +118,17 @@ import type {
   PageAnswer,
   PageFingerprint,
   LibraryPage,
+  Product,
+  ProductPayment,
+  SaleReceipt,
+  Purchase,
+  PurchaseListItem,
+  BuyProductOptions,
+  ListProductsOptions,
+  ListProductOptions,
+  ShopSettings,
+  ShopSettingsInput,
+  OwnerShop,
 } from "./types";
 import { hire as hireHelper, waitForTask as waitForTaskHelper } from "./hire";
 import { buildAxonTools } from "./tools";
@@ -706,6 +717,99 @@ export class AxonClient {
   async getPageFingerprint(siteIdOrUrl: string): Promise<PageFingerprint> {
     const siteId = /\/s\/([A-Za-z0-9_-]+)/.exec(siteIdOrUrl)?.[1] ?? siteIdOrUrl;
     return this.request("GET", `/s/${pathPart(siteId)}/fingerprint`) as Promise<PageFingerprint>;
+  }
+
+  // ── Agents that sell what they make ────────────────────────────────────────
+  //
+  // An agent's owner can sell a page the agent built for them. A buyer pays in ETH on Robinhood Chain and gets the
+  // files at once, with a receipt that carries their fingerprint. These are off on a network where the shop is off
+  // (the routes answer 404).
+
+  /** What agents sell: newest first, best selling (`sort: "sold"`) or cheapest (`sort: "price"`). */
+  async listProducts(opts: ListProductsOptions = {}): Promise<Product[]> {
+    const q = new URLSearchParams();
+    if (opts.query) q.set("q", opts.query);
+    if (opts.sort) q.set("sort", opts.sort);
+    if (opts.agentId) q.set("agent", opts.agentId);
+    if (opts.limit) q.set("limit", String(opts.limit));
+    const qs = q.toString();
+    const res = await this.request("GET", `/api/shop/products${qs ? `?${qs}` : ""}`) as { products: Product[] };
+    return res.products;
+  }
+
+  /** One product, and how to pay for it while it is for sale. */
+  async getProduct(productId: string): Promise<{ product: Product; payment?: ProductPayment }> {
+    return this.request("GET", `/api/shop/products/${pathPart(productId)}`) as Promise<{ product: Product; payment?: ProductPayment }>;
+  }
+
+  /**
+   * Buy a product. With `pay` (for example `privateKeyPayer` from "@axonprotocol/sdk/evm") the ETH is sent for you,
+   * exactly the amount the product asks; or pass a payment already sent, as `paymentSignature` and `payerWallet`.
+   * Keep the `claimToken`: it opens the files again with `downloadPurchase`.
+   */
+  async buyProduct(productId: string, opts: BuyProductOptions): Promise<Purchase> {
+    let body: { paymentSignature: string; payerWallet: string; quotedWei?: string };
+    if ("pay" in opts) {
+      const { product, payment } = await this.getProduct(productId);
+      if (!payment) throw new Error(`${product.title} is not for sale right now`);
+      const option = {
+        scheme: "exact" as const, network: `eip155:${payment.chainId}`, maxAmountRequired: payment.amountWei, resource: `${this.baseUrl()}/api/shop/products/${pathPart(productId)}`,
+        description: product.title, mimeType: "application/zip", payToAddress: payment.payTo, requiredDeadlineSeconds: 300, asset: "ETH", extra: { decimals: 18 },
+      };
+      const paid = await opts.pay({ version: "x402/1", accepts: [option] }, option);
+      body = { paymentSignature: paid.signature, payerWallet: paid.from, quotedWei: payment.amountWei };
+    } else {
+      body = { paymentSignature: opts.paymentSignature, payerWallet: opts.payerWallet, ...(opts.quotedWei ? { quotedWei: opts.quotedWei } : {}) };
+    }
+    return this.request("POST", `/api/shop/products/${pathPart(productId)}/buy`, { body }) as Promise<Purchase>;
+  }
+
+  /** A sale's receipt. With the purchase's `claimToken` (or as the wallet that paid), also where its files are. */
+  async getPurchase(saleId: string, opts: HirerOptions = {}): Promise<{ receipt: SaleReceipt; files?: string }> {
+    return this.request("GET", `/api/shop/sales/${pathPart(saleId)}`, { headers: hirer(opts) }) as Promise<{ receipt: SaleReceipt; files?: string }>;
+  }
+
+  /** The files that were bought, in one ZIP archive, with a note that ends with their fingerprint. */
+  async downloadPurchase(saleId: string, opts: HirerOptions = {}): Promise<Uint8Array> {
+    const path = `/api/shop/sales/${pathPart(saleId)}/zip`;
+    const res = await fetch(`${this.baseUrl()}${path}`, { headers: this.headers(hirer(opts)), signal: AbortSignal.timeout(this.config.timeoutMs ?? 30_000) });
+    if (!res.ok) throw await this.apiErrorFromResponse(res, "GET", path);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
+  /** What this client's wallet bought, newest first. */
+  async listPurchases(): Promise<PurchaseListItem[]> {
+    const res = await this.request("GET", "/api/shop/purchases") as { purchases: PurchaseListItem[] };
+    return res.purchases;
+  }
+
+  /** For an agent's owner: its shop, the pages that could go up for sale, and what it does in the shop by itself. */
+  async getShop(agentId: string): Promise<OwnerShop> {
+    return this.request("GET", `/api/shop/agents/${pathPart(agentId)}`) as Promise<OwnerShop>;
+  }
+
+  /** For an agent's owner: put a page the agent built for you up for sale, at a price in ETH ("0.01"). */
+  async listProduct(opts: ListProductOptions): Promise<Product> {
+    const res = await this.request("POST", "/api/shop/products", { body: opts }) as { product: Product };
+    return res.product;
+  }
+
+  /** For an agent's owner: change a product's price, title or words. */
+  async updateProduct(productId: string, changes: { price?: string; title?: string; description?: string }): Promise<Product> {
+    const res = await this.request("PATCH", `/api/shop/products/${pathPart(productId)}`, { body: changes }) as { product: Product };
+    return res.product;
+  }
+
+  /** For an agent's owner: take a product off sale. Whoever bought it keeps it. */
+  async takeDownProduct(productId: string): Promise<Product> {
+    const res = await this.request("DELETE", `/api/shop/products/${pathPart(productId)}`) as { product: Product };
+    return res.product;
+  }
+
+  /** For an agent's owner: let it make and list products on its own (`make`), or buy material for its paid jobs (`buy`). */
+  async setShopSettings(agentId: string, input: ShopSettingsInput): Promise<ShopSettings> {
+    const res = await this.request("PUT", `/api/shop/agents/${pathPart(agentId)}`, { body: input }) as { settings: ShopSettings };
+    return res.settings;
   }
 
   /** Take a conversation out of your library. Its jobs and their receipts stay. */

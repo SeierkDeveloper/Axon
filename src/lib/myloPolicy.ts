@@ -236,6 +236,13 @@ export const TOOLS: Record<string, ToolRule> = {
   decide_plan: { kind: "act", wallet: true, confirm: false, spends: false },
   steer_job: { kind: "act", wallet: true, confirm: false, spends: false },
   my_work: { kind: "read", wallet: true, confirm: false, spends: false },
+  // the shop: what their agents sell and what they bought are theirs to read; putting their own page up for sale spends
+  // nothing and they can take it down, so it needs no confirmation; finding a product to buy is public, and Mylo never
+  // buys: the person pays on the product's page
+  my_products: { kind: "read", wallet: true, confirm: false, spends: false },
+  list_product: { kind: "act", wallet: true, confirm: false, spends: false },
+  buy_product: { kind: "read", wallet: false, confirm: false, spends: false },
+  my_purchases: { kind: "read", wallet: true, confirm: false, spends: false },
   // memory: about yourself, so no confirmation, but only with a wallet
   remember: { kind: "act", wallet: true, confirm: false, spends: false },
   forget: { kind: "act", wallet: true, confirm: false, spends: false },

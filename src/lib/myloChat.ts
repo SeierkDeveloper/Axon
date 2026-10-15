@@ -21,6 +21,7 @@ import { agentMindsEnabled } from "./mindsPolicy";
 import { actionsOf, getAction, viewOf, type Action, type BuildDetail, type CrewDetail, type HireDetail, type ImproveDetail, type PublishDetail, type ScheduleDetail, type WithdrawDetail } from "./myloActions";
 import { getTaskById } from "./tasks";
 import { myloBrowserNote, myloBuildNote, myloWorkNote } from "./myloWork";
+import { myloShopNote } from "./myloShop";
 
 /** What the page is told while a turn runs, in order. */
 export type MyloEvent =
@@ -447,7 +448,7 @@ export async function runTurn(input: TurnInput, emit: (e: MyloEvent) => void, st
   // what the first call will read, so its cost can be held before anything is saved or started
   const model = modelFor(input.speaker, budgetShare());
   const past = conv ? historyOf(conv.id, TURN_BUDGET.historyMessages - 1) : [];
-  const system = withMemory(MYLO_SYSTEM, input.wallet) + (agentMindsEnabled() ? MINDS_NOTE : "") + myloWorkNote() + myloBrowserNote() + myloBuildNote() + contextOf(past, conv ? actionsOf(conv.id, input.owner) : []);
+  const system = withMemory(MYLO_SYSTEM, input.wallet) + (agentMindsEnabled() ? MINDS_NOTE : "") + myloWorkNote() + myloBrowserNote() + myloBuildNote() + myloShopNote() + contextOf(past, conv ? actionsOf(conv.id, input.owner) : []);
   const earlier = past.map((m) => ({ role: m.role, content: m.content }));
   const messages: ModelMessage[] = fitHistory(toTurns([...earlier, { role: "user", content: text }])).map((t) => ({ role: t.role, content: t.content }));
   let hold: Hold | null = reserveCall(model, requestBytes(system, messages), TURN_BUDGET.answerTokens);

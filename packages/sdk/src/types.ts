@@ -360,6 +360,88 @@ export interface LibraryPage extends BuiltPage { updatedAt: string; taskId: stri
 
 export interface LibraryFile extends TaskFile { taskId: string; thread: string; agent: { id: string; name: string }; createdAt: string; receipt: string }
 
+// ── Agents that sell what they make ───────────────────────────────────────────
+
+/**
+ * A product in the shop: one version of a page an agent built, put up for sale by the agent's owner. `price` is for
+ * reading; `priceWei` is the exact amount. `preview` opens the live page at the version that is sold, and
+ * `fingerprint` is what the buyer's receipt will carry.
+ */
+export interface Product {
+  productId: string;
+  agentId: string;
+  agentName: string;
+  title: string;
+  description: string;
+  price: string;
+  priceWei: string;
+  sold: number;
+  /** made and listed by the agent on its own, not by its owner */
+  madeByAgent: boolean;
+  version: number;
+  fingerprint: string;
+  preview: string;
+  available: boolean;
+  listedAt: string;
+}
+
+/** How to pay for a product: the exact amount in wei, sent in ETH on Robinhood Chain to `payTo`. */
+export interface ProductPayment { payTo: string; amount: string; amountWei: string; currency: "ETH"; chainId: number; then: string }
+
+/** A sale's receipt, which anybody may read. Never the files themselves. */
+export interface SaleReceipt {
+  saleId: string;
+  status: "paid" | "delivered" | "refunded";
+  product: { productId: string; title: string; version: number; fingerprint: string };
+  seller: { agentId: string; name: string | null };
+  buyer: { id: string; kind: "wallet" | "agent"; name: string | null };
+  /** the job an agent bought it for, as material */
+  forTaskId: string | null;
+  price: string;
+  priceWei: string;
+  settlement: { amount: number; currency: string; status: string; signature: string | null; settledAt: string | null } | null;
+  notes: PaymentNote[];
+  createdAt: string;
+  deliveredAt: string | null;
+}
+
+/**
+ * What a purchase returns. `claimToken` opens the files again (`downloadPurchase`); it comes once, with the first
+ * answer for a payment. The same payment sent again returns the same sale with `alreadyBought` and no key.
+ */
+export interface Purchase { saleId: string; receipt: SaleReceipt; receiptUrl: string; claimToken?: string; files?: string; alreadyBought?: boolean; note?: string }
+
+/** A purchase as the buyer's wallet lists it. */
+export interface PurchaseListItem extends SaleReceipt { receiptUrl: string; files?: string }
+
+/** How to buy: with a payer that sends the ETH itself, or with a payment already sent. */
+export type BuyProductOptions =
+  | { pay: X402PayFunction }
+  | { paymentSignature: string; payerWallet: string; quotedWei?: string };
+
+export interface ListProductsOptions { query?: string; sort?: "newest" | "sold" | "price"; agentId?: string; limit?: number }
+
+export interface ListProductOptions { agentId: string; siteId: string; title?: string; description: string; price: string }
+
+/** What an agent may do in the shop by itself, as its owner sets it. */
+export interface ShopSettings {
+  make: { can: boolean; on: boolean; kind: string | null; price: string | null; everyHours: number; perDay: number; nextAt: string | null; runs: { runId: string; at: string; status: string; taskId: string | null; productId: string | null; error: string | null }[] };
+  buy: { can: boolean; on: boolean; maxPerJob: string | null };
+}
+
+export interface ShopSettingsInput {
+  make?: { on: boolean; kind?: string; price?: string; everyHours?: number; perDay?: number };
+  buy?: { on: boolean; maxEth?: string };
+}
+
+/** The shop as an agent's owner reads it. */
+export interface OwnerShop {
+  products: (Product & { onSale: boolean })[];
+  pages: { siteId: string; title: string; version: number; updatedAt: string; url: string }[];
+  settings: ShopSettings;
+  rules: { minPrice: string; maxPrice: string; perAgent: number; titleChars: number; descriptionChars: number; kindChars: number; makeEveryHours: { min: number; max: number }; makePerDayMax: number; materialMaxPerJob: string };
+}
+
 /** How `waitForTask` (and `hire`) deal with a job that pauses on its hirer. */
 export interface WaitOptions extends HirerOptions {
   pollIntervalMs?: number;

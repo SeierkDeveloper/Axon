@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.5.0
+
+Agents that sell what they make: an agent's owner can sell a page the agent built for them, and anybody can buy
+it. Nothing was removed or renamed.
+
+- `listProducts(options?)` and `getProduct(productId)`: what agents sell, each with its price, a live page to look
+  at first (`preview`), how often it sold and the fingerprint a buyer's receipt will carry. `getProduct` also says
+  how to pay while it is for sale.
+- `buyProduct(productId, { pay })`: pays the exact price in ETH with any payer (`privateKeyPayer`, `walletPayer`)
+  and returns the sale, its receipt and the `claimToken` that opens the files. Or pass a payment already sent, as
+  `paymentSignature` and `payerWallet`.
+- `downloadPurchase(saleId, { claimToken })`: the files, in one ZIP. `getPurchase(saleId)` reads a sale's
+  receipt, `listPurchases()` what your wallet bought.
+- For an agent's owner: `getShop(agentId)`, `listProduct`, `updateProduct`, `takeDownProduct`, and
+  `setShopSettings(agentId, { make, buy })` to let the agent make and list products on its own, or buy other
+  agents' products as material for its paid jobs.
+- New types: `Product`, `ProductPayment`, `SaleReceipt`, `Purchase`, `PurchaseListItem`, `BuyProductOptions`,
+  `ListProductsOptions`, `ListProductOptions`, `ShopSettings`, `ShopSettingsInput`, `OwnerShop`.
+
 ## 1.4.0
 
 Agents that build: an agent Axon runs can build a working web page or small app and hand back a link.

@@ -57,6 +57,7 @@ import { roundsOf, settleStale } from "./studioTest";
 import { MAX_TWEAKS_PER_BUILD, MIN_PUBLISH_SCORE, PRICE_ETH } from "./studioPolicy";
 import type { Agent } from "@/sdk/types";
 import { MYLO_WORK_LABELS, myloHireProps, myloWorkTools, runMyloWorkTool } from "./myloWork";
+import { MYLO_SHOP_LABELS, myloShopTools, runMyloShopTool } from "./myloShop";
 
 /** The tools as the model sees them (Anthropic tool schema). Only what this phase can do. */
 export const MYLO_TOOL_DEFS = [
@@ -271,7 +272,7 @@ export const TOOL_LABELS: Record<string, string> = {
 };
 
 export async function runTool(name: string, input: Record<string, unknown>, ctx: ToolContext): Promise<ToolOutcome> {
-  const label = TOOL_LABELS[name] ?? MYLO_WORK_LABELS[name] ?? name;
+  const label = TOOL_LABELS[name] ?? MYLO_WORK_LABELS[name] ?? MYLO_SHOP_LABELS[name] ?? name;
   const gate = toolGate(name, Boolean(ctx.wallet));
   if (!gate.ok) return { result: { error: gate.reason }, label };
   try {
@@ -382,7 +383,7 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
         return typeof p === "string" ? { result: { error: p }, label } : { result: { proposed: true, actionId: p.id, summary: p.summary, note: "Proposed only. Nothing changes until the person taps Apply in the page." }, actionId: p.id, label };
       }
       default: {
-        const worked = runMyloWorkTool(name, input, ctx);
+        const worked = runMyloWorkTool(name, input, ctx) ?? runMyloShopTool(name, input, ctx);
         return { result: worked ?? { error: `Mylo can't use ${name} yet.` }, label };
       }
     }
@@ -897,7 +898,7 @@ async function mindLaunchTool(wallet: string, input: Record<string, unknown>): P
 /** The tools as the model sees them right now. With Agent Minds on, launching no longer needs an agent of their own,
  *  and the tools that read tokens and their minds are there. */
 export function myloToolDefs(): typeof MYLO_TOOL_DEFS {
-  const hireProps = myloHireProps(), work = myloWorkTools();
+  const hireProps = myloHireProps(), work = [...myloWorkTools(), ...myloShopTools()];
   const base = toolDefsWithMinds();
   if (!Object.keys(hireProps).length && !work.length) return base;
   // working with an agent: hire_agent can continue a job or ask for the plan first (the agent may then be left out),
