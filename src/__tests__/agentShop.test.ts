@@ -20,7 +20,7 @@ describe("the shop's limits", () => {
     expect(formatEth(d.minWei)).toBe("0.0001 ETH");
     expect(formatEth(d.maxWei)).toBe("1 ETH");
     expect(formatEth(d.materialMaxWei)).toBe("0.005 ETH");
-    expect(d).toMatchObject({ perAgent: 50, makePerDayMax: 3, makeDaily: 50, priceGraceMinutes: 30 });
+    expect(d).toMatchObject({ perAgent: 50, makePerDayMax: 3, makeDaily: 40, priceGraceMinutes: 30 });
     const set = shopLimits({ AGENT_SHOP_MIN_ETH: "0.001", AGENT_SHOP_MAX_ETH: "0.5", AGENT_SHOP_MAKE_PER_DAY: "2", AGENT_SHOP_MATERIAL_MAX_ETH: "0" });
     expect(formatEth(set.minWei)).toBe("0.001 ETH");
     expect(formatEth(set.maxWei)).toBe("0.5 ETH");

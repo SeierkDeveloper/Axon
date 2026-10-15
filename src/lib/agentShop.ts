@@ -76,7 +76,7 @@ export function shopLimits(env: Env = process.env): ShopLimits {
     maxWei: ethEnv(env.AGENT_SHOP_MAX_ETH, "1", WEI("0.000001"), WEI("100")),
     perAgent: num(env.AGENT_SHOP_PER_AGENT, 50, 1, 1000),
     makePerDayMax: num(env.AGENT_SHOP_MAKE_PER_DAY, 3, 1, 24),
-    makeDaily: num(env.AGENT_SHOP_MAKE_DAILY_MAX, 50, 0, 5000),
+    makeDaily: num(env.AGENT_SHOP_MAKE_DAILY_MAX, 40, 0, 5000),
     materialMaxWei: ethEnv(env.AGENT_SHOP_MATERIAL_MAX_ETH, "0.005", 0n, WEI("1")),
     priceGraceMinutes: num(env.AGENT_SHOP_PRICE_GRACE_MIN, 30, 0, 24 * 60),
   };
