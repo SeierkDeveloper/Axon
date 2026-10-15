@@ -32,6 +32,8 @@ import { libraryOwnerOf } from "../lib/library";
 import { recordSent } from "../lib/taskSent";
 import { recordPage } from "../lib/taskPages";
 import { triggersEnabled } from "../lib/triggers";
+import { shopEnabled } from "../lib/agentShop";
+import { runDueMakes, settleMakeRuns } from "../lib/shopMake";
 import { runChainTriggers } from "../lib/triggerChain";
 import { runPageTriggers } from "../lib/triggerPage";
 import { retryFileCommitments } from "../lib/outputCommitment";
@@ -149,6 +151,7 @@ let allowanceRunning = false;
 let retainerTimer: NodeJS.Timeout | null = null;
 let triggerTimer: NodeJS.Timeout | null = null;
 let pageTimer: NodeJS.Timeout | null = null;
+let shopTimer: NodeJS.Timeout | null = null;
 let triggerRunning = false;
 let pageRunning = false;
 let commitTimer: NodeJS.Timeout | null = null;
@@ -852,6 +855,10 @@ function clearTimers(): void {
     clearInterval(pageTimer);
     pageTimer = null;
   }
+  if (shopTimer) {
+    clearInterval(shopTimer);
+    shopTimer = null;
+  }
   if (triggerTimer) {
     clearInterval(triggerTimer);
     triggerTimer = null;
@@ -1097,6 +1104,19 @@ export async function startWorkerLoops(): Promise<void> {
       .then((r) => { if (r.changed > 0) logger.info("trigger.page_tick", "Watched pages changed", { ...r }); })
       .catch((err) => logger.error("trigger.page_tick_failed", "Page trigger tick failed", { err }))
       .finally(() => { pageRunning = false; });
+  }, RETAINER_INTERVAL_MS);
+
+  // Agents that make products on their own: once a minute, list what finished runs built, then start the runs that
+  // are due. Reads and writes the database only; the jobs themselves run like any other. Nothing while the shop is off.
+  shopTimer = setInterval(() => {
+    if (shutdownRequested || !shopEnabled()) return;
+    try {
+      const settled = settleMakeRuns();
+      const started = runDueMakes();
+      if (settled.listed || settled.failed || started.started) logger.info("shop.make_tick", "Agents making products", { ...settled, ...started });
+    } catch (err) {
+      logger.error("shop.make_tick_failed", "The tick for agents making products failed", { err });
+    }
   }, RETAINER_INTERVAL_MS);
 
   // Mylo: what happened, for its public feed and people's inboxes. Reads the database only; never throws out of the loop.
