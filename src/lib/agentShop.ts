@@ -26,8 +26,13 @@
 
 import { randomBytes } from "node:crypto";
 import { getDb } from "./db";
+import { syncToTurso } from "./db-turso";
+import { logger } from "./logger";
+import { sameAddress } from "./address";
+import { getAgentById } from "./agents";
+import { validateAgentText } from "./agentContent";
 import { decimalToWei, formatEth, toWei } from "./money";
-import { sitesEnabled } from "./agentSites";
+import { checkFiles, filesOf, getSite, siteLimits, sitesEnabled, versionsOf, type Site } from "./agentSites";
 
 type Env = Record<string, string | undefined>;
 
@@ -130,7 +135,8 @@ export interface ShopAgent {
 }
 
 type Row = Record<string, unknown>;
-const big = (v: unknown): bigint | null => (v === null || v === undefined ? null : toWei(String(v)));
+/** Wei as it is kept: whole numbers in text, never a decimal. */
+const big = (v: unknown): bigint | null => (v === null || v === undefined || !/^\d+$/.test(String(v)) ? null : BigInt(String(v)));
 const str = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
 
 export const toProduct = (r: Row): Product => ({
@@ -175,3 +181,202 @@ export const clip = (s: unknown, most: number): string => String(s ?? "").replac
 export const now = (): string => new Date().toISOString();
 /** How a price is written for a person: "0.01 ETH". */
 export const priceText = (wei: bigint): string => formatEth(wei);
+
+// ── A price ───────────────────────────────────────────────────────────────────
+
+/**
+ * A price as an owner or a caller gives it: "0.01", "0.01 ETH", or a number from a JSON body. Read once into wei from
+ * its decimal text, never multiplied as a float, and held to the floor and the ceiling.
+ */
+export function readPrice(raw: unknown, limits: ShopLimits = shopLimits()): { ok: true; wei: bigint } | { ok: false; why: string } {
+  const text = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim().replace(/\s*ETH$/i, "") : "";
+  const wei = typeof raw === "number" ? toWei(raw) : decimalToWei(text);
+  if (wei === null || wei <= 0n) return { ok: false, why: "Give the price in ETH, for example 0.01." };
+  if (wei < limits.minWei) return { ok: false, why: `The lowest price is ${formatEth(limits.minWei)}.` };
+  if (wei > limits.maxWei) return { ok: false, why: `The highest price is ${formatEth(limits.maxWei)}.` };
+  return { ok: true, wei };
+}
+
+// ── What may be sold ──────────────────────────────────────────────────────────
+
+/** Is a built page's mark this wallet's own: the wallet itself, or the library mark of a hire signed in with it? */
+export function markIsWallet(mark: string | null | undefined, wallet: string): boolean {
+  if (!mark || !wallet) return false;
+  return mark.toLowerCase() === `w:${wallet.toLowerCase()}` || sameAddress(mark, wallet);
+}
+
+/** Is this wallet the agent's owner right now? */
+export function ownsAgent(agentId: string, wallet: string | null | undefined): boolean {
+  return Boolean(wallet) && sameAddress(getAgentById(agentId)?.walletAddress, wallet);
+}
+
+export type Sellable = { ok: true; site: Site; version: number; sha256: string } | { ok: false; why: string };
+
+/**
+ * Whether one version of a page may be sold as this agent's by this wallet, and what exactly would be sold. The page
+ * must be one this agent built, for this wallet, through Axon; it must be up; the version must still be kept; and its
+ * files must pass the build rules today, not only on the day they were built. Asked when a page is listed and again
+ * when it is sold.
+ */
+export function sellable(a: { siteId: string; agentId: string; wallet: string; version?: number }): Sellable {
+  const site = getSite(a.siteId);
+  if (!site || site.agentId !== a.agentId) return { ok: false, why: "This agent did not build that page." };
+  if (!markIsWallet(site.ownerMark, a.wallet)) return { ok: false, why: "Only a page the agent built for you can be sold. A page it built for somebody else is theirs." };
+  if (site.status !== "live") return { ok: false, why: "That page was taken down, so it cannot be sold." };
+  const version = a.version ?? site.version;
+  const kept = versionsOf(site.siteId).find((v) => v.version === version);
+  if (!kept) return { ok: false, why: "That version of the page is no longer kept." };
+  const files = filesOf(site.siteId, version);
+  const checked = checkFiles(files.map((f) => ({ path: f.path, content: f.content })), siteLimits());
+  if (!checked.ok) return { ok: false, why: `That page breaks a rule for built pages: ${checked.problems[0]}` };
+  return { ok: true, site, version, sha256: kept.sha256 };
+}
+
+/** The pages an owner could put up for sale as this agent's: built by it for them, up, and not on sale already. */
+export function listablePages(agentId: string, wallet: string, limit = 30): { siteId: string; title: string; version: number; updatedAt: string }[] {
+  const w = wallet.toLowerCase();
+  const rows = getDb().prepare(
+    `SELECT site_id, title, version, updated_at FROM built_sites
+     WHERE agent_id = ? AND status = 'live' AND version > 0 AND (LOWER(owner_mark) = ? OR LOWER(owner_mark) = ?)
+       AND site_id NOT IN (SELECT site_id FROM shop_products WHERE status = 'listed')
+     ORDER BY updated_at DESC, rowid DESC LIMIT ?`,
+  ).all(agentId, `w:${w}`, w, limit) as Row[];
+  return rows.map((r) => ({ siteId: String(r.site_id), title: String(r.title), version: Number(r.version), updatedAt: String(r.updated_at) }));
+}
+
+// ── Listing, changing, taking down ────────────────────────────────────────────
+
+export type Listed = { ok: true; product: Product } | { ok: false; why: string };
+
+/** The words of a listing, checked the way an agent's own words are. */
+function wordsProblem(title: string, description: string): string | null {
+  if (title.length < 2) return "Give it a title of a few words.";
+  if (description.length < 10) return "Say in a sentence what it is.";
+  return validateAgentText(`${title}\n${description}`);
+}
+
+/**
+ * Put a page up for sale. The wallet must own the agent, and the page must be sellable as theirs (see `sellable`).
+ * What is sold is the version shown now, by its fingerprint.
+ */
+export function listProduct(input: { agentId: string; wallet: string; siteId: string; title?: unknown; description?: unknown; price: unknown; madeBy?: MadeBy }, limits: ShopLimits = shopLimits()): Listed {
+  if (!ownsAgent(input.agentId, input.wallet)) return { ok: false, why: "Only the agent's owner can sell what it made." };
+  const price = readPrice(input.price, limits);
+  if (!price.ok) return price;
+  const can = sellable({ siteId: input.siteId, agentId: input.agentId, wallet: input.wallet });
+  if (!can.ok) return can;
+  const title = clip(input.title, SHOP.titleChars) || can.site.title;
+  const description = clip(input.description, SHOP.descriptionChars);
+  const bad = wordsProblem(title, description);
+  if (bad) return { ok: false, why: bad };
+  const db = getDb();
+  const onSale = (db.prepare("SELECT COUNT(*) n FROM shop_products WHERE agent_id = ? AND status = 'listed'").get(input.agentId) as { n: number }).n;
+  if (onSale >= limits.perAgent) return { ok: false, why: `An agent can have ${limits.perAgent} products on sale at once. Take one down first.` };
+  const productId = newId("prod"), at = now();
+  try {
+    db.prepare(
+      `INSERT INTO shop_products (product_id, agent_id, seller_wallet, site_id, version, sha256, title, description, price_wei, status, made_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'listed', ?, ?, ?)`,
+    ).run(productId, input.agentId, input.wallet.toLowerCase(), can.site.siteId, can.version, can.sha256, title, description, price.wei.toString(), input.madeBy ?? "owner", at, at);
+  } catch (err) {
+    if (/UNIQUE/i.test(String(err))) return { ok: false, why: "That page is on sale already." };
+    throw err;
+  }
+  logger.info("shop.listed", "A product was put up for sale", { productId, agentId: input.agentId, siteId: can.site.siteId, version: can.version, madeBy: input.madeBy ?? "owner" });
+  void syncToTurso();
+  return { ok: true, product: getProduct(productId)! };
+}
+
+/**
+ * Change a product's price, title or words. A new price takes over at once; the one before is still honoured for a
+ * short while, for a buyer whose payment was on its way while it changed.
+ */
+export function changeProduct(productId: string, wallet: string, change: { price?: unknown; title?: unknown; description?: unknown }, limits: ShopLimits = shopLimits()): Listed {
+  const p = getProduct(productId);
+  if (!p || !ownsAgent(p.agentId, wallet)) return { ok: false, why: "There is no such product of yours." };
+  if (p.status !== "listed") return { ok: false, why: "That product was taken down. List the page again to sell it." };
+  const title = change.title === undefined ? p.title : clip(change.title, SHOP.titleChars);
+  const description = change.description === undefined ? p.description : clip(change.description, SHOP.descriptionChars);
+  const bad = wordsProblem(title, description);
+  if (bad) return { ok: false, why: bad };
+  let priceWei = p.priceWei;
+  if (change.price !== undefined) {
+    const price = readPrice(change.price, limits);
+    if (!price.ok) return price;
+    priceWei = price.wei;
+  }
+  const at = now();
+  const moved = priceWei !== p.priceWei;
+  getDb().prepare(
+    `UPDATE shop_products SET title = ?, description = ?, price_wei = ?, prev_price_wei = CASE WHEN ? THEN price_wei ELSE prev_price_wei END,
+       price_changed_at = CASE WHEN ? THEN ? ELSE price_changed_at END, updated_at = ? WHERE product_id = ?`,
+  ).run(title, description, priceWei.toString(), moved ? 1 : 0, moved ? 1 : 0, at, at, productId);
+  void syncToTurso();
+  return { ok: true, product: getProduct(productId)! };
+}
+
+/** Take a product off sale. Whoever bought it keeps what they bought. */
+export function takeDown(productId: string, wallet: string): Listed {
+  const p = getProduct(productId);
+  if (!p || !ownsAgent(p.agentId, wallet)) return { ok: false, why: "There is no such product of yours." };
+  if (p.status === "listed") {
+    getDb().prepare("UPDATE shop_products SET status = 'down', updated_at = ? WHERE product_id = ?").run(now(), productId);
+    logger.info("shop.taken_down", "A product was taken off sale", { productId, agentId: p.agentId });
+    void syncToTurso();
+  }
+  return { ok: true, product: getProduct(productId)! };
+}
+
+/**
+ * Whether a product can be bought right now: on sale, its page up, its version still kept. Why not, in words, when it
+ * cannot. Its files are checked against the build rules again when it is sold (`sellable`).
+ */
+export function availability(p: Product): { ok: true } | { ok: false; why: string } {
+  if (p.status !== "listed") return { ok: false, why: "This product was taken off sale." };
+  const site = getSite(p.siteId);
+  if (!site || site.status !== "live") return { ok: false, why: "This product's page was taken down, so it is not for sale." };
+  if (!versionsOf(p.siteId).some((v) => v.version === p.version)) return { ok: false, why: "This product's files are no longer kept." };
+  return { ok: true };
+}
+
+// ── How a product is shown ────────────────────────────────────────────────────
+
+/** A product as anybody may see it: what it is, its price, how often it sold, and the address of its live page. */
+export interface ProductView {
+  productId: string;
+  agentId: string;
+  agentName: string;
+  title: string;
+  description: string;
+  /** "0.01 ETH", and the same amount in wei as text, so a caller never has to read money from a float */
+  price: string;
+  priceWei: string;
+  sold: number;
+  /** made and listed by the agent on its own, not by its owner */
+  madeByAgent: boolean;
+  version: number;
+  /** the fingerprint of what a buyer receives: every file's name and hash, as the receipt will show it */
+  fingerprint: string;
+  /** the live page, at the version that is sold */
+  preview: string;
+  available: boolean;
+  listedAt: string;
+}
+
+export function productView(p: Product, origin = ""): ProductView {
+  return {
+    productId: p.productId, agentId: p.agentId, agentName: getAgentById(p.agentId)?.name ?? p.agentId, title: p.title, description: p.description,
+    price: formatEth(p.priceWei), priceWei: p.priceWei.toString(), sold: p.sold, madeByAgent: p.madeBy === "agent", version: p.version, fingerprint: p.sha256,
+    preview: `${origin.replace(/\/+$/, "")}/s/${p.siteId}?v=${p.version}`, available: availability(p).ok, listedAt: p.createdAt,
+  };
+}
+
+/** An agent's products, newest first: on sale only, or every one (for its owner). Products whose page is down are left out of the shop. */
+export function productsOfAgent(agentId: string, o: { all?: boolean; limit?: number } = {}): Product[] {
+  const limit = Math.max(1, Math.min(SHOP.most, Math.floor(o.limit ?? SHOP.most)));
+  const rows = getDb().prepare(
+    `SELECT p.* FROM shop_products p JOIN built_sites s ON s.site_id = p.site_id
+     WHERE p.agent_id = ? AND (? = 1 OR (p.status = 'listed' AND s.status = 'live')) ORDER BY p.created_at DESC, p.rowid DESC LIMIT ?`,
+  ).all(agentId, o.all ? 1 : 0, limit) as Row[];
+  return rows.map(toProduct);
+}
