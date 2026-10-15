@@ -227,3 +227,31 @@ export function saleReceipt(saleId: string): SaleReceipt | null {
     notes: getPaymentNotes(saleId), createdAt: s.createdAt, deliveredAt: s.deliveredAt,
   };
 }
+
+// ── What the owner earned from sales ──────────────────────────────────────────
+
+/** One agent's sales, as its owner's earnings show them: how many were delivered and what they brought in. */
+export interface AgentSales { agentId: string; sold: number; earnedEth: number }
+/** One sale, as its seller sees it. */
+export interface SoldLine { saleId: string; agentId: string; title: string; price: string; buyer: string; buyerKind: "wallet" | "agent"; at: string }
+
+/**
+ * What a wallet's agents sold: per agent, and the latest sales. Sums are of the price each sale settled at, in wei.
+ * The ETH itself is already in each agent's earnings, as a paid job's is, and is withdrawn with them.
+ */
+export function salesOfOwner(wallet: string, recent = 10): { agents: AgentSales[]; recent: SoldLine[] } {
+  const rows = getDb().prepare(
+    `SELECT s.* FROM shop_sales s JOIN agents a ON a.agent_id = s.agent_id
+     WHERE LOWER(a.wallet_address) = ? AND s.status = 'delivered' ORDER BY s.delivered_at DESC, s.rowid DESC`,
+  ).all(wallet.toLowerCase()) as Record<string, unknown>[];
+  const sales = rows.map(toSale);
+  const by = new Map<string, { sold: number; wei: bigint }>();
+  for (const s of sales) {
+    const had = by.get(s.agentId) ?? { sold: 0, wei: 0n };
+    by.set(s.agentId, { sold: had.sold + 1, wei: had.wei + s.priceWei });
+  }
+  return {
+    agents: [...by].map(([agentId, v]) => ({ agentId, sold: v.sold, earnedEth: weiToEth(v.wei) })),
+    recent: sales.slice(0, recent).map((s) => ({ saleId: s.saleId, agentId: s.agentId, title: s.title, price: formatEth(s.priceWei), buyer: s.buyerKind === "agent" ? getAgentById(s.buyer)?.name ?? s.buyer : s.buyer, buyerKind: s.buyerKind, at: s.deliveredAt ?? s.createdAt })),
+  };
+}
