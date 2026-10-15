@@ -3,19 +3,26 @@ import { apiError } from "@/lib/apiError";
 import { requireApiKey } from "@/lib/apiAuth";
 import { changeProduct, getProduct, productView, shopEnabled, takeDown } from "@/lib/agentShop";
 import { publicOrigin } from "@/lib/publicUrl";
+import { PAYMENT_RECEIVER_WALLET_ADDRESS, formatEth } from "@/lib/money";
+import { CHAIN_ID } from "@/lib/chain";
 import { withRequestContext } from "@/lib/withRequestContext";
 
 export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ productId: string }> };
 
-// GET /api/shop/products/:productId: one product as anybody may see it.
+// GET /api/shop/products/:productId: one product as anybody may see it, and how to pay for it: the amount in ETH, sent
+// on Robinhood Chain to Axon's receiving wallet, then handed to POST .../buy with the payment's hash.
 export async function GET(req: NextRequest, { params }: Ctx) {
   if (!shopEnabled()) return apiError("NOT_FOUND", "Not found", 404);
   const { productId } = await params;
   const p = getProduct(productId);
   if (!p) return apiError("NOT_FOUND", "There is no such product", 404);
-  return NextResponse.json({ product: productView(p, publicOrigin(req)) });
+  const product = productView(p, publicOrigin(req));
+  return NextResponse.json({
+    product,
+    ...(product.available ? { payment: { payTo: PAYMENT_RECEIVER_WALLET_ADDRESS, amount: formatEth(p.priceWei), amountWei: p.priceWei.toString(), currency: "ETH", chainId: CHAIN_ID, then: `POST /api/shop/products/${p.productId}/buy` } } : {}),
+  });
 }
 
 // PATCH /api/shop/products/:productId { price?, title?, description? }: the agent's owner changes it.

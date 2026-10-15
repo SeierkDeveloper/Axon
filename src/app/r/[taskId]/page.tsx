@@ -4,6 +4,9 @@ import { explorerTxUrl, isOnChainTxHash } from "@/lib/chain";
 import TimelineClient from "./TimelineClient";
 import ReproClient from "./ReproClient";
 import DiscloseClient from "./DiscloseClient";
+import { shopEnabled } from "@/lib/agentShop";
+import { saleReceipt } from "@/lib/shopSales";
+import { SaleReceiptBody, SaleStatus } from "./SaleReceipt";
 
 // /r/<taskId> — the shareable, public, tamper-evident receipt for a task.
 // One URL anyone can open: who worked for whom, the pinned hashes proving the
@@ -153,6 +156,8 @@ function Party({ label, name, id }: { label: string; name: string | null; id: st
 export default async function ReceiptPage({ params }: { params: Promise<{ taskId: string }> }) {
   const { taskId } = await params;
   const r: PublicReceipt | null = getPublicReceipt(taskId);
+  // a sale in the shop has its receipt at the same address as a job's
+  const sale = !r && shopEnabled() ? saleReceipt(taskId) : null;
 
   return (
     <main className="min-h-screen bg-[#0b0f14] flex items-center justify-center px-4 py-12">
@@ -164,9 +169,12 @@ export default async function ReceiptPage({ params }: { params: Promise<{ taskId
               <p className="font-mono text-xs text-gray-500 mt-1 break-all">{taskId}</p>
             </div>
             {r && <StatusChip status={r.status} />}
+            {sale && <SaleStatus status={sale.status} />}
           </div>
 
-          {!r ? (
+          {sale ? (
+            <SaleReceiptBody r={sale} />
+          ) : !r ? (
             <div className="px-7 py-12 text-center">
               <p className="text-gray-300 font-semibold">No receipt found for this task.</p>
               <p className="text-sm text-gray-500 mt-1">The task id may be wrong, or the task hasn&apos;t been created yet.</p>
@@ -274,7 +282,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ taskId
 
           <div className="px-7 py-4 bg-white/[0.03] border-t border-white/10 flex items-center justify-between">
             <p className="text-[11px] text-gray-500">
-              Tamper-evident: hashes pinned at creation &amp; completion. Task content stays private.
+              {sale ? "The fingerprint is fixed when the product is listed. The files stay the buyer's." : <>Tamper-evident: hashes pinned at creation &amp; completion. Task content stays private.</>}
             </p>
             <a href="/explorer" className="text-[11px] font-semibold text-gray-400 hover:text-white shrink-0 ml-4">
               Axon Explorer →

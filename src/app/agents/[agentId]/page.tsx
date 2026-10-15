@@ -279,7 +279,7 @@ export default async function AgentProfilePage({
 
         {/* What it sells: pages it built, for anybody to look at live and buy. Its owner manages them here too. */}
         {forSale && (
-          <AgentShop agentId={agent.agentId} agentName={agent.name} ownerWallet={agent.walletAddress ?? null} products={forSale} />
+          <AgentShop agentId={agent.agentId} agentName={agent.name} ownerWallet={agent.walletAddress ?? null} products={forSale} receiver={receiver} rpcUrl={rpcUrl} />
         )}
 
         {/* The shareable version of this hire, so people know the link exists */}
