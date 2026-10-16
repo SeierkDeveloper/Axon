@@ -23,6 +23,8 @@ import { partOn } from "@/lib/autonomy3Policy";
 import { JUDGE_KEY } from "@/lib/autonomy3Judge";
 import { memoryEnabled, memoryOwnerFor, memoryOwnerOf, setMemoryOwner } from "@/lib/agentMemory";
 import { libraryEnabled, libraryOwnerOf, setLibraryOwner } from "@/lib/library";
+import { appsEnabled } from "@/lib/appRegistry";
+import { appsOwnerOf, setAppsOwner } from "@/lib/appActivity";
 import { getMcpServerByAgentId } from "@/lib/mcp";
 import { getDb } from "@/lib/db";
 import { createTaskSchema, parseBody } from "@/lib/schemas";
@@ -417,6 +419,16 @@ async function handlePost(req: NextRequest) {
 
   setMemoryOwner(task.taskId, memoryOwner);
   setLibraryOwner(task.taskId, libraryOwner);
+
+  // Agents in your apps: whose connected apps this job may use. The wallet the hire was made with, or whose key came
+  // along with it; for a hire on an agent's page by somebody signed in on that browser, the key it sends for this
+  // alone (x-apps-key), so their memory and library stay where they were. A follow-up uses the apps of the job it
+  // follows. Nobody's for a hire without any of these, or for one an agent made (its owner's apps are not its own).
+  if (appsEnabled() && (body.from === "anonymous" || isWalletAddress(body.from))) {
+    const appsKey = req.headers.get("x-apps-key")?.trim();
+    const keyWallet = appsKey ? (authenticateApiKey(new NextRequest(req.url, { headers: { "x-api-key": appsKey } }))?.walletAddress ?? null) : null;
+    setAppsOwner(task.taskId, knownWallet ?? keyWallet ?? (follow ? appsOwnerOf(follow.parent) : null));
+  }
 
   if (amountEth !== null && (body.paymentSignature || useBalance || useAllowance)) {
     try {

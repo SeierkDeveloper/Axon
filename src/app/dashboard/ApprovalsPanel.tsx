@@ -16,7 +16,7 @@ interface Approval {
   appName: string;
   title: string;
   preview: string;
-  status: "pending" | "approved" | "declined" | "expired" | "cancelled" | "used";
+  status: "pending" | "approved" | "declined" | "expired" | "cancelled" | "used" | "failed";
   decidedAt: string | null;
   expiresAt: string;
   createdAt: string;
@@ -34,6 +34,7 @@ const STATUS: Record<Approval["status"], string> = {
   expired: "Expired",
   cancelled: "Cancelled",
   used: "Sent",
+  failed: "Not sent",
 };
 const ago = (iso: string): string => {
   const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
@@ -87,8 +88,10 @@ export default function ApprovalsPanel({ apiKey, onToast }: { apiKey: string; on
   const decide = async (a: Approval, decision: "approve" | "decline") => {
     setBusy(a.approvalId);
     try {
-      await authed(`/api/apps/approvals/${encodeURIComponent(a.approvalId)}`, { method: "POST", body: JSON.stringify({ decision }) });
-      onToast("success", decision === "approve" ? "Approved" : "Declined");
+      const r = (await authed(`/api/apps/approvals/${encodeURIComponent(a.approvalId)}`, { method: "POST", body: JSON.stringify({ decision }) })) as { carried?: { outcome: string; message: string } };
+      // an approval Axon carries out at once (a Slack post) says how that went
+      const carried = r.carried && r.carried.outcome !== "none" ? r.carried : null;
+      onToast(carried?.outcome === "failed" ? "error" : "success", decision === "approve" ? (carried ? carried.message : "Approved") : "Declined");
       setConfirming(null);
       setRefreshes((n) => n + 1);
     } catch (e) {

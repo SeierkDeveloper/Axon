@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 
 interface TraceEvent {
   seq: number;
-  kind: "task.created" | "step.model" | "tool.call" | "purchase.completed" | "site.built" | "material.bought" | "app.approval" | "progress" | "task.completed" | "task.failed" | "settlement.completed";
+  kind: "task.created" | "step.model" | "tool.call" | "purchase.completed" | "site.built" | "material.bought" | "app.approval" | "app.action" | "progress" | "task.completed" | "task.failed" | "settlement.completed";
   fromAgent: string | null;
   toAgent: string | null;
   fromName: string | null;
@@ -51,6 +51,7 @@ const KIND_META: Record<TraceEvent["kind"], { label: string; dot: string; text: 
   "site.built": { label: "Page built", dot: "bg-cyan-400", text: "text-cyan-200" },
   "material.bought": { label: "Bought material", dot: "bg-violet-400", text: "text-violet-200" },
   "app.approval": { label: "Owner's OK", dot: "bg-yellow-400", text: "text-yellow-200" },
+  "app.action": { label: "In the owner's app", dot: "bg-yellow-300/80", text: "text-yellow-100" },
   progress: { label: "Progress", dot: "bg-sky-400/70", text: "text-sky-200/80" },
   "task.completed": { label: "Completed", dot: "bg-emerald-400", text: "text-emerald-200" },
   "task.failed": { label: "Failed", dot: "bg-red-400", text: "text-red-200" },
@@ -228,6 +229,8 @@ export default function TimelineClient({ taskId }: { taskId: string }) {
             e.kind === "site.built" && typeof e.meta?.version === "number" && `version ${e.meta.version}`,
             e.kind === "site.built" && typeof e.meta?.files === "number" && `${e.meta.files} ${e.meta.files === 1 ? "file" : "files"}`,
             e.kind === "app.approval" && typeof e.meta?.app === "string" && typeof e.meta?.status === "string" && `${e.meta.app}: ${e.meta.status}`,
+            e.kind === "app.action" && typeof e.meta?.app === "string" && typeof e.meta?.what === "string" &&
+              `${e.meta.app}: ${e.meta.what}${typeof e.meta.count === "number" ? ` (${e.meta.count})` : ""}, ${String(e.meta.status ?? "")}`,
           ].filter(Boolean) as string[];
           return (
             <li

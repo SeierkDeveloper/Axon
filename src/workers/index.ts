@@ -26,7 +26,7 @@ import { mayDraw, pictureTool, withPictures } from "../lib/agentPictures";
 import { asksForFile, asksToSend, BROWSER_MAX_TOKENS, BROWSER_STEPS, browserTool, mayBrowse, refusalLine, withBrowser } from "../lib/browserTool";
 import { BUILD_MAX_TOKENS, BUILD_STEPS, buildTool, buildWatch, builtLine, builtSoFar, mayBuild, noRoomNote, noRoomToBuild, withBuild } from "../lib/buildTool";
 import { pictureOfSite } from "../lib/sitePicture";
-import { siteKeptForTask } from "../lib/siteKeeper";
+import { keeperOfTask, siteKeptForTask } from "../lib/siteKeeper";
 import { sitesEnabled, agentBuilds, siteOfTasks } from "../lib/agentSites";
 import { libraryOwnerOf } from "../lib/library";
 import { recordSent } from "../lib/taskSent";
@@ -36,6 +36,9 @@ import { shopEnabled } from "../lib/agentShop";
 import { appsEnabled } from "../lib/appRegistry";
 import { expireApprovals } from "../lib/appPermissions";
 import { purgeStates } from "../lib/appConnect";
+import { appsOwnerOf } from "../lib/appActivity";
+import { carryOutWaiting } from "../lib/appCarryOut";
+import { maySlack, slackTools, withSlackTools } from "../lib/slackTool";
 import { runDueMakes, settleMakeRuns } from "../lib/shopMake";
 import { mayShop, shopTools, withShop } from "../lib/shopTool";
 import { runChainTriggers } from "../lib/triggerChain";
@@ -565,6 +568,15 @@ async function processTasks() {
           if (shopEnabled() && mayShop(agent, task, { viaMcp: Boolean(mcpHandler) })) {
             tools = withShop(tools, shopTools({ agentId: agent.agentId, taskId: task.taskId, payment: task.payment, traceId: task.traceId }));
           }
+          // Working in Slack: a job about Slack, for somebody who connected Slack and said who they are with the hire,
+          // gives the agent what that person lets it do there: read, write drafts, ask to post. A post waits for their
+          // OK on the job's receipt, unless a job that started itself posts where they let it post without asking.
+          const aboutSlack = (job: string) => maySlack(agent, job, { viaMcp: Boolean(mcpHandler) });
+          const appsOwner = aboutSlack(task.task) || Boolean(before && earlierTurns(task).some((t) => aboutSlack(t.task))) ? appsOwnerOf(task) : null;
+          const slack = appsOwner
+            ? slackTools({ ownerWallet: appsOwner, agentId: agent.agentId, taskId: task.taskId, selfStarted: keeperOfTask(task.taskId) !== null, say: (line) => { live.say(line); } })
+            : [];
+          if (slack.length) tools = withSlackTools(tools, slack);
           // It remembers you: the agent may note something about the person for the next time they hire it.
           if (memoryOf && canNote(agent, { viaMcp: Boolean(mcpHandler) })) {
             tools = withRemember(tools, rememberTool({ owner: memoryOf, agentId: agent.agentId, taskId: task.taskId, onNoted: (line) => live.say(`Noted for next time: ${line.text}`) }));
@@ -623,7 +635,7 @@ async function processTasks() {
           // trouble starting it and the job runs as it always did.
           try {
             judge = startJudge(task, agent, task.task + formatContext(said), {
-              viaMcp: Boolean(mcpHandler), ...granted, files: handed.files.length, report: wantsReport, sandbox: Boolean(sandbox),
+              viaMcp: Boolean(mcpHandler), ...granted, localTools: granted.localTools + slack.length, files: handed.files.length, report: wantsReport, sandbox: Boolean(sandbox),
               office, browsing, building, drawing, steered: early.length > 0, followUp: Boolean(before),
             });
           } catch (e) {
@@ -1134,7 +1146,9 @@ export async function startWorkerLoops(): Promise<void> {
   }, RETAINER_INTERVAL_MS);
 
   // Apps an owner connected: requests for their OK that nobody answered in 24 hours expire (and say so on their
-  // receipts), and sign-ins that were started and never finished are removed. The database only.
+  // receipts), and sign-ins that were started and never finished are removed.
+  // What an owner approved that could not go out yet (the app was busy) is tried again, until it runs out.
+  let carrying = false;
   appsTimer = setInterval(() => {
     if (shutdownRequested || !appsEnabled()) return;
     try {
@@ -1144,6 +1158,12 @@ export async function startWorkerLoops(): Promise<void> {
     } catch (err) {
       logger.error("apps.tick_failed", "The tick for connected apps failed", { err });
     }
+    if (carrying) return;
+    carrying = true;
+    carryOutWaiting()
+      .then((posted) => { if (posted) logger.info("apps.carried_out", "Approved requests carried out", { posted }); })
+      .catch((err) => logger.error("apps.carry_tick_failed", "Carrying out approved requests failed", { err }))
+      .finally(() => { carrying = false; });
   }, RETAINER_INTERVAL_MS);
 
   // Mylo: what happened, for its public feed and people's inboxes. Reads the database only; never throws out of the loop.

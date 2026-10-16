@@ -1,11 +1,13 @@
 "use client";
 // Your apps, on the dashboard: connect an app once (GitHub, Notion, Slack, Google Docs, Gmail) and say what each agent
-// you hire may do in it. An app Axon has no client for yet shows "Coming soon".
+// you hire may do in it. Each app is a tile with its own mark; one Axon has no client for yet is a tile that cannot be
+// clicked and says "Coming soon", and works the moment its client is set.
 //
 // It shows nothing at all until the server says apps are on, so the dashboard is unchanged while they are off.
 // Everything goes through /api/apps with the owner's key; no answer from it ever carries a token.
 
 import { useCallback, useEffect, useState } from "react";
+import AppIcon from "@/components/AppIcon";
 
 type Action = "read" | "draft" | "publish";
 interface AppView {
@@ -18,6 +20,7 @@ interface AppView {
   connection: { connectionId: string; accountLabel: string | null; scopes: string[]; needsReconnect: boolean; createdAt: string; lastUsedAt: string | null } | null;
 }
 interface Permission { agentId: string; agentName: string | null; appId: string; actions: Action[]; updatedAt: string }
+interface Standing { agentId: string; agentName: string | null; appId: string; target: string; targetLabel: string; createdAt: string }
 interface AgentLite { agentId: string; name: string }
 
 const input =
@@ -35,7 +38,6 @@ const chip = (tone: "on" | "off" | "warn") =>
         ? "border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-400"
         : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 text-gray-500 dark:text-gray-400"
   }`;
-const MONOGRAM: Record<string, string> = { github: "GH", notion: "N", slack: "S", gdocs: "D", gmail: "M" };
 const ACTION_WORD: Record<Action, string> = { read: "Read", draft: "Write drafts", publish: "Publish or send" };
 const BACK: Record<string, { type: "success" | "error"; text: (app: string) => string }> = {
   connected: { type: "success", text: (a) => `${a} is connected` },
@@ -51,6 +53,10 @@ export default function AppsPanel({ apiKey, onToast }: { apiKey: string; onToast
   const [on, setOn] = useState<boolean | null>(null);
   const [apps, setApps] = useState<AppView[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [standing, setStanding] = useState<Standing[]>([]);
+  const [picked, setPicked] = useState<string | null>(null);
+  // posting without asking: the channel typed for one agent
+  const [channelFor, setChannelFor] = useState<{ agentId: string; channel: string } | null>(null);
   const [agents, setAgents] = useState<AgentLite[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -74,10 +80,11 @@ export default function AppsPanel({ apiKey, onToast }: { apiKey: string; onToast
     let alive = true;
     void (async () => {
       try {
-        const body = (await authed("/api/apps")) as { apps: AppView[]; permissions: Permission[] };
+        const body = (await authed("/api/apps")) as { apps: AppView[]; permissions: Permission[]; standing?: Standing[] };
         if (!alive) return;
         setApps(body.apps);
         setPermissions(body.permissions);
+        setStanding(body.standing ?? []);
         setOn(true);
         if (body.apps.some((a) => a.connection)) {
           const a = await fetch("/api/agents?limit=500").then((x) => x.json()).catch(() => ({ agents: [] }));
@@ -107,6 +114,8 @@ export default function AppsPanel({ apiKey, onToast }: { apiKey: string; onToast
   if (!on) return null;
   const reload = () => setRefreshes((n) => n + 1);
   const connected = apps.filter((a) => a.connection);
+  // the tile whose details show: the one clicked, else the first connected, else the first that can be connected
+  const selected = apps.find((a) => a.appId === picked && (a.available || a.connection)) ?? connected[0] ?? apps.find((a) => a.available) ?? null;
   const nameOf = (id: string) => apps.find((a) => a.appId === id)?.name ?? id;
 
   const connect = async (app: AppView) => {
@@ -175,6 +184,34 @@ export default function AppsPanel({ apiKey, onToast }: { apiKey: string; onToast
     }
   };
 
+  const allowStanding = async (p: Permission) => {
+    if (!channelFor?.channel.trim()) return;
+    setBusy(`stand:${p.agentId}`);
+    try {
+      const r = (await authed("/api/apps/standing", { method: "PUT", body: JSON.stringify({ agentId: p.agentId, appId: p.appId, channel: channelFor.channel }) })) as { standing: Standing };
+      onToast("success", `${p.agentName ?? p.agentId} may post in ${r.standing.targetLabel} without asking, on a schedule`);
+      setChannelFor(null);
+      reload();
+    } catch (e) {
+      onToast("error", e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const stopStanding = async (x: Standing) => {
+    setBusy(`stand:${x.agentId}`);
+    try {
+      await authed(`/api/apps/standing?agentId=${encodeURIComponent(x.agentId)}&appId=${encodeURIComponent(x.appId)}&target=${encodeURIComponent(x.target)}`, { method: "DELETE" });
+      onToast("success", `It asks you first in ${x.targetLabel} again`);
+      reload();
+    } catch (e) {
+      onToast("error", e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <section id="apps" className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
       <h2 className="font-semibold text-gray-900 dark:text-white mb-1">Your apps</h2>
@@ -183,63 +220,52 @@ export default function AppsPanel({ apiKey, onToast }: { apiKey: string; onToast
         that publishes or sends waits for your OK first. What the app gives Axon to sign in with is kept sealed and is never shown.
       </p>
 
-      <ul className="rounded-lg border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
+      <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
         {apps.map((app) => {
           const c = app.connection;
-          const state = c ? (c.needsReconnect ? "warn" : "on") : "off";
+          const open = app.available || Boolean(c);
+          const word = c ? (c.needsReconnect ? "Connect again" : "Connected") : app.available ? "Not connected" : "Coming soon";
+          const tone = c ? (c.needsReconnect ? "warn" : "on") : "off";
+          const chosen = selected?.appId === app.appId;
           return (
-            <li key={app.appId} className="p-4 flex flex-col sm:flex-row sm:items-start gap-3 min-w-0">
-              <div className="flex items-start gap-3 min-w-0 flex-1">
-                <span aria-hidden className="shrink-0 w-9 h-9 rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-xs font-semibold flex items-center justify-center">
-                  {MONOGRAM[app.appId] ?? app.name.slice(0, 1)}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium text-gray-900 dark:text-white">{app.name}</p>
-                    <span className={chip(app.available || c ? state : "off")}>
-                      {c ? (c.needsReconnect ? "Connect again" : "Connected") : app.available ? "Not connected" : "Coming soon"}
-                    </span>
-                  </div>
-                  {c?.accountLabel && <p className="text-xs text-gray-500 dark:text-gray-400 truncate">as {c.accountLabel}</p>}
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{app.blurb}</p>
-                  {(c ? c.scopes : app.asks).length > 0 && (app.available || c) && (
-                    <div className="mt-3">
-                      <p className={label}>{c ? "Allowed by the app" : "Connecting asks for"}</p>
-                      <ul className="text-xs text-gray-600 dark:text-gray-300 space-y-0.5">
-                        {(c ? c.scopes : app.asks).map((s) => <li key={s}>{s}</li>)}
-                      </ul>
-                    </div>
-                  )}
-                  {c && <p className="mt-2 text-[11px] text-gray-400">Connected {when(c.createdAt)}{c.lastUsedAt ? ` · last used ${when(c.lastUsedAt)}` : " · not used yet"}</p>}
-                </div>
-              </div>
-
-              {(c || app.available) && <div className="flex flex-wrap gap-2 sm:justify-end sm:max-w-xs pl-12 sm:pl-0">
-                {!c && app.available && (
-                  <button onClick={() => void connect(app)} disabled={busy !== null} className={button}>
-                    {busy === app.appId ? "Opening…" : `Connect ${app.name}`}
-                  </button>
-                )}
-                {c?.needsReconnect && app.available && (
-                  <button onClick={() => void connect(app)} disabled={busy !== null} className={button}>Connect again</button>
-                )}
-                {c && confirming !== app.appId && (
-                  <button onClick={() => setConfirming(app.appId)} disabled={busy !== null} className={danger}>Disconnect</button>
-                )}
-                {c && confirming === app.appId && (
-                  <div className="w-full rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3 text-xs text-red-800 dark:text-red-300 space-y-2">
-                    <p>Disconnect {app.name}? Agents lose access at once, and anything waiting for your OK there is cancelled.</p>
-                    <div className="flex gap-2">
-                      <button onClick={() => void disconnect(app)} disabled={busy !== null} className={danger}>{busy === app.appId ? "Disconnecting…" : "Disconnect"}</button>
-                      <button onClick={() => setConfirming(null)} className={button}>Keep it</button>
-                    </div>
-                  </div>
-                )}
-              </div>}
-            </li>
+            <button
+              key={app.appId}
+              type="button"
+              disabled={!open}
+              aria-pressed={open ? chosen : undefined}
+              aria-label={`${app.name}: ${word}`}
+              onClick={() => setPicked(app.appId)}
+              className={`group flex sm:flex-col items-center gap-3 sm:gap-2 rounded-lg border px-3 py-2.5 sm:py-4 text-left sm:text-center transition-colors ${
+                !open
+                  ? "border-dashed border-gray-200 dark:border-gray-800 cursor-not-allowed"
+                  : chosen
+                    ? "border-gray-900 dark:border-white bg-gray-50 dark:bg-gray-800/60"
+                    : "border-gray-200 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500"
+              }`}
+            >
+              <span className={`shrink-0 w-10 h-10 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 flex items-center justify-center ${open ? "" : "opacity-75"}`}>
+                <AppIcon appId={app.appId} size={22} />
+              </span>
+              <span className={`flex-1 sm:flex-none min-w-0 text-sm font-medium truncate ${open ? "text-gray-900 dark:text-white" : "text-gray-400 dark:text-gray-500"}`}>{app.name}</span>
+              <span className={chip(tone)}>{word}</span>
+            </button>
           );
         })}
-      </ul>
+      </div>
+
+      {selected ? (
+        <AppDetail
+          app={selected}
+          busy={busy}
+          confirming={confirming === selected.appId}
+          onConnect={() => void connect(selected)}
+          onAskDisconnect={() => setConfirming(selected.appId)}
+          onDisconnect={() => void disconnect(selected)}
+          onKeep={() => setConfirming(null)}
+        />
+      ) : (
+        <p className="mt-4 text-sm text-gray-400">These apps are coming soon.</p>
+      )}
 
       <div className="mt-6 border-t border-gray-100 dark:border-gray-800 pt-5">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">What each agent may do</h3>
@@ -283,20 +309,113 @@ export default function AppsPanel({ apiKey, onToast }: { apiKey: string; onToast
 
         {permissions.length > 0 && (
           <ul className="mt-4 divide-y divide-gray-100 dark:divide-gray-800">
-            {permissions.map((p) => (
-              <li key={`${p.agentId}:${p.appId}`} className="py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
-                <span className="text-gray-800 dark:text-gray-200 min-w-0 truncate">
-                  {p.agentName ?? p.agentId} <span className="text-gray-400">in {nameOf(p.appId)}</span>
-                </span>
-                <span className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500 dark:text-gray-400">{p.actions.length ? p.actions.map((a) => ACTION_WORD[a]).join(", ") : "Nothing"}</span>
-                  <button onClick={() => void reset(p)} disabled={busy !== null} className={button}>Reset</button>
-                </span>
-              </li>
-            ))}
+            {permissions.map((p) => {
+              const mine = standing.filter((x) => x.agentId === p.agentId && x.appId === p.appId);
+              const mayStand = p.appId === "slack" && p.actions.includes("publish");
+              const typing = channelFor?.agentId === p.agentId;
+              return (
+                <li key={`${p.agentId}:${p.appId}`} className="py-2 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-gray-800 dark:text-gray-200 min-w-0">
+                      <AppIcon appId={p.appId} size={14} />
+                      <span className="truncate">{p.agentName ?? p.agentId} <span className="text-gray-400">in {nameOf(p.appId)}</span></span>
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">{p.actions.length ? p.actions.map((a) => ACTION_WORD[a]).join(", ") : "Nothing"}</span>
+                      <button onClick={() => void reset(p)} disabled={busy !== null} className={button}>Reset</button>
+                    </span>
+                  </div>
+                  {mayStand && (
+                    <div className="mt-2 pl-6 space-y-1.5">
+                      {mine.map((x) => (
+                        <p key={x.target} className="flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                          <span>Posts in {x.targetLabel} without asking, on a schedule or trigger</span>
+                          <button onClick={() => void stopStanding(x)} disabled={busy !== null} className="underline underline-offset-2 text-gray-500 dark:text-gray-400 disabled:opacity-40">Ask me again</button>
+                        </p>
+                      ))}
+                      {typing ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            value={channelFor.channel}
+                            onChange={(e) => setChannelFor({ agentId: p.agentId, channel: e.target.value })}
+                            placeholder="#channel"
+                            aria-label="Channel"
+                            className={`${input} max-w-[12rem]`}
+                          />
+                          <button onClick={() => void allowStanding(p)} disabled={busy !== null || !channelFor.channel.trim()} className={button}>{busy === `stand:${p.agentId}` ? "Saving…" : "Allow"}</button>
+                          <button onClick={() => setChannelFor(null)} className={button}>Cancel</button>
+                          <p className="w-full text-[11px] text-gray-400">Only for jobs that start themselves on a schedule or trigger. Everything else still waits for your OK.</p>
+                        </div>
+                      ) : (
+                        <button onClick={() => setChannelFor({ agentId: p.agentId, channel: "" })} disabled={busy !== null} className="text-xs underline underline-offset-2 text-gray-500 dark:text-gray-400 disabled:opacity-40">
+                          Let it post in one channel without asking
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
     </section>
+  );
+}
+
+/** The details of the app whose tile is chosen: what it is, what connecting asks for, and connect or disconnect. */
+function AppDetail({ app, busy, confirming, onConnect, onAskDisconnect, onDisconnect, onKeep }: {
+  app: AppView;
+  busy: string | null;
+  confirming: boolean;
+  onConnect: () => void;
+  onAskDisconnect: () => void;
+  onDisconnect: () => void;
+  onKeep: () => void;
+}) {
+  const c = app.connection;
+  const list = c ? c.scopes : app.asks;
+  return (
+    <div className="mt-3 rounded-lg border border-gray-100 dark:border-gray-800 p-4 flex flex-col sm:flex-row sm:items-start gap-4 min-w-0">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <AppIcon appId={app.appId} size={16} />
+          <p className="font-medium text-gray-900 dark:text-white">{app.name}</p>
+          {c?.accountLabel && <p className="text-xs text-gray-500 dark:text-gray-400 truncate">as {c.accountLabel}</p>}
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{app.blurb}</p>
+        {list.length > 0 && (
+          <div className="mt-3">
+            <p className={label}>{c ? "Allowed by the app" : "Connecting asks for"}</p>
+            <ul className="text-xs text-gray-600 dark:text-gray-300 space-y-0.5">
+              {list.map((s) => <li key={s}>{s}</li>)}
+            </ul>
+          </div>
+        )}
+        {c && <p className="mt-2 text-[11px] text-gray-400">Connected {when(c.createdAt)}{c.lastUsedAt ? ` · last used ${when(c.lastUsedAt)}` : " · not used yet"}</p>}
+      </div>
+      <div className="flex flex-wrap gap-2 sm:justify-end sm:max-w-xs">
+        {!c && app.available && (
+          <button onClick={onConnect} disabled={busy !== null} className={button}>
+            {busy === app.appId ? "Opening…" : `Connect ${app.name}`}
+          </button>
+        )}
+        {c?.needsReconnect && app.available && (
+          <button onClick={onConnect} disabled={busy !== null} className={button}>Connect again</button>
+        )}
+        {c && !confirming && (
+          <button onClick={onAskDisconnect} disabled={busy !== null} className={danger}>Disconnect</button>
+        )}
+        {c && confirming && (
+          <div className="w-full rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3 text-xs text-red-800 dark:text-red-300 space-y-2">
+            <p>Disconnect {app.name}? Agents lose access at once, and anything waiting for your OK there is cancelled.</p>
+            <div className="flex gap-2">
+              <button onClick={onDisconnect} disabled={busy !== null} className={danger}>{busy === app.appId ? "Disconnecting…" : "Disconnect"}</button>
+              <button onClick={onKeep} className={button}>Keep it</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

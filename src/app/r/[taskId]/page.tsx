@@ -4,6 +4,8 @@ import { explorerTxUrl, isOnChainTxHash } from "@/lib/chain";
 import TimelineClient from "./TimelineClient";
 import ReproClient from "./ReproClient";
 import DiscloseClient from "./DiscloseClient";
+import AppsOnReceipt from "./AppsOnReceipt";
+import { appsEnabled } from "@/lib/appRegistry";
 import { shopEnabled } from "@/lib/agentShop";
 import { saleReceipt } from "@/lib/shopSales";
 import { MaterialsBought, SaleReceiptBody, SaleStatus } from "./SaleReceipt";
@@ -290,6 +292,9 @@ export default async function ReceiptPage({ params }: { params: Promise<{ taskId
             </a>
           </div>
         </div>
+
+        {/* What the agent did in the hirer's apps, for the hirer alone: drafts to read and posts to approve. */}
+        {r && appsEnabled() && <AppsOnReceipt taskId={taskId} />}
 
         {/* The replayable, hash-chained execution timeline behind this receipt. */}
         {r && <TimelineClient taskId={taskId} />}

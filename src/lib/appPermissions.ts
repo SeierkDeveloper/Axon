@@ -10,9 +10,16 @@
 //   expired   nobody answered in 24 hours
 //   cancelled the app was disconnected while it waited
 //   used      it was carried out (takeApproved hands the payload over exactly once)
+//   failed    it was carried out and the app said no (a channel that is gone, a revoked token); not tried again
 //
 // Every request and every decision is written to the job's receipt as an "app.approval" event: the app, the action,
 // what happened, and the fingerprint of the payload. Never the payload itself.
+//
+// Posting without asking (standing): the owner may let one agent post in one place in an app (one Slack channel)
+// without their OK each time, for jobs that start themselves (a schedule, a trigger). Off unless the owner sets it, it
+// counts only while the agent may publish in that app, and it goes when the app is disconnected or the agent's
+// permission is reset or loses publish. What goes out that way is still written down as an approval, decided by
+// "standing", so it is on the receipt and in the owner's list like anything else.
 
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
@@ -23,13 +30,14 @@ import { getTaskById } from "./tasks";
 import { safeAppendTraceEvent, sha256hex, traceIdForTask } from "./traceEvents";
 import { ACTIONS, DEFAULT_ACTIONS, appsEnabled, getApp, isAction, type AppAction } from "./appRegistry";
 import { AppError, getConnection } from "./appConnect";
+import { settleAction } from "./appActivity";
 
 type Env = Record<string, string | undefined>;
 
 export const APPROVAL_TTL_MS = 24 * 60 * 60_000;
 export const LIMITS = { title: 140, preview: 20_000, payload: 200_000, pendingPerOwner: 50 } as const;
 
-export type ApprovalStatus = "pending" | "approved" | "declined" | "expired" | "cancelled" | "used";
+export type ApprovalStatus = "pending" | "approved" | "declined" | "expired" | "cancelled" | "used" | "failed";
 
 export interface Approval {
   approvalId: string;
@@ -127,12 +135,59 @@ export function setPermission(ownerWallet: string, agentId: string, appId: strin
   getDb()
     .prepare("INSERT INTO app_permissions (owner_wallet, agent_id, app_id, actions, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner_wallet, agent_id, app_id) DO UPDATE SET actions = excluded.actions, updated_at = excluded.updated_at")
     .run(who, agentId, appId, set.join(","), iso(now));
+  // an agent that may no longer publish there may no longer post without asking either
+  if (!set.includes("publish")) clearStanding(who, appId, agentId);
   return { agentId, agentName: getAgentById(agentId)?.name ?? null, appId, actions: set, updatedAt: iso(now) };
 }
 
 /** Back to the defaults for one agent in one app. */
 export function resetPermission(ownerWallet: string, agentId: string, appId: string): boolean {
+  clearStanding(ownerWallet, appId, agentId);
   return getDb().prepare("DELETE FROM app_permissions WHERE owner_wallet = ? AND agent_id = ? AND app_id = ?").run(owner(ownerWallet), agentId, appId).changes > 0;
+}
+
+// ── Posting without asking ───────────────────────────────────────────────────
+
+export interface Standing { agentId: string; agentName: string | null; appId: string; target: string; targetLabel: string; createdAt: string }
+
+/** Where the owner lets agents post without asking each time, newest first. */
+export function listStanding(ownerWallet: string): Standing[] {
+  const rows = getDb().prepare("SELECT agent_id, app_id, target, target_label, created_at FROM app_standing WHERE owner_wallet = ? ORDER BY created_at DESC").all(owner(ownerWallet)) as { agent_id: string; app_id: string; target: string; target_label: string; created_at: string }[];
+  return rows.map((r) => ({ agentId: r.agent_id, agentName: getAgentById(r.agent_id)?.name ?? null, appId: r.app_id, target: r.target, targetLabel: r.target_label, createdAt: r.created_at }));
+}
+
+/** Let one agent post in one place without asking. Only for an agent the owner already lets publish in that app. */
+export function allowStanding(ownerWallet: string, agentId: string, appId: string, target: { id: string; label: string }, now = Date.now()): Standing {
+  const app = appOf(appId);
+  if (!getAgentById(agentId)) throw new AppError("There is no such agent.", 404);
+  if (!allowedActions(ownerWallet, agentId, app.id).includes("publish")) throw new AppError(`Let this agent publish in ${app.name} first. Posting without asking is only for an agent that may publish.`, 400);
+  const id = String(target.id ?? "").trim();
+  const label = String(target.label ?? "").trim().slice(0, 100);
+  if (!id || id.length > 64 || !label) throw new AppError("Say where.", 400);
+  getDb()
+    .prepare("INSERT INTO app_standing (owner_wallet, agent_id, app_id, target, target_label, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(owner_wallet, agent_id, app_id, target) DO UPDATE SET target_label = excluded.target_label")
+    .run(owner(ownerWallet), agentId, app.id, id, label, iso(now));
+  logger.info("apps.standing_allowed", "An owner let an agent post without asking", { app: app.id, agentId });
+  return { agentId, agentName: getAgentById(agentId)?.name ?? null, appId: String(app.id), target: id, targetLabel: label, createdAt: iso(now) };
+}
+
+/** Stop one agent posting in one place without asking. */
+export function stopStanding(ownerWallet: string, agentId: string, appId: string, target: string): boolean {
+  return getDb().prepare("DELETE FROM app_standing WHERE owner_wallet = ? AND agent_id = ? AND app_id = ? AND target = ?").run(owner(ownerWallet), agentId, appId, target).changes > 0;
+}
+
+/** Remove every place an app's agents (or one agent) may post without asking. */
+export function clearStanding(ownerWallet: string, appId: string, agentId?: string): number {
+  const who = owner(ownerWallet);
+  return agentId
+    ? getDb().prepare("DELETE FROM app_standing WHERE owner_wallet = ? AND app_id = ? AND agent_id = ?").run(who, appId, agentId).changes
+    : getDb().prepare("DELETE FROM app_standing WHERE owner_wallet = ? AND app_id = ?").run(who, appId).changes;
+}
+
+/** Whether this agent may post in this place without asking right now: set by the owner, and it may still publish. */
+export function standsFor(ownerWallet: string, agentId: string, appId: string, target: string, env: Env = process.env): boolean {
+  if (!canDo(ownerWallet, agentId, appId, "publish", env)) return false;
+  return Boolean(getDb().prepare("SELECT 1 FROM app_standing WHERE owner_wallet = ? AND agent_id = ? AND app_id = ? AND target = ?").get(owner(ownerWallet), agentId, appId, target));
 }
 
 /**
@@ -149,7 +204,7 @@ export function canDo(ownerWallet: string, agentId: string, appId: string, actio
 
 // ── Approvals ────────────────────────────────────────────────────────────────
 
-function onReceipt(a: { approvalId: string; taskId: string; agentId: string; appId: string; action: string; payloadSha256: string }, status: string, by: "agent" | "owner" | "expiry" | "disconnect"): void {
+function onReceipt(a: { approvalId: string; taskId: string; agentId: string; appId: string; action: string; payloadSha256: string }, status: string, by: "agent" | "owner" | "expiry" | "disconnect" | "standing" | "app"): void {
   safeAppendTraceEvent({
     traceId: traceIdForTask(a.taskId),
     taskId: a.taskId,
@@ -175,6 +230,22 @@ export interface ApprovalRequest {
 
 /** Ask the owner's OK to publish or send something. Throws when the agent may not even ask. */
 export function requestApproval(req: ApprovalRequest, opts: { env?: Env; now?: number } = {}): Approval {
+  return insertApproval(req, { ...opts, standing: null });
+}
+
+/**
+ * Something the owner lets this agent post in this place without asking (see standsFor): written down as an approval
+ * decided by "standing" and already taken, so it is on the receipt and in the owner's list, and handed straight back
+ * to be carried out. Throws when the owner does not let it.
+ */
+export function recordStanding(req: ApprovalRequest, target: string, opts: { env?: Env; now?: number } = {}): { approval: Approval; payload: unknown } {
+  const env = opts.env ?? process.env;
+  if (!standsFor(req.ownerWallet, req.agentId, req.appId, target, env)) throw new AppError("This agent may not post there without asking.", 403);
+  const a = insertApproval(req, { ...opts, standing: target });
+  return { approval: a, payload: JSON.parse(JSON.stringify(req.payload ?? null)) as unknown };
+}
+
+function insertApproval(req: ApprovalRequest, opts: { env?: Env; now?: number; standing: string | null }): Approval {
   const env = opts.env ?? process.env;
   const now = opts.now ?? Date.now();
   const app = appOf(req.appId);
@@ -189,8 +260,10 @@ export function requestApproval(req: ApprovalRequest, opts: { env?: Env; now?: n
   if (!preview || preview.length > LIMITS.preview) throw new AppError(`A preview of 1 to ${LIMITS.preview} characters is needed.`, 400);
   if (payload.length > LIMITS.payload) throw new AppError("What would be sent is too large to ask about.", 400);
   expireApprovals(now);
-  const waiting = (getDb().prepare("SELECT COUNT(*) AS n FROM app_approvals WHERE owner_wallet = ? AND status = 'pending'").get(who) as { n: number }).n;
-  if (waiting >= LIMITS.pendingPerOwner) throw new AppError("The owner has too many things waiting for an OK already.", 429);
+  if (!opts.standing) {
+    const waiting = (getDb().prepare("SELECT COUNT(*) AS n FROM app_approvals WHERE owner_wallet = ? AND status = 'pending'").get(who) as { n: number }).n;
+    if (waiting >= LIMITS.pendingPerOwner) throw new AppError("The owner has too many things waiting for an OK already.", 429);
+  }
 
   const row: ApprovalRow = {
     approval_id: `apr_${randomUUID()}`,
@@ -203,29 +276,62 @@ export function requestApproval(req: ApprovalRequest, opts: { env?: Env; now?: n
     preview,
     payload,
     payload_sha256: sha256hex(payload),
-    status: "pending",
-    decided_by: null,
-    decided_at: null,
+    status: opts.standing ? "used" : "pending",
+    decided_by: opts.standing ? "standing" : null,
+    decided_at: opts.standing ? iso(now) : null,
     expires_at: iso(now + APPROVAL_TTL_MS),
-    used_at: null,
+    used_at: opts.standing ? iso(now) : null,
     created_at: iso(now),
   };
   getDb()
     .prepare(
-      `INSERT INTO app_approvals (approval_id, owner_wallet, agent_id, task_id, app_id, action, title, preview, payload, payload_sha256, status, expires_at, created_at)
-       VALUES (@approval_id, @owner_wallet, @agent_id, @task_id, @app_id, @action, @title, @preview, @payload, @payload_sha256, @status, @expires_at, @created_at)`,
+      `INSERT INTO app_approvals (approval_id, owner_wallet, agent_id, task_id, app_id, action, title, preview, payload, payload_sha256, status, decided_by, decided_at, expires_at, used_at, created_at)
+       VALUES (@approval_id, @owner_wallet, @agent_id, @task_id, @app_id, @action, @title, @preview, @payload, @payload_sha256, @status, @decided_by, @decided_at, @expires_at, @used_at, @created_at)`,
     )
     .run(row);
   const a = toApproval(row);
-  onReceipt(a, "asked", "agent");
-  logger.info("apps.approval_asked", "An agent asked to publish or send", { approvalId: a.approvalId, app: a.appId, taskId: a.taskId });
+  if (opts.standing) {
+    onReceipt(a, "allowed without asking", "standing");
+    logger.info("apps.approval_standing", "An agent posted where its owner lets it without asking", { approvalId: a.approvalId, app: a.appId, taskId: a.taskId });
+  } else {
+    onReceipt(a, "asked", "agent");
+    logger.info("apps.approval_asked", "An agent asked to publish or send", { approvalId: a.approvalId, app: a.appId, taskId: a.taskId });
+  }
   return a;
+}
+
+/**
+ * Something taken to be carried out could not go out for a reason that may pass (the app was busy or could not be
+ * reached): it is approved again, so it is tried again later, until it runs out. Only while it is still the one taken.
+ */
+export function returnApproved(approvalId: string): boolean {
+  return getDb().prepare("UPDATE app_approvals SET status = 'approved', used_at = NULL WHERE approval_id = ? AND status = 'used' AND decided_by != 'standing'").run(approvalId).changes > 0;
+}
+
+/** Something taken to be carried out was refused by the app for good: failed, and said so on the receipt. */
+export function markFailed(approvalId: string): void {
+  const row = getDb().prepare("UPDATE app_approvals SET status = 'failed' WHERE approval_id = ? AND status = 'used' RETURNING *").get(approvalId) as ApprovalRow | undefined;
+  if (row) onReceipt(toApproval(row), "failed", "app");
+}
+
+/** Approved requests not carried out yet, oldest first: what the apps tick tries again. */
+export function approvedWaiting(limit = 20, now = Date.now()): Approval[] {
+  return (getDb().prepare("SELECT * FROM app_approvals WHERE status = 'approved' AND expires_at > ? ORDER BY decided_at ASC LIMIT ?").all(iso(now), limit) as ApprovalRow[]).map(toApproval);
+}
+
+/** One of the owner's requests, or null. */
+export function getApproval(ownerWallet: string, approvalId: string): Approval | null {
+  const row = getDb().prepare("SELECT * FROM app_approvals WHERE approval_id = ? AND owner_wallet = ?").get(approvalId, owner(ownerWallet)) as ApprovalRow | undefined;
+  return row ? toApproval(row) : null;
 }
 
 /** Requests nobody answered in time: expired, and said so on their receipts. */
 export function expireApprovals(now = Date.now()): number {
   const rows = getDb().prepare("UPDATE app_approvals SET status = 'expired', decided_by = 'expiry', decided_at = ? WHERE status IN ('pending', 'approved') AND expires_at <= ? RETURNING *").all(iso(now), iso(now)) as ApprovalRow[];
-  for (const r of rows) onReceipt(toApproval(r), "expired", "expiry");
+  for (const r of rows) {
+    onReceipt(toApproval(r), "expired", "expiry");
+    settleAction(r.approval_id, { status: "expired", receipt: false }, now);
+  }
   return rows.length;
 }
 
@@ -245,6 +351,7 @@ export function decideApproval(ownerWallet: string, approvalId: string, decision
   }
   const a = toApproval(row);
   onReceipt(a, status, "owner");
+  settleAction(a.approvalId, { status: decision === "approve" ? "approved" : "declined", receipt: false }, now);
   logger.info("apps.approval_decided", "An owner decided on a request", { approvalId, status });
   return a;
 }
@@ -280,7 +387,10 @@ export function cancelForApp(ownerWallet: string, appId: string, now = Date.now(
   const rows = getDb()
     .prepare("UPDATE app_approvals SET status = 'cancelled', decided_by = 'disconnect', decided_at = ? WHERE owner_wallet = ? AND app_id = ? AND status IN ('pending', 'approved') RETURNING *")
     .all(iso(now), owner(ownerWallet), appId) as ApprovalRow[];
-  for (const r of rows) onReceipt(toApproval(r), "cancelled", "disconnect");
+  for (const r of rows) {
+    onReceipt(toApproval(r), "cancelled", "disconnect");
+    settleAction(r.approval_id, { status: "cancelled", receipt: false }, now);
+  }
   return rows.length;
 }
 
@@ -290,12 +400,21 @@ export interface ApprovalView extends Omit<Approval, "ownerWallet"> { agentName:
 export function listApprovals(ownerWallet: string, now = Date.now()): { pending: ApprovalView[]; recent: ApprovalView[] } {
   expireApprovals(now);
   const who = owner(ownerWallet);
-  const view = (r: ApprovalRow): ApprovalView => {
-    const { ownerWallet: _o, ...rest } = toApproval(r);
-    void _o;
-    return { ...rest, agentName: getAgentById(r.agent_id)?.name ?? null, appName: getApp(r.app_id)?.name ?? r.app_id, receiptUrl: `/r/${encodeURIComponent(r.task_id)}` };
-  };
   const pending = getDb().prepare("SELECT * FROM app_approvals WHERE owner_wallet = ? AND status = 'pending' ORDER BY created_at ASC LIMIT 100").all(who) as ApprovalRow[];
   const recent = getDb().prepare("SELECT * FROM app_approvals WHERE owner_wallet = ? AND status != 'pending' ORDER BY COALESCE(decided_at, created_at) DESC LIMIT 20").all(who) as ApprovalRow[];
   return { pending: pending.map(view), recent: recent.map(view) };
 }
+
+/** Everything one job asked of the owner, oldest first: for the owner's part of the job's receipt. */
+export function approvalsForTask(ownerWallet: string, taskId: string, now = Date.now()): ApprovalView[] {
+  expireApprovals(now);
+  const who = owner(ownerWallet);
+  const rows = getDb().prepare("SELECT * FROM app_approvals WHERE owner_wallet = ? AND task_id = ? ORDER BY created_at ASC LIMIT 50").all(who, taskId) as ApprovalRow[];
+  return rows.map(view);
+}
+
+const view = (r: ApprovalRow): ApprovalView => {
+  const { ownerWallet: _o, ...rest } = toApproval(r);
+  void _o;
+  return { ...rest, agentName: getAgentById(r.agent_id)?.name ?? null, appName: getApp(r.app_id)?.name ?? r.app_id, receiptUrl: `/r/${encodeURIComponent(r.task_id)}` };
+};

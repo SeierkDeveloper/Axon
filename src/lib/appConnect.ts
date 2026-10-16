@@ -305,12 +305,14 @@ async function refreshConnection(row: ConnectionRow, app: AppDef, env: Env, now:
   }
   const refreshToken = openToken(row.refresh_token_enc, `${row.connection_id}:refresh`, env);
   const answer = await tokenRequest(app, client, { grant_type: "refresh_token", refresh_token: refreshToken });
-  const tokens = answer.ok ? (app.parseToken(answer.body) ?? standardToken(answer.body)) : null;
+  // Slack answers a refusal with 200 and "ok": false, so that counts as a no as well
+  const saidNo = answer.body.ok === false;
+  const tokens = answer.ok && !saidNo ? (app.parseToken(answer.body) ?? standardToken(answer.body)) : null;
   if (!tokens) {
     // the app said no (a withdrawn grant, an expired refresh token): only connecting again helps. A server error or a
     // timeout is not a no, so the connection is left as it was for the next try.
-    if (answer.status >= 400 && answer.status < 500) markReconnect(row.connection_id, now);
-    throw new AppError(`${app.name} did not renew the connection (${answer.ok ? "no token" : reasonOf(answer.body)}).`, answer.status >= 500 ? 502 : 409);
+    if ((answer.status >= 400 && answer.status < 500) || saidNo) markReconnect(row.connection_id, now);
+    throw new AppError(`${app.name} did not renew the connection (${answer.ok && !saidNo ? "no token" : reasonOf(answer.body)}). Connect it again on your dashboard.`, answer.status >= 500 ? 502 : 409);
   }
   const access = sealToken(tokens.accessToken, `${row.connection_id}:access`, env);
   // an app that does not send a new refresh token keeps the old one working; sealed again under the current key
@@ -323,6 +325,30 @@ async function refreshConnection(row: ConnectionRow, app: AppDef, env: Env, now:
 
 function markReconnect(connectionId: string, now: number): void {
   getDb().prepare("UPDATE app_connections SET needs_reconnect = 1, updated_at = ? WHERE connection_id = ?").run(iso(now), connectionId);
+}
+
+/**
+ * The app told a call that the owner's token no longer works (revoked, or Axon removed in the app): the connection is
+ * marked as needing to be connected again, and nothing uses it until it is.
+ */
+export function markNeedsReconnect(ownerWallet: string, appId: string, now = Date.now()): void {
+  const row = liveRow(ownerWallet, appId);
+  if (row) markReconnect(row.connection_id, now);
+}
+
+/**
+ * The app told a call that the token ran out before Axon expected it to. With a refresh token the next use renews it;
+ * without one there is nothing to renew with, and the owner connects again. Returns whether a renewal can be tried.
+ */
+export function tokenRanOut(ownerWallet: string, appId: string, now = Date.now()): boolean {
+  const row = liveRow(ownerWallet, appId);
+  if (!row) return false;
+  if (!row.refresh_token_enc) {
+    markReconnect(row.connection_id, now);
+    return false;
+  }
+  getDb().prepare("UPDATE app_connections SET expires_at = ?, updated_at = ? WHERE connection_id = ?").run(iso(now), iso(now), row.connection_id);
+  return true;
 }
 
 /** Seal a row's tokens again under the current key, when an older one sealed them. */
@@ -450,8 +476,10 @@ export async function disconnect(ownerWallet: string, appId: string, opts: { env
   const db = getDb();
   db.prepare("UPDATE app_connections SET access_token_enc = NULL, refresh_token_enc = NULL, revoked_at = ?, updated_at = ? WHERE connection_id = ?").run(iso(now), iso(now), row.connection_id);
   // anything waiting to go out through this app cannot go now
-  const { cancelForApp } = await import("./appPermissions");
+  // and nothing may post there without asking any more, should the app be connected again
+  const { cancelForApp, clearStanding } = await import("./appPermissions");
   cancelForApp(row.owner_wallet, app.id, now);
+  clearStanding(row.owner_wallet, app.id);
   const appTold = token ? await tellApp(app, appClient(app, env), token) : false;
   logger.info("apps.disconnected", "An app was disconnected", { app: app.id, connectionId: row.connection_id, appTold });
   return { appTold, appHasRevoke: app.revoke !== null };

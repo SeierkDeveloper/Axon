@@ -34,6 +34,10 @@ export type TraceEventKind =
   // out, or it was carried out (./appPermissions). The fingerprint of what would go out is the input hash; the app,
   // the action and what happened are in meta. Never the thing itself.
   | "app.approval"
+  // An agent did something in its owner's app for this job: read channels or messages, wrote a draft, posted
+  // (./appActivity). The app, the kind of action, a word for what and how it went are in meta, with fingerprints of
+  // where and of what was written. Never the content, never a channel's name.
+  | "app.action"
   | "progress"
   | "task.completed"
   | "task.failed"

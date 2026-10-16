@@ -160,6 +160,19 @@ function StepList({ steps, live }: { steps: StepLine[]; live?: boolean }) {
   );
 }
 
+/**
+ * Somebody signed in on this browser (their dashboard key is kept here): the key goes with a hire for one thing only,
+ * so the agent may work in the apps they connected, as they allowed. It is not used for memory or the library.
+ */
+function appsKeyHeader(): Record<string, string> {
+  try {
+    const key = window.localStorage.getItem("axon.dashboard.apiKey");
+    return key ? { "x-apps-key": key } : {};
+  } catch {
+    return {};
+  }
+}
+
 export default function HirePanel({
   agentId,
   agentName,
@@ -412,7 +425,7 @@ export default function HirePanel({
     try {
       const res = await fetch("/api/tasks", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...appsKeyHeader() },
         body: JSON.stringify({ from: "anonymous", to: agentId, task: task.trim(), allowQuestions: true, ...memoryFields(), ...(planFirst && canPlan ? { planFirst: true } : {}), ...(files.length ? { files: files.map((f) => ({ id: f.id, token: f.token })) } : {}), ...(report ? { reportFile: true } : {}), ...(payment ?? {}) }),
       });
       const data = (await res.json()) as { taskId?: string; claimToken?: string; error?: string };
