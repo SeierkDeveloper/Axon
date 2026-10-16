@@ -33,6 +33,9 @@ import { recordSent } from "../lib/taskSent";
 import { recordPage } from "../lib/taskPages";
 import { triggersEnabled } from "../lib/triggers";
 import { shopEnabled } from "../lib/agentShop";
+import { appsEnabled } from "../lib/appRegistry";
+import { expireApprovals } from "../lib/appPermissions";
+import { purgeStates } from "../lib/appConnect";
 import { runDueMakes, settleMakeRuns } from "../lib/shopMake";
 import { mayShop, shopTools, withShop } from "../lib/shopTool";
 import { runChainTriggers } from "../lib/triggerChain";
@@ -153,6 +156,7 @@ let retainerTimer: NodeJS.Timeout | null = null;
 let triggerTimer: NodeJS.Timeout | null = null;
 let pageTimer: NodeJS.Timeout | null = null;
 let shopTimer: NodeJS.Timeout | null = null;
+let appsTimer: NodeJS.Timeout | null = null;
 let triggerRunning = false;
 let pageRunning = false;
 let commitTimer: NodeJS.Timeout | null = null;
@@ -865,6 +869,10 @@ function clearTimers(): void {
     clearInterval(shopTimer);
     shopTimer = null;
   }
+  if (appsTimer) {
+    clearInterval(appsTimer);
+    appsTimer = null;
+  }
   if (triggerTimer) {
     clearInterval(triggerTimer);
     triggerTimer = null;
@@ -1122,6 +1130,19 @@ export async function startWorkerLoops(): Promise<void> {
       if (settled.listed || settled.failed || started.started) logger.info("shop.make_tick", "Agents making products", { ...settled, ...started });
     } catch (err) {
       logger.error("shop.make_tick_failed", "The tick for agents making products failed", { err });
+    }
+  }, RETAINER_INTERVAL_MS);
+
+  // Apps an owner connected: requests for their OK that nobody answered in 24 hours expire (and say so on their
+  // receipts), and sign-ins that were started and never finished are removed. The database only.
+  appsTimer = setInterval(() => {
+    if (shutdownRequested || !appsEnabled()) return;
+    try {
+      const expired = expireApprovals();
+      const purged = purgeStates();
+      if (expired || purged) logger.info("apps.tick", "Requests expired and sign-ins tidied", { expired, purged });
+    } catch (err) {
+      logger.error("apps.tick_failed", "The tick for connected apps failed", { err });
     }
   }, RETAINER_INTERVAL_MS);
 

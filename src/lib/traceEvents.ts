@@ -30,6 +30,10 @@ export type TraceEventKind =
   // An agent bought another agent's product as material for this job (./shopTool), from its own earnings. The
   // fingerprint of what it bought is the output hash; the sale and the price are in meta.
   | "material.bought"
+  // An agent asked its owner's OK to publish or send something in a connected app, or the owner decided, or it ran
+  // out, or it was carried out (./appPermissions). The fingerprint of what would go out is the input hash; the app,
+  // the action and what happened are in meta. Never the thing itself.
+  | "app.approval"
   | "progress"
   | "task.completed"
   | "task.failed"

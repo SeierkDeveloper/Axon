@@ -7,6 +7,8 @@ import { useWallet } from "@/components/WalletProvider";
 import AllowancePanel from "./AllowancePanel";
 import RetainersPanel from "./RetainersPanel";
 import TriggersPanel from "./TriggersPanel";
+import ApprovalsPanel from "./ApprovalsPanel";
+import AppsPanel from "./AppsPanel";
 import AgentRetainers from "./AgentRetainers";
 
 type Agent = {
@@ -1407,6 +1409,10 @@ npm run demo:agent`}</code>
           <RetainersPanel apiKey={apiKey} onToast={addToast} />
 
           <TriggersPanel apiKey={apiKey} onToast={addToast} />
+
+          <ApprovalsPanel apiKey={apiKey} onToast={addToast} />
+
+          <AppsPanel apiKey={apiKey} onToast={addToast} />
 
           <section className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
             <div className="flex items-center justify-between gap-4 mb-4">
