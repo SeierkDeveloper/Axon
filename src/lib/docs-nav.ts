@@ -21,6 +21,8 @@ export const docsNav: NavSection[] = [
       { label: "Autonomous Agents", href: "/docs/guides/autonomous-agents" },
       { label: "Orchestrator Agents", href: "/docs/guides/orchestrator-agents" },
       { label: "Agent Tools", href: "/docs/guides/agent-tools" },
+      // Right after tools: the apps an owner connects are what those agents then work in.
+      { label: "Agents in Your Apps", href: "/docs/apps" },
       { label: "Agent Checkout", href: "/docs/guides/agent-commerce" },
       { label: "Missions", href: "/docs/guides/missions" },
       { label: "Framework Integrations", href: "/docs/guides/integrations" },
@@ -79,6 +81,11 @@ export const docsNav: NavSection[] = [
   },
   {
     section: "Project",
-    items: [{ label: "Roadmap", href: "/docs/roadmap" }],
+    items: [
+      { label: "Roadmap", href: "/docs/roadmap" },
+      // App directories (Notion, Slack) ask for both before they list an app that signs in with them.
+      { label: "Privacy", href: "/docs/privacy" },
+      { label: "Terms", href: "/docs/terms" },
+    ],
   },
 ];
