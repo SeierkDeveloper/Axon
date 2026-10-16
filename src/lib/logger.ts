@@ -2,6 +2,7 @@ import { sendDiscordAlert } from "./discord";
 import { getRequestId } from "./requestContext";
 import { getTraceId } from "./tracing";
 import { recordErrorLog } from "./errorLog";
+import { scrubSecrets } from "./scrubSecrets";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
 type LogFields = Record<string, unknown>;
@@ -38,7 +39,8 @@ function shouldRedactKey(key: string): boolean {
     normalized.includes("private_key") ||
     normalized.includes("keyhash") ||
     normalized.includes("key_hash") ||
-    normalized.includes("token")
+    normalized.includes("token") ||
+    normalized.includes("verifier")
   );
 }
 
@@ -49,7 +51,8 @@ function scrubStringValue(value: string): string {
   if (WALLET_RE.test(value)) {
     return `${value.slice(0, 8)}…`;
   }
-  return value;
+  // a secret of a known shape inside free text (an error message quoting a header, say) never reaches a log line
+  return scrubSecrets(value);
 }
 
 function serializeError(err: unknown): LogFields {
@@ -85,11 +88,12 @@ function write(level: LogLevel, event: string, message: string, fields?: LogFiel
   const requestId = getRequestId();
   const traceId = getTraceId();
   const sanitizedFields = fields ? (sanitize(fields) as LogFields) : undefined;
+  const msg = scrubSecrets(message);
   const record = {
     ts: new Date().toISOString(),
     level,
     event,
-    msg: message,
+    msg,
     ...(requestId ? { requestId } : {}),
     ...(traceId ? { traceId } : {}),
     ...(sanitizedFields ?? {}),
@@ -98,11 +102,11 @@ function write(level: LogLevel, event: string, message: string, fields?: LogFiel
   const line = JSON.stringify(record);
   if (level === "error") {
     console.error(line);
-    void sendDiscordAlert(event, message, sanitizedFields).catch(() => {});
-    recordErrorLog("error", event, message, requestId, traceId, sanitizedFields);
+    void sendDiscordAlert(event, msg, sanitizedFields).catch(() => {});
+    recordErrorLog("error", event, msg, requestId, traceId, sanitizedFields);
   } else if (level === "warn") {
     console.warn(line);
-    recordErrorLog("warn", event, message, requestId, traceId, sanitizedFields);
+    recordErrorLog("warn", event, msg, requestId, traceId, sanitizedFields);
   } else {
     console.log(line);
   }

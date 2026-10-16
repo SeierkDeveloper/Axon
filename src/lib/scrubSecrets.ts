@@ -34,12 +34,18 @@ const RULES: { re: RegExp; replace: (...args: string[]) => string }[] = [
     re: /\b(?:sk-[A-Za-z0-9_-]{16,}|sk_live_[A-Za-z0-9]{16,}|sk_test_[A-Za-z0-9]{16,}|pk_live_[A-Za-z0-9]{16,}|rk_live_[A-Za-z0-9]{16,}|whsec_[A-Za-z0-9]{16,}|xai-[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|ghs_[A-Za-z0-9]{20,}|ghu_[A-Za-z0-9]{20,}|ghr_[A-Za-z0-9]{20,}|npm_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{16,}|AIza[A-Za-z0-9_-]{20,}|ya29\.[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16})\b/g,
     replace: () => "[REDACTED:key]",
   },
+  // Tokens the apps an owner connects hand back (./appTokens keeps them sealed; this is the net under that): Slack's
+  // rotating tokens (xoxe.xoxp-…, xoxe-…), Notion's (secret_…, ntn_…) and Google's refresh tokens (1//…).
+  {
+    re: /(?:\bxoxe\.xox[bp]-[A-Za-z0-9-]{16,}|\bxoxe-[A-Za-z0-9-]{16,}|\bsecret_[A-Za-z0-9]{32,}|\bntn_[A-Za-z0-9]{32,}|(?<![A-Za-z0-9/])1\/\/0[A-Za-z0-9_-]{20,})/g,
+    replace: () => "[REDACTED:app-token]",
+  },
   // `name = value` / `name: value` for sensitive names — redact only the value,
   // keep the key + operator so the shape stays readable. The optional identifier
   // prefix `[A-Za-z0-9_]*` catches env-var shapes (SOLANA_PRIVATE_KEY, XAI_API_KEY)
   // where the sensitive word sits at the tail of a longer name.
   {
-    re: /(["']?)([A-Za-z0-9_]*(?:api[_-]?key|secret[_-]?key|private[_-]?key|access[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|client[_-]?secret|password|passwd|pwd|secret|token))\1(\s*[:=]\s*)(["']?)([^\s"',;}\)]{6,})\4/gi,
+    re: /(["']?)([A-Za-z0-9_]*(?:api[_-]?key|secret[_-]?key|private[_-]?key|access[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|client[_-]?secret|code[_-]?verifier|password|passwd|pwd|secret|token))\1(\s*[:=]\s*)(["']?)([^\s"',;}\)]{6,})\4/gi,
     replace: (_m, keyQuote: string, name: string, sep: string, valQuote: string) =>
       `${keyQuote}${name}${keyQuote}${sep}${valQuote}[REDACTED]${valQuote}`,
   },
