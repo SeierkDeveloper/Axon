@@ -243,6 +243,11 @@ export const TOOLS: Record<string, ToolRule> = {
   list_product: { kind: "act", wallet: true, confirm: false, spends: false },
   buy_product: { kind: "read", wallet: false, confirm: false, spends: false },
   my_purchases: { kind: "read", wallet: true, confirm: false, spends: false },
+  // agents that run their own business: starting one lets an agent spend within limits, so it is only written down and
+  // the person starts it on the card; reading how they do spends nothing; pausing and stopping hold an agent back
+  start_business: { kind: "act", wallet: true, confirm: true, spends: true },
+  my_businesses: { kind: "read", wallet: true, confirm: false, spends: false },
+  manage_business: { kind: "act", wallet: true, confirm: false, spends: false },
   // memory: about yourself, so no confirmation, but only with a wallet
   remember: { kind: "act", wallet: true, confirm: false, spends: false },
   forget: { kind: "act", wallet: true, confirm: false, spends: false },

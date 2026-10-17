@@ -47,6 +47,10 @@ import { memoryEnabled } from "./agentMemory";
 import { libraryOwnerOf } from "./library";
 import { claimTokenFor } from "./claimToken";
 import { waitingNotice } from "./myloWork";
+import { formatEth } from "./money";
+import { BUSINESS, businessEnabled } from "./businessPolicy";
+import { businessOfAgent, mayRun as mayRunBusiness, readLimits as readBusinessLimits, startBusiness } from "./business";
+import { controlHooks } from "./businessRun";
 
 /** How long a proposal can wait for its confirmation: prices move and people change their minds. */
 export const PROPOSAL_MINUTES = 15;
@@ -57,7 +61,7 @@ export const TASK_CHARS = 4_000;
 
 export interface Hire { agentId: string; name: string; price: string | null; priceEth: number | null; taskId: string | null; error: string | null }
 export type ActionStatus = "proposed" | "running" | "done" | "failed" | "cancelled";
-export type ActionKind = "hire" | "build" | "publish" | "withdraw" | "improve" | "crew" | "schedule";
+export type ActionKind = "hire" | "build" | "publish" | "withdraw" | "improve" | "crew" | "schedule" | "business";
 /** A build: the sentence (or the change asked for), then the Studio build and how far it has got. */
 export interface BuildDetail { sentence: string; change: string | null; buildId: string | null; name: string | null; stage: string | null; round: number; score: number | null; error: string | null; changing?: boolean }
 /** A publish: the tested build, at the price shown when it was proposed. */
@@ -70,9 +74,12 @@ export interface ImproveDetail { improvementId: string; agentId: string; name: s
 export interface CrewDetail { crewName: string; roles: string[]; current: number; payments: Record<string, string>; error: string | null }
 /** A job on a schedule: what, when, at most how much a run and a day, and the retainer once it exists. */
 export interface ScheduleDetail { agentId: string; name: string; schedule: Record<string, unknown>; scheduleText: string; maxPriceEth: number; maxPerDayEth: number; maxRuns: number | null; retainerId: string | null; nextRunAt: string | null; error: string | null }
+/** An agent starting its own business: the goal and the limits exactly as the person gave them, and the business once it exists. */
+export interface BusinessDetail { agentId: string; name: string; goal: string; limits: BusinessLimitsInput; budget: string; perDay: string; perJob: string; askAbove: string; spendOn: string[]; businessId: string | null; error: string | null }
+export interface BusinessLimitsInput { budgetEth: string; maxPerDayEth: string; maxPerJobEth: string; approveAboveEth: string; spendOn: string[]; priceMinEth: string; priceMaxEth: string; allowanceKeyId?: string; sell?: { on: boolean; priceEth: string } }
 /** A hire that continues a finished job, or shows its plan first; and which questions and plans were announced. */
 export interface HireDetail { followUpOf: string | null; planFirst: boolean; told: string[] }
-export type Detail = BuildDetail | PublishDetail | WithdrawDetail | ImproveDetail | CrewDetail | ScheduleDetail | HireDetail;
+export type Detail = BuildDetail | PublishDetail | WithdrawDetail | ImproveDetail | CrewDetail | ScheduleDetail | HireDetail | BusinessDetail;
 export interface Action { id: string; conversationId: string; owner: string; wallet: string; kind: ActionKind; task: string; hires: Hire[]; detail: Detail | null; status: ActionStatus; resultMessageId: string | null; expiresAt: string; createdAt: string }
 
 /** Studio, as Mylo uses it. Swappable in tests, so no test calls a model. */
@@ -117,6 +124,7 @@ function summaryOf(a: Pick<Action, "hires"> & Partial<Pick<Action, "kind" | "det
   if (a.kind === "withdraw") { const d = a.detail as WithdrawDetail; return `Withdraw ${d.amountEth} ETH that ${d.name} earned, to your wallet ${shortWallet(d.to)}.`; }
   if (a.kind === "crew") { const d = a.detail as CrewDetail; const cost = a.hires.reduce((x, h) => x + (h.priceEth ?? 0), 0); return `Run the crew "${d.crewName}": ${a.hires.map((h) => h.name).join(", then ")}${cost > 0 ? `, ${+cost.toFixed(8)} ETH in total` : ""}.`; }
   if (a.kind === "schedule") { const d = a.detail as ScheduleDetail; return `Put ${d.name} on autopilot: ${d.scheduleText.charAt(0).toLowerCase()}${d.scheduleText.slice(1)}, at most ${d.maxPriceEth} ETH a run from your allowance.`; }
+  if (a.kind === "business") { const d = a.detail as BusinessDetail; return `Start ${d.name} on its own business: "${d.goal}". It may spend ${d.budget} in all, at most ${d.perDay} a day and ${d.perJob} on one job, and asks you above ${d.askAbove}${d.spendOn.length ? `, on: ${d.spendOn.join(", ")}` : ", and spends on nothing"}.`; }
   if (a.kind === "improve") { const d = a.detail as ImproveDetail; return `Apply the better version of ${d.name}${d.fromScore !== null && d.toScore !== null ? ` (tested ${d.fromScore} before, ${d.toScore} now)` : ""}.`; }
   const cost = a.hires.reduce((s, h) => s + (h.priceEth ?? 0), 0);
   const who = a.hires.map((h) => `${h.name} (${h.priceEth === null ? "free" : `${h.priceEth} ETH`})`).join(" and ");
@@ -278,6 +286,26 @@ export async function proposeSchedule(ctx: { wallet: string | null; owner: strin
   return { id, summary: summaryOf({ hires: [], kind: "schedule", detail }) };
 }
 
+/**
+ * Write down one of the person's agents starting its own business, with the goal and the limits they gave, for them to
+ * confirm. Everything is checked now the way the start itself checks it, so the card never shows what would be refused.
+ */
+export function proposeBusiness(ctx: { wallet: string | null; owner: string; conversationId: string }, agentId: string, goal: string, limits: BusinessLimitsInput): { id: string; summary: string } | string {
+  if (!ctx.wallet) return "Sign in with your wallet first.";
+  if (!businessEnabled()) return "Businesses are not open on this network.";
+  const refused = mayRunBusiness(agentId, ctx.wallet);
+  if (refused) return refused;
+  if (businessOfAgent(agentId)) return "This agent already runs a business. It can be paused or stopped first.";
+  const text = goal.replace(/\s+/g, " ").trim();
+  if (text.length < BUSINESS.goalMinChars || text.length > BUSINESS.goalChars) return `Say the goal in a sentence of up to ${BUSINESS.goalChars} characters.`;
+  const read = readBusinessLimits(limits);
+  if (!read.ok) return read.why;
+  const l = read.value.limits;
+  const detail: BusinessDetail = { agentId, name: getAgentById(agentId)!.name, goal: text, limits, budget: formatEth(l.budgetWei), perDay: formatEth(l.maxPerDayWei), perJob: formatEth(l.maxPerJobWei), askAbove: formatEth(l.approveAboveWei), spendOn: l.kinds, businessId: null, error: null };
+  const id = insert({ ...ctx, wallet: ctx.wallet }, "business", text, [], detail);
+  return { id, summary: summaryOf({ hires: [], kind: "business", detail }) };
+}
+
 /** Write down publishing one of the person's tested builds, at a price, for them to confirm. */
 export function proposePublish(ctx: { wallet: string | null; owner: string; conversationId: string }, buildId: string, priceEth?: number): { id: string; summary: string } | string {
   if (!ctx.wallet) return "Sign in with your wallet first.";
@@ -333,6 +361,7 @@ export async function confirmAction(id: string, owner: string, wallet: string, c
   if (a.kind === "improve") return confirmImprove(a, wallet);
   if (a.kind === "crew") return confirmCrew(a, wallet, c, createTask);
   if (a.kind === "schedule") return confirmSchedule(a, wallet);
+  if (a.kind === "business") return confirmBusiness(a, wallet);
 
   for (const h of a.hires) {
     const agent = getAgentById(h.agentId);
@@ -538,6 +567,16 @@ async function confirmSchedule(a: Action, wallet: string): Promise<Action> {
   return a;
 }
 
+/** Start the business with exactly what the card showed. The start checks everything again. */
+async function confirmBusiness(a: Action, wallet: string): Promise<Action> {
+  const d = a.detail as BusinessDetail;
+  const r = startBusiness(wallet, { agentId: d.agentId, goal: d.goal, ...d.limits }, controlHooks());
+  if (r.ok) a.detail = { ...d, businessId: r.business.businessId };
+  else { a.detail = { ...d, error: r.why }; a.status = "failed"; }
+  save(a);
+  return a;
+}
+
 const short = (s: string | null | undefined, n: number) => (!s ? "" : s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const STUDIO_DONE = new Set(["ready", "stopped", "failed", "published"]);
 
@@ -573,6 +612,7 @@ export function refreshAction(id: string, owner: string): { action: Action; task
   if (a.kind === "improve") return refreshImprove(a);
   if (a.kind === "crew") return refreshCrew(a);
   if (a.kind === "schedule") return refreshSchedule(a);
+  if (a.kind === "business") return refreshBusiness(a);
   const tasks = a.hires.map((h) => {
     const t = h.taskId ? getTaskById(h.taskId) : null;
     return { agentId: h.agentId, status: t?.status ?? null, output: t?.status === "completed" ? (t.output ?? null) : null, error: h.error ?? (t?.status === "failed" ? (t.error ?? "It failed.") : null) };
@@ -678,6 +718,12 @@ function refreshSchedule(a: Action): Refresh {
   if (a.status !== "running" || !d.retainerId) return { action: a, tasks: [], message: null };
   const next = d.nextRunAt ? new Date(d.nextRunAt).toUTCString().replace(":00 GMT", " UTC") : null;
   return finishWith(a, `**${d.name}** is on autopilot: ${d.scheduleText.charAt(0).toLowerCase()}${d.scheduleText.slice(1)}${next ? `, first run ${next}` : ""}. Each run pays at most ${d.maxPriceEth} ETH from your allowance. Ask me to pause or stop it any time.`, "done");
+}
+
+function refreshBusiness(a: Action): Refresh {
+  const d = a.detail as BusinessDetail;
+  if (a.status !== "running" || !d.businessId) return { action: a, tasks: [], message: null };
+  return finishWith(a, `**${d.name}** runs its own business now: it looks for work every few minutes, bids on what fits "${d.goal}", and keeps to your limits. You can follow its P&L, its decisions and its daily report on your [Dashboard](/dashboard#business), and ask me to pause or stop it any time.`, "done");
 }
 
 function refreshImprove(a: Action): Refresh {

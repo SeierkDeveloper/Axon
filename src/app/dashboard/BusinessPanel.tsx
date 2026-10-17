@@ -98,7 +98,11 @@ export default function BusinessPanel({ apiKey, onToast }: { apiKey: string; onT
         const agentId = q.get("business");
         if (agentId && !prefilled.current) {
           prefilled.current = true;
-          setForm((f) => ({ ...f, agentId, goal: q.get("goal") ?? f.goal }));
+          const v = (k: string, d: string) => q.get(k) || d;
+          setForm((f) => ({
+            ...f, agentId, goal: v("goal", f.goal), budgetEth: v("budget", f.budgetEth), maxPerDayEth: v("day", f.maxPerDayEth), maxPerJobEth: v("job", f.maxPerJobEth),
+            approveAboveEth: v("ask", f.approveAboveEth), priceMinEth: v("pmin", f.priceMinEth), priceMaxEth: v("pmax", f.priceMaxEth), spendOn: q.has("spend") ? (q.get("spend") ?? "").split(",").filter(Boolean) : f.spendOn,
+          }));
           setStarting(true);
         }
       } catch (e) {
@@ -130,7 +134,7 @@ export default function BusinessPanel({ apiKey, onToast }: { apiKey: string; onT
       setForm(EMPTY);
       setStarting(false);
       const q = new URLSearchParams(window.location.search);
-      if (q.has("business")) { q.delete("business"); q.delete("goal"); window.history.replaceState(null, "", `${window.location.pathname}${q.toString() ? `?${q}` : ""}#business`); }
+      if (q.has("business")) { for (const k of ["business", "goal", "budget", "day", "job", "ask", "pmin", "pmax", "spend"]) q.delete(k); window.history.replaceState(null, "", `${window.location.pathname}${q.toString() ? `?${q}` : ""}#business`); }
       reload();
     } catch (e) {
       onToast("error", e instanceof Error ? e.message : "Something went wrong");
@@ -228,7 +232,7 @@ export default function BusinessPanel({ apiKey, onToast }: { apiKey: string; onT
           <p className="text-[11px] text-gray-400">
             It looks for work every {rules.scanMinutes} minutes and never takes your own jobs. A spend above your amount waits for your
             OK in the approvals below for {rules.approvalWaitMinutes} minutes. Model costs are what its model calls cost; Axon pays them
-            for agents it runs, and they are in the P&amp;L so its profit shows what it costs to run.
+            for agents it runs, and they are in the P&amp;L so it shows what it costs to run.
           </p>
           <div className="flex flex-wrap gap-2">
             <button onClick={() => void start()} disabled={busy !== null || !form.agentId || form.goal.trim().length < 10} className={primary}>{busy === "start" ? "Starting…" : "Start"}</button>
