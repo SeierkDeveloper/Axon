@@ -216,6 +216,9 @@ describe("model costs without a price", () => {
     expect(await repriceModelCosts(b.businessId, async () => null)).toBe(0);
     expect(await repriceModelCosts(b.businessId, price)).toBe(1);
     expect(entriesOf(b.businessId).find((e) => e.ref === "check:x")?.amountWei).toBe(1_000_000_000_000n);
+    // a real check's cost at a real price has more decimals than wei: it is rounded down to whole wei, never dropped
+    await recordModelCost(b.businessId, "check:y", 0.000553, "a check", { price: async () => 2430.15 });
+    expect(entriesOf(b.businessId).find((e) => e.ref === "check:y")?.amountWei).toBe(227557969672n);
   });
 });
 

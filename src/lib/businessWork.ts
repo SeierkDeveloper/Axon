@@ -80,11 +80,21 @@ export const realJudge: Judge = async (b, agent, t, caps) => {
   return { fit: parseFit(step.result), costUsd: estimateCostUsd(step.model ?? caps.checkModel, step.inputTokens, step.outputTokens), model: step.model ?? caps.checkModel };
 };
 
+/**
+ * Dollars as wei at a dollar price of ETH, in whole numbers: a model call costs fractions of a cent, and a float divided
+ * down to that size has more decimals than wei, which the money helpers rightly refuse.
+ */
+export function usdToWei(usd: number, usdPerEth: number): bigint {
+  if (!(usd > 0) || !(usdPerEth > 0)) return 0n;
+  const pico = BigInt(Math.round(usd * 1e12)), micro = BigInt(Math.round(usdPerEth * 1e6));
+  return micro > 0n ? (pico * 10n ** 18n) / (micro * 1_000_000n) : 0n;
+}
+
 /** A model cost in the ledger: as measured in dollars, and what that came to in ETH at this moment. */
 export async function recordModelCost(businessId: string, ref: string, costUsd: number | null, note: string, o: { jobRef?: string | null; price?: () => Promise<number | null> } = {}): Promise<void> {
   if (costUsd === null) return;
   const usd = await (o.price ?? ethUsd)().catch(() => null);
-  const wei = usd ? toWei(costUsd / usd) ?? 0n : 0n;
+  const wei = usd ? usdToWei(costUsd, usd) : 0n;
   record(businessId, { kind: "model", amountWei: wei, costUsd, ref, jobRef: o.jobRef ?? null, note });
 }
 
@@ -95,7 +105,7 @@ export async function repriceModelCosts(businessId: string, price: () => Promise
   const usd = await price().catch(() => null);
   if (!usd) return 0;
   const set = getDb().prepare("UPDATE business_ledger SET amount_wei = ? WHERE entry_id = ?");
-  for (const r of rows) set.run((toWei(r.cost_usd / usd) ?? 0n).toString(), r.entry_id);
+  for (const r of rows) set.run(usdToWei(r.cost_usd, usd).toString(), r.entry_id);
   return rows.length;
 }
 

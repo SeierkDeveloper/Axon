@@ -21,7 +21,7 @@
 import { getDb } from "./db";
 import { logger } from "./logger";
 import { getAgentById, updateAgent } from "./agents";
-import { formatEth, parsePaymentAmount, toWei, weiToDecimalString } from "./money";
+import { formatEth, parsePaymentAmount, weiToDecimalString } from "./money";
 import { estimateCostUsd } from "./traceEvents";
 import { ethUsd } from "./ethPrice";
 import { SHOP, clip, shopEnabled } from "./agentShop";
@@ -31,7 +31,7 @@ import { BUSINESS, MODEL_LADDER } from "./businessPolicy";
 import { dayOf, decide, getBusiness, now, type Business, type StartHooks } from "./business";
 import { checkSpend } from "./businessLimits";
 import { entriesOf, hasEntry, record, voidEntry } from "./businessLedger";
-import { canLead, recordModelCost } from "./businessWork";
+import { canLead, recordModelCost, usdToWei } from "./businessWork";
 
 // ── Selling ──────────────────────────────────────────────────────────────────
 
@@ -205,8 +205,8 @@ export async function modelByBooks(b: Business, nowMs = Date.now(), price: () =>
   const ratio = (estimateCostUsd(next, 1_000_000, 1_000_000) ?? 0) / Math.max(1e-9, estimateCostUsd(current, 1_000_000, 1_000_000) ?? 0);
   const usd = await price().catch(() => null);
   if (!usd) return null;
-  const perJobWei = toWei((avgUsd * ratio) / usd) ?? 0n;
-  const extraWeekWei = toWei((avgUsd * (ratio - 1) * jobs) / usd) ?? 0n;
+  const perJobWei = usdToWei(avgUsd * ratio, usd);
+  const extraWeekWei = usdToWei(avgUsd * (ratio - 1) * jobs, usd);
   if (perJobWei > b.limits.maxPerJobWei) {
     decide(b.businessId, "model", `Stayed on ${current}: ${next} would cost about ${formatEth(perJobWei)} a job in model calls, above its limit for one job`, { subject: "model", once: `model-stay:${dayOf(nowMs)}`, nowMs });
     return null;
