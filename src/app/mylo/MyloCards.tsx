@@ -514,7 +514,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
       {err && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{err}</p>}
       {a.status === "proposed" && !expired && (
         <p className="mt-3 text-[11px] text-gray-400">
-          {crew ? `Paid from your wallet, one payment per paid step${cost > 0 ? "" : " (all free here)"}. The steps run in order.` : sched ? "Each run pays from your allowance, within its limits. Pause or stop it any time." : build ? "Free. Studio writes it and tests it, which takes a few minutes. Counts as one of today's Studio builds." : pub ? "Lists it on Axon for anyone to hire. What it earns is yours." : wd ? "Goes only to the wallet that owns the agent." : imp ? "Your agent's next jobs use the better version." : `Paid ${cost > 0 ? "from your wallet to Axon, checked on chain" : "nothing: this agent is free"}.`}
+          {crew ? `Paid from your wallet, one payment per paid step${cost > 0 ? "" : " (all free here)"}. The steps run in order.` : sched ? "Each run pays from your allowance, within its limits. Pause or stop it any time." : build ? "Free. Studio writes it and tests it, which takes a few minutes. Counts as one of today's Studio builds." : pub ? "Lists it on Axon for anyone to hire. What it earns is yours." : wd ? "Goes only to the wallet that owns the agent." : imp ? "Your agent's next jobs use the better version." : biz ? "Nothing is paid now. It spends only inside these limits, and you can pause or stop it on your Dashboard." : `Paid ${cost > 0 ? "from your wallet to Axon, checked on chain" : "nothing: this agent is free"}.`}
           {" "}Expires in {Math.max(1, Math.round((Date.parse(a.expiresAt) - nowMs) / 60_000))} min.
         </p>
       )}
