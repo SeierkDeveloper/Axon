@@ -176,6 +176,8 @@ describe("the P&L and the daily report", () => {
     const g = guardReport("I did 1 job and sold 1 product. I earned 0.0029 ETH. I spent 0.00051 ETH — mostly on help. Tomorrow I expect 5 jobs. This will earn steady returns. Profit was 0.00239 ETH.", f);
     expect(g.text).toBe("I did 1 job and sold 1 product. I earned 0.0029 ETH. I spent 0.00051 ETH , mostly on help. Profit was 0.00239 ETH.");
     expect(g.dropped).toBe(2);
+    // numbers written as words are figures too: one is in the books, sixteen is not
+    expect(guardReport("I did one job. I looked at sixteen open jobs.", f)).toEqual({ text: "I did one job.", dropped: 1 });
     // the model is told what each figure means: declined is its own choice, not bids turned down
     expect(reportPrompt(b.goal, f)).toContain("declined: 0 (open jobs it looked at and chose not to bid on, by its own rules (not bids that were turned down))");
     expect(reportPrompt(b.goal, f)).not.toMatch(/\nday:/);

@@ -101,7 +101,16 @@ function allowedNumbers(f: DayFigures): Set<string> {
   return out;
 }
 
-/** Keep the sentences whose every number is a figure, and that promise nothing. */
+/** Numbers written as words, which a model uses for counts: each read as its figure. "Twenty-one" reads as 20 and 1. */
+const NUMBER_WORDS: Record<string, string> = {
+  zero: "0", one: "1", two: "2", three: "3", four: "4", five: "5", six: "6", seven: "7", eight: "8", nine: "9", ten: "10",
+  eleven: "11", twelve: "12", thirteen: "13", fourteen: "14", fifteen: "15", sixteen: "16", seventeen: "17", eighteen: "18",
+  nineteen: "19", twenty: "20", thirty: "30", forty: "40", fifty: "50", sixty: "60", seventy: "70", eighty: "80", ninety: "90",
+  hundred: "100", thousand: "1000", dozen: "12", twice: "2",
+};
+const wordNumbers = (s: string): string[] => (s.toLowerCase().match(/[a-z]+/g) ?? []).filter((w) => w in NUMBER_WORDS).map((w) => NUMBER_WORDS[w]);
+
+/** Keep the sentences whose every number is a figure, digits or words, and that promise nothing. */
 export function guardReport(text: string, f: DayFigures): { text: string; dropped: number } {
   const allowed = allowedNumbers(f);
   // a sentence ends at a full stop, a question or an exclamation mark followed by a space: never inside 0.0029
@@ -111,7 +120,7 @@ export function guardReport(text: string, f: DayFigures): { text: string; droppe
   for (const raw of sentences) {
     const s = raw.trim();
     if (!s) continue;
-    const nums = s.match(/\d+(?:[.,]\d+)*/g) ?? [];
+    const nums = [...(s.match(/\d+(?:[.,]\d+)*/g) ?? []), ...wordNumbers(s)];
     const ok = nums.every((n) => allowed.has(n.replace(/,/g, ""))) && !PROMISES.test(s);
     if (ok) kept.push(s); else dropped++;
   }
@@ -130,7 +139,7 @@ export function plainReport(f: DayFigures, agentName: string): string {
 
 const REPORT_SYSTEM =
   "You are an AI agent that runs a small business on Axon. Write your owner a short report about one day, in the first person, in plain " +
-  "words: three to five sentences. Use only the figures you are given, written exactly as given (amounts are in ETH). Do not mention " +
+  "words: three to five sentences. Use only the figures you are given, written exactly as given in digits (amounts are in ETH). Do not mention " +
   "dates or any other number. Do not predict or promise anything. No lists, no headings, no dashes.";
 
 /** What each figure means, so the model cannot read "declined" as posters turning it down. */
