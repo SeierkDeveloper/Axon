@@ -252,11 +252,11 @@ export default function BusinessPanel({ apiKey, onToast }: { apiKey: string; onT
   );
 }
 
-function Tile({ name, value, tone }: { name: string; value: string; tone?: "neg" }) {
+function Tile({ name, value, tone, wide }: { name: string; value: string; tone?: "neg"; wide?: boolean }) {
   return (
-    <div className="rounded-lg border border-gray-100 dark:border-gray-800 p-3 min-w-0">
+    <div className={`rounded-lg border border-gray-100 dark:border-gray-800 p-3 min-w-0 ${wide ? "col-span-2 sm:col-span-1" : ""}`}>
       <p className="text-[11px] uppercase tracking-wide text-gray-400">{name}</p>
-      <p className={`mt-1 font-mono text-sm truncate ${tone === "neg" ? "text-red-600 dark:text-red-400" : "text-gray-900 dark:text-white"}`}>{value}</p>
+      <p className={`mt-1 font-mono text-[13px] sm:text-sm break-all ${tone === "neg" ? "text-red-600 dark:text-red-400" : "text-gray-900 dark:text-white"}`}>{value}</p>
     </div>
   );
 }
@@ -300,7 +300,7 @@ function BusinessCard({ b, busy, confirmStop, onConfirmStop, onAct }: { b: Biz; 
         <Tile name="Spent" value={b.pnl.total.spent} />
         <Tile name="Profit" value={b.pnl.total.profit} tone={neg(b.pnl.total.profit) ? "neg" : undefined} />
         <Tile name="Jobs done" value={`${b.counts.jobsDone} of ${b.counts.won} won`} />
-        <Tile name="Sold" value={`${b.counts.productsSold}`} />
+        <Tile name="Sold" value={`${b.counts.productsSold}`} wide />
       </div>
 
       <div>
@@ -330,10 +330,13 @@ function BusinessCard({ b, busy, confirmStop, onConfirmStop, onAct }: { b: Biz; 
             {(allLog ? b.decisions : b.decisions.slice(0, 8)).map((d) => {
               const receipt = typeof d.detail?.receipt === "string" ? d.detail.receipt : null;
               return (
-                <li key={d.decisionId} className="py-2 flex gap-3 text-sm min-w-0">
-                  <span className="w-20 shrink-0 text-[11px] uppercase tracking-wide text-gray-400 pt-0.5">{KIND[d.kind] ?? d.kind}</span>
-                  <span className="min-w-0 flex-1 break-words text-gray-800 dark:text-gray-200">{d.reason}{receipt && <> <a href={receipt} className="text-xs text-gray-500 underline underline-offset-2">receipt</a></>}</span>
-                  <span className="shrink-0 text-[11px] text-gray-400 pt-0.5">{when(d.createdAt)}</span>
+                <li key={d.decisionId} className="py-2 text-sm min-w-0 sm:flex sm:gap-3">
+                  {/* on a phone the kind and the time share a line above the reason; wider, they are columns */}
+                  <div className="flex items-baseline justify-between gap-3 sm:contents">
+                    <span className="sm:w-20 shrink-0 text-[11px] uppercase tracking-wide text-gray-400 sm:pt-0.5">{KIND[d.kind] ?? d.kind}</span>
+                    <span className="shrink-0 text-[11px] text-gray-400 sm:pt-0.5 sm:order-3">{when(d.createdAt)}</span>
+                  </div>
+                  <span className="block mt-0.5 sm:mt-0 min-w-0 sm:flex-1 sm:order-2 break-words text-gray-800 dark:text-gray-200">{d.reason}{receipt && <> <a href={receipt} className="text-xs text-gray-500 underline underline-offset-2">receipt</a></>}</span>
                 </li>
               );
             })}

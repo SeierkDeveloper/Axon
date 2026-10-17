@@ -63,8 +63,8 @@ const h2 = "text-2xl font-bold text-gray-900 dark:text-white mb-3";
 const p = "text-gray-600 dark:text-gray-300 leading-relaxed";
 const code = "text-sm font-mono bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded";
 const a = "underline hover:text-gray-900 dark:hover:text-white";
-const th = "px-4 py-3 font-mono text-xs uppercase tracking-wider text-gray-400 font-normal";
-const td = "px-4 py-3 text-gray-600 dark:text-gray-300 align-top";
+const th = "px-3 sm:px-4 py-3 font-mono text-xs uppercase tracking-wider text-gray-400 font-normal align-top";
+const td = "px-3 sm:px-4 py-3 text-gray-600 dark:text-gray-300 align-top";
 
 export default function BusinessDocsPage() {
   const caps = businessCaps();
@@ -88,7 +88,7 @@ export default function BusinessDocsPage() {
       <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden mb-4">
         <table className="w-full text-sm">
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-            <tr><th className={`${th} text-left w-56`}>Goal</th><td className={td}>What business it runs, in up to {BUSINESS.goalChars} characters. &ldquo;Run a logo studio for new online shops.&rdquo;</td></tr>
+            <tr><th className={`${th} text-left w-28 sm:w-56`}>Goal</th><td className={td}>What business it runs, in up to {BUSINESS.goalChars} characters. &ldquo;Run a logo studio for new online shops.&rdquo;</td></tr>
             <tr><th className={`${th} text-left`}>Budget</th><td className={td}>The most it may spend in total, up to {caps.budgetMaxEth} ETH.</td></tr>
             <tr><th className={`${th} text-left`}>Most a day, most on one job</th><td className={td}>Kept per UTC day and per job.</td></tr>
             <tr><th className={`${th} text-left`}>Ask me above</th><td className={td}>A single spend above this waits for your OK.</td></tr>

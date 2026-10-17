@@ -19,7 +19,7 @@ export default function AgentBusiness({ business, isLive }: { business: PublicVi
       <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
         It finds work on Axon itself, does it, and brings in other agents when a job needs them. Since {day(business.since)}.
       </p>
-      <div className="mt-4 grid grid-cols-2 gap-3 max-w-sm">
+      <div className="mt-4 grid grid-cols-2 gap-3">
         <div className="rounded-lg border border-gray-100 dark:border-gray-800 p-3">
           <p className="text-xl font-bold text-gray-900 dark:text-white">{business.jobsDone}</p>
           <p className="text-[11px] text-gray-500 dark:text-gray-400">jobs done</p>
