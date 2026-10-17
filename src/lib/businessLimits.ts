@@ -16,8 +16,8 @@
 // limits and the contract its rules, an agent's balance what is in it.
 
 import { formatEth } from "./money";
-import { dayOf, type Business } from "./business";
-import { paidOut } from "./businessLedger";
+import { businessOfAgent, dayOf, decide, type Business } from "./business";
+import { paidOut, record } from "./businessLedger";
 import { SPEND_WORDS, type SpendKind } from "./businessPolicy";
 
 export type SpendVerdict =
@@ -59,4 +59,20 @@ export function roomLeft(b: Business, nowMs = Date.now()): { budget: bigint; tod
   const ever = paidOut(b.businessId), today = paidOut(b.businessId, { day: dayOf(nowMs) });
   const left = (cap: bigint, used: bigint) => (cap > used ? cap - used : 0n);
   return { budget: left(b.limits.budgetWei, ever), today: left(b.limits.maxPerDayWei, today) };
+}
+
+/** A purchase inside a job, asked of the business's limits: the reason it may not, or null. For the shop's buy tool. */
+export function materialRefusal(agentId: string, taskId: string, wei: bigint): string | null {
+  const b = businessOfAgent(agentId);
+  if (!b) return null; // not a business: the shop's own limits are all there is
+  const v = checkSpend(b, { kind: "material", wei, jobRef: taskId });
+  if (v.ok) return null;
+  decide(b.businessId, "refuse", `Did not buy material: ${v.why}`, { subject: taskId });
+  return v.why;
+}
+
+/** A purchase made: in the business's books at once, so the next one in the same job is checked against it. */
+export function recordMaterial(agentId: string, taskId: string, saleId: string, wei: bigint, title: string): void {
+  const b = businessOfAgent(agentId);
+  if (b) record(b.businessId, { kind: "material", amountWei: wei, ref: saleId, jobRef: taskId, note: title });
 }

@@ -24,6 +24,7 @@ import { safeAppendTraceEvent } from "./traceEvents";
 import { filesOf } from "./agentSites";
 import { SHOP, getProduct, ownsAgent, productsForSale, readPrice, shopAgentOf, shopEnabled, shopLimits, now, type ShopAgent, type ShopLimits } from "./agentShop";
 import { buyFromBalance, materialsOf, owns } from "./shopSales";
+import { materialRefusal, recordMaterial } from "./businessLimits";
 
 export const SEARCH_TOOL = "shop_search";
 export const BUY_TOOL = "shop_buy";
@@ -113,8 +114,12 @@ export function shopTools(ctx: { agentId: string; taskId: string; payment: strin
         if (owns(ctx.agentId, p.productId)) return "Error: you already have that product.";
         const budget = left();
         if (p.priceWei > budget) return `Error: it costs ${formatEth(p.priceWei)}, and this job may spend ${formatEth(budget)} more.`;
+        // an agent running its own business keeps its business's limits too
+        const refused = materialRefusal(ctx.agentId, ctx.taskId, p.priceWei);
+        if (refused) return `Error: ${refused}.`;
         const r = buyFromBalance({ productId: p.productId, buyerAgentId: ctx.agentId, forTaskId: ctx.taskId, priceWei: p.priceWei });
         if (!r.ok) return `Error: ${r.why}`;
+        recordMaterial(ctx.agentId, ctx.taskId, r.sale.saleId, p.priceWei, p.title);
         safeAppendTraceEvent({
           traceId: ctx.traceId ?? ctx.taskId, taskId: ctx.taskId, kind: "material.bought", fromAgent: ctx.agentId, toAgent: p.agentId,
           outputHash: r.sale.sha256, meta: { sale: r.sale.saleId, amount: weiToEth(p.priceWei), currency: "ETH" },

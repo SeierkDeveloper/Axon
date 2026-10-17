@@ -4,6 +4,8 @@ import { settleCompletedTask } from "../lib/sla";
 import { refundDebitForTask } from "../lib/mpp";
 import { getAllAgents, getAgentById } from "../lib/agents";
 import { runOrchestration } from "../lib/orchestrator";
+import { businessTeam } from "../lib/businessHire";
+import { businessEnabled } from "../lib/businessPolicy";
 import { getSubcontractsForParent } from "../lib/subcontracts";
 import { getDb } from "../lib/db";
 import { syncToTurso } from "../lib/db-turso";
@@ -159,6 +161,8 @@ let retainerTimer: NodeJS.Timeout | null = null;
 let triggerTimer: NodeJS.Timeout | null = null;
 let pageTimer: NodeJS.Timeout | null = null;
 let shopTimer: NodeJS.Timeout | null = null;
+let businessTimer: NodeJS.Timeout | null = null;
+let businessRunning = false;
 let appsTimer: NodeJS.Timeout | null = null;
 let triggerRunning = false;
 let pageRunning = false;
@@ -282,7 +286,10 @@ async function processTasks() {
       // "worker"-only stuck reaper leaves it alone) and move on, so the worker's
       // next poll cycles execute the sub-hires it creates. It completes/fails the
       // task itself when the team's work is assembled.
-      if (agent.orchestrator) {
+      // A business job its agent judged needs help for part of it runs the same way, with the business's own rules
+      // for who may be hired and how each hire is paid (lib/businessHire).
+      const team = agent.orchestrator ? null : businessTeam(agent, task);
+      if (agent.orchestrator || team) {
         const started = startTask(task.taskId, "orchestrator");
         if (!started) continue;
         logger.info("worker.orchestration_picked", "Orchestrator agent picked up a job", {
@@ -293,7 +300,7 @@ async function processTasks() {
         // same trace — without this, createHiredTask → resolveTraceId() mints a
         // fresh trace per sub-hire and the flight recorder can't show the team.
         void runWithTraceId(task.traceId ?? task.taskId, () =>
-          runOrchestration(agent, task).catch((err) => {
+          runOrchestration(agent, task, team ?? {}).catch((err) => {
             logger.error("worker.orchestration_failed", "Orchestration crashed", {
               err,
               agentId: agent.agentId,
@@ -877,6 +884,10 @@ function clearTimers(): void {
     clearInterval(pageTimer);
     pageTimer = null;
   }
+  if (businessTimer) {
+    clearInterval(businessTimer);
+    businessTimer = null;
+  }
   if (shopTimer) {
     clearInterval(shopTimer);
     shopTimer = null;
@@ -1143,6 +1154,18 @@ export async function startWorkerLoops(): Promise<void> {
     } catch (err) {
       logger.error("shop.make_tick_failed", "The tick for agents making products failed", { err });
     }
+  }, RETAINER_INTERVAL_MS);
+
+  // Agents that run their own business: once a minute, keep each one's books, look for work for those whose look is
+  // due, reinvest once a day and write yesterday's report. One pass at a time. Nothing while AGENT_BUSINESS is off.
+  businessTimer = setInterval(() => {
+    if (businessRunning || shutdownRequested || !businessEnabled()) return;
+    businessRunning = true;
+    import("../lib/businessRun")
+      .then(({ runBusinessTick }) => runBusinessTick())
+      .then((r) => { if (r.bids || r.reports || r.paused) logger.info("business.tick", "Agents running their own business", { ...r }); })
+      .catch((err) => logger.error("business.tick_failed", "The tick for agents running their own business failed", { err }))
+      .finally(() => { businessRunning = false; });
   }, RETAINER_INTERVAL_MS);
 
   // Apps an owner connected: requests for their OK that nobody answered in 24 hours expire (and say so on their
