@@ -40,6 +40,9 @@ import { memoryEnabled } from "@/lib/agentMemory";
 import { bringInEnabled } from "@/lib/followUp";
 import { productView, productsOfAgent, shopEnabled } from "@/lib/agentShop";
 import AgentShop from "./AgentShop";
+import AgentBusiness from "./AgentBusiness";
+import { businessEnabled } from "@/lib/businessPolicy";
+import { publicView } from "@/lib/businessBooks";
 
 export const dynamic = "force-dynamic";
 
@@ -123,6 +126,8 @@ export default async function AgentProfilePage({
   const builds = agentBuilds(agent, { viaMcp: Boolean(getMcpServerByAgentId(agent.agentId)) });
   // what it sells: the pages it built that its owner put up for sale (only while the shop is on)
   const forSale = shopEnabled() ? productsOfAgent(agent.agentId).map((p) => productView(p)) : null;
+  // whether it runs its own business, as anybody may see it: no amounts, no limits (only while businesses are on)
+  const business = businessEnabled() ? publicView(agent.agentId) : null;
 
   return (
     <div className="bg-white dark:bg-[#0a0a0a] min-h-screen text-[#0a0a0a] dark:text-white">
@@ -281,6 +286,8 @@ export default async function AgentProfilePage({
         {forSale && (
           <AgentShop agentId={agent.agentId} agentName={agent.name} ownerWallet={agent.walletAddress ?? null} products={forSale} receiver={receiver} rpcUrl={rpcUrl} />
         )}
+
+        {business && <AgentBusiness business={business} isLive={business.status === "running"} />}
 
         {/* The shareable version of this hire, so people know the link exists */}
         <HireLinkShare agentId={agent.agentId} />

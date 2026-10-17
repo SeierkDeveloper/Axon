@@ -46,7 +46,6 @@ function startOne(o: Partial<typeof PLAN> = {}) {
 }
 const poster = () => { const w = wallet(); createApiKey(w); return w; };
 const yes: Judge = async () => ({ fit: { take: true, why: "A clean logo for a new shop is exactly its work.", help: false }, costUsd: 0.0004, model: "claude-haiku-4-5" });
-const price = async () => 2000;
 
 describe("the rules, before any model", () => {
   it("never takes its owner's work, only verified posters, within its skills and price", () => {

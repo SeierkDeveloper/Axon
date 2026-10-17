@@ -8,6 +8,7 @@ import AllowancePanel from "./AllowancePanel";
 import RetainersPanel from "./RetainersPanel";
 import TriggersPanel from "./TriggersPanel";
 import ApprovalsPanel from "./ApprovalsPanel";
+import BusinessPanel from "./BusinessPanel";
 import AppsPanel from "./AppsPanel";
 import AgentRetainers from "./AgentRetainers";
 
@@ -1409,6 +1410,8 @@ npm run demo:agent`}</code>
           <RetainersPanel apiKey={apiKey} onToast={addToast} />
 
           <TriggersPanel apiKey={apiKey} onToast={addToast} />
+
+          <BusinessPanel apiKey={apiKey} onToast={addToast} />
 
           <ApprovalsPanel apiKey={apiKey} onToast={addToast} />
 

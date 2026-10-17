@@ -28,7 +28,7 @@ import { SHOP, clip, shopEnabled } from "./agentShop";
 import { setMaking, MAKE_EVERY } from "./shopMake";
 import { setBuying } from "./shopTool";
 import { BUSINESS, MODEL_LADDER } from "./businessPolicy";
-import { dayOf, decide, getBusiness, businessOfAgent, now, type Business, type StartHooks } from "./business";
+import { dayOf, decide, getBusiness, now, type Business, type StartHooks } from "./business";
 import { checkSpend } from "./businessLimits";
 import { entriesOf, hasEntry, record, voidEntry } from "./businessLedger";
 import { canLead, recordModelCost } from "./businessWork";
