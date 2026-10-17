@@ -25,6 +25,8 @@ import {
 import { getMcpServerByAgentId } from "./mcp";
 import { isWalletAddress } from "./address";
 import { liveLog } from "./liveLog";
+import { captureModelStep } from "./modelUsage";
+import { estimateCostUsd, hashContent, safeAppendTraceEvent } from "./traceEvents";
 
 const ORCH_SYSTEM =
   "You are an orchestrator agent on the Axon marketplace. When a job needs skills beyond your own, you break it into parts, hire a specialist for each, and assemble a clear final deliverable. You reason concisely and produce concrete, usable output, no filler.";
@@ -90,10 +92,21 @@ export async function runOrchestration(agent: Agent, task: Task, opts: Orchestra
     : { text: "", attachments: [], files: [] };
   const wantsReport = files && task.context?.[REPORT_KEY] === true;
   const hirerWallet = isWalletAddress(task.fromAgent) ? task.fromAgent : null;
+  // Each of its own model calls (the plan, the answer put together) is a step in the job's trace with what it cost,
+  // the way a single agent's call is, so the receipt and anything that reads the job's costs see them.
   const think: ThinkFn =
     opts.think ??
-    ((prompt, o) =>
-      getProvider(agent).complete(ORCH_SYSTEM, prompt, o?.maxTokens ?? 1200, undefined, handed.attachments.length ? handed.attachments : undefined));
+    (async (prompt, o) => {
+      const step = await captureModelStep(() =>
+        getProvider(agent).complete(ORCH_SYSTEM, prompt, o?.maxTokens ?? 1200, undefined, handed.attachments.length ? handed.attachments : undefined));
+      safeAppendTraceEvent({
+        traceId: task.traceId ?? task.taskId, taskId: task.taskId, kind: "step.model", fromAgent: task.fromAgent, toAgent: task.toAgent,
+        workflowId: task.workflowId ?? null, stepIndex: task.stepIndex ?? null, inputHash: hashContent(prompt), outputHash: hashContent(step.result),
+        model: step.model ?? null, inputTokens: step.inputTokens || null, outputTokens: step.outputTokens || null,
+        costUsd: estimateCostUsd(step.model, step.inputTokens, step.outputTokens), latencyMs: step.latencyMs,
+      });
+      return step.result;
+    });
 
   // Watch it work: the team as it forms, a line a step, for whoever hired the agent to follow.
   const live = liveLog(task.taskId);
