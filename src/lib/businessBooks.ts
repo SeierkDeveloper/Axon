@@ -15,8 +15,8 @@
 import { getDb } from "./db";
 import { logger } from "./logger";
 import { getAgentById } from "./agents";
-import { formatEth, toWei, weiToDecimalString } from "./money";
-import { getAvailableBalance } from "./payments";
+import { formatEth, weiToDecimalString } from "./money";
+import { getAvailableBalanceWei } from "./payments";
 import { claudeModel } from "./providers";
 import { captureModelStep } from "./modelUsage";
 import { estimateCostUsd } from "./traceEvents";
@@ -192,8 +192,8 @@ export function ownerView(b: Business, nowMs = Date.now()) {
   const room = roomLeft(b, nowMs);
   const waiting = listApprovals(b.ownerWallet, nowMs).pending.filter((a) => a.appId === BUSINESS_APP && a.agentId === b.agentId);
   const agent = getAgentById(b.agentId);
-  let available = 0;
-  try { available = getAvailableBalance(b.agentId); } catch { /* before the payments tables */ }
+  let available = 0n;
+  try { available = getAvailableBalanceWei(b.agentId); } catch { /* before the payments tables */ }
   return {
     businessId: b.businessId,
     agent: { agentId: b.agentId, name: agent?.name ?? b.agentId, price: agent?.price ?? null, model: agent?.providerModel ?? null },
@@ -211,7 +211,7 @@ export function ownerView(b: Business, nowMs = Date.now()) {
     selling: { on: b.sell.on, price: b.sell.priceWei !== null ? formatEth(b.sell.priceWei) : null, makes: b.sell.kind },
     counts: counts(b.businessId),
     pnl: { days: books.days.map(dayView), total: dayView(books.total), modelUsd: books.modelUsd },
-    earningsToWithdraw: formatEth(toWei(Math.max(0, available)) ?? 0n),
+    earningsToWithdraw: formatEth(available > 0n ? available : 0n),
     decisions: decisionsOf(b.businessId),
     ledger: entriesOf(b.businessId, { limit: 50 }).map((e) => ({ day: e.day, at: e.createdAt, direction: e.direction, kind: e.kind, amount: e.kind === "event" ? null : eth(e.amountWei), costUsd: e.costUsd, ref: e.ref, receipt: e.kind === "job" || e.kind === "hire" || e.kind === "sale" || e.kind === "material" ? `/r/${e.ref}` : null, note: e.note, voided: e.voided })),
     reports: reportsOf(b.businessId),

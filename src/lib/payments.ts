@@ -601,13 +601,29 @@ export function getAgentBalance(agentId: string): AgentBalance {
 // A stricter "finalised earnings only" definition (excluding still-reversible MPP
 // credits) is deferred until MPP + entrepreneur usage makes it worth the coupling.
 export function getAvailableBalance(agentId: string): number {
+  return weiToEth(getAvailableBalanceWei(agentId));
+}
+
+/** One stored amount in wei. A float that lost its shortest form is read at the chain's 18 decimals. */
+function rowWei(v: unknown): bigint {
+  const exact = toWei(v);
+  if (exact !== null) return exact;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? toWei(n.toFixed(18)) ?? 0n : 0n;
+}
+
+/**
+ * The same balance in wei, added up row by row. Summed as floats in SQL, three payments of 0.0001 come to
+ * 0.00030000000000000003, which has more decimals than wei and reads as no balance at all.
+ */
+export function getAvailableBalanceWei(agentId: string): bigint {
   const db = getDb();
-  const v = (sql: string) => (db.prepare(sql).get(agentId) as { v: number }).v;
-  const earned = v("SELECT COALESCE(SUM(amount_eth),0) AS v FROM transactions WHERE to_agent=? AND status='completed'");
-  const spent = v("SELECT COALESCE(SUM(amount_eth),0) AS v FROM transactions WHERE from_agent=? AND status='completed' AND funding_source='balance'");
-  const escrow = v("SELECT COALESCE(SUM(amount_eth),0) AS v FROM transactions WHERE from_agent=? AND status='escrow' AND funding_source='balance'");
+  const sum = (sql: string) => (db.prepare(sql).all(agentId) as { v: unknown }[]).reduce((n, r) => n + rowWei(r.v), 0n);
+  const earned = sum("SELECT amount_eth AS v FROM transactions WHERE to_agent=? AND status='completed'");
+  const spent = sum("SELECT amount_eth AS v FROM transactions WHERE from_agent=? AND status='completed' AND funding_source='balance'");
+  const escrow = sum("SELECT amount_eth AS v FROM transactions WHERE from_agent=? AND status='escrow' AND funding_source='balance'");
   // ETH its owner took out (or is taking out) to their wallet is no longer the agent's to spend
-  const withdrawn = v("SELECT COALESCE(SUM(CAST(amount_eth AS REAL)),0) AS v FROM agent_withdrawals WHERE agent_id=? AND status IN ('pending','sent')");
+  const withdrawn = sum("SELECT amount_eth AS v FROM agent_withdrawals WHERE agent_id=? AND status IN ('pending','sent')");
   return earned - spent - escrow - withdrawn;
 }
 
@@ -643,7 +659,7 @@ export function createBalancePayment(opts: {
   db.transaction(() => {
     // Compared in wei. A float comparison here needed an epsilon to paper over its own error, and
     // an epsilon in a spend check is a licence to overspend by exactly that much.
-    const availableWei = toWei(getAvailableBalance(opts.fromAgent)) ?? 0n;
+    const availableWei = getAvailableBalanceWei(opts.fromAgent);
     if (availableWei < base.wei) {
       throw new Error(
         `Insufficient balance: ${formatEth(availableWei)} available, need ${formatEth(base.wei)}`

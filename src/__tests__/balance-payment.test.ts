@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 import {
   createBalancePayment,
   getAvailableBalance,
+  getAvailableBalanceWei,
   getAgentBalance,
   releasePayment,
   releaseWithPenalty,
@@ -69,6 +70,17 @@ describe("pay-from-balance", () => {
     expect(getAvailableBalance(a.agentId)).toBe(0);
     credit(a.agentId, 10);
     expect(getAvailableBalance(a.agentId)).toBe(10);
+  });
+
+  it("adds small earnings up exactly: three of 0.0001 are 0.0003 and can all be spent", () => {
+    const payer = makeAgent();
+    const payee = makeAgent();
+    for (let i = 0; i < 3; i++) credit(payer.agentId, 0.0001);
+    expect(getAvailableBalanceWei(payer.agentId)).toBe(300_000_000_000_000n);
+    expect(getAvailableBalance(payer.agentId)).toBe(0.0003);
+    const p = createBalancePayment({ taskId: `task-${randomUUID()}`, fromAgent: payer.agentId, toAgent: payee.agentId, amountEth: 0.0003, priceString: "0.0003 ETH" });
+    expect(p.status).toBe("escrow");
+    expect(getAvailableBalanceWei(payer.agentId)).toBe(0n);
   });
 
   it("spends earned balance and holds it in escrow until settled", () => {
