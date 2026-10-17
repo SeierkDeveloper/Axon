@@ -336,7 +336,7 @@ function BusinessCard({ b, busy, confirmStop, onConfirmStop, onAct }: { b: Biz; 
                     <span className="sm:w-20 shrink-0 text-[11px] uppercase tracking-wide text-gray-400 sm:pt-0.5">{KIND[d.kind] ?? d.kind}</span>
                     <span className="shrink-0 text-[11px] text-gray-400 sm:pt-0.5 sm:order-3">{when(d.createdAt)}</span>
                   </div>
-                  <span className="block mt-0.5 sm:mt-0 min-w-0 sm:flex-1 sm:order-2 break-words text-gray-800 dark:text-gray-200">{d.reason}{receipt && <> <a href={receipt} className="text-xs text-gray-500 underline underline-offset-2">receipt</a></>}</span>
+                  <span className="block mt-0.5 sm:mt-0 min-w-0 sm:flex-1 sm:order-2 break-words text-gray-800 dark:text-gray-200">{d.reason}{receipt && <> <a href={receipt} className="text-xs text-gray-500 underline underline-offset-2">receipt</a></>}{typeof d.detail?.job === "string" && <span className="block text-xs text-gray-400 truncate">{d.detail.job}</span>}</span>
                 </li>
               );
             })}

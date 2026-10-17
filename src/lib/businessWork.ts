@@ -155,6 +155,9 @@ const decidedOn = (businessId: string, openTaskId: string): boolean =>
   Boolean(getDb().prepare("SELECT 1 FROM business_decisions WHERE business_id = ? AND once_key = ?").get(businessId, `ot:${openTaskId}`))
   || Boolean(getDb().prepare("SELECT 1 FROM business_jobs WHERE business_id = ? AND open_task_id = ?").get(businessId, openTaskId));
 
+/** The job a decision is about, in its poster's first words, for the owner's log. */
+const jobLine = (t: OpenTask): string => { const f = t.task.replace(/\s+/g, " ").trim(); return f.length > 90 ? `${f.slice(0, 89).trimEnd()}…` : f; };
+
 export interface ScanResult { looked: number; declined: number; checked: number; bid: number; capped: string | null }
 
 /** Whether this agent can run a job as a team: Axon runs it on its own model, so the orchestrator path can. */
@@ -170,7 +173,7 @@ export async function findWork(b: Business, nowMs = Date.now(), judge: Judge = r
     out.looked++;
     const no = ruledOut(b, agent, t, nowMs);
     if (no) {
-      if (decide(b.businessId, "decline", no, { subject: t.openTaskId, once: `ot:${t.openTaskId}`, nowMs })) out.declined++;
+      if (decide(b.businessId, "decline", no, { subject: t.openTaskId, once: `ot:${t.openTaskId}`, detail: { job: jobLine(t) }, nowMs })) out.declined++;
       continue;
     }
     const hour = Math.floor(nowMs / 3_600_000);
@@ -195,20 +198,20 @@ export async function findWork(b: Business, nowMs = Date.now(), judge: Judge = r
     out.checked++;
     await recordModelCost(b.businessId, `check:${t.openTaskId}`, checked.costUsd, `Checked whether "${t.task.slice(0, 60)}" fits`, {});
     if (!checked.fit.take) {
-      if (decide(b.businessId, "decline", `Does not fit the goal: ${checked.fit.why}`, { subject: t.openTaskId, once: `ot:${t.openTaskId}`, nowMs })) out.declined++;
+      if (decide(b.businessId, "decline", `Does not fit the goal: ${checked.fit.why}`, { subject: t.openTaskId, once: `ot:${t.openTaskId}`, detail: { job: jobLine(t) }, nowMs })) out.declined++;
       continue;
     }
     const pitch = validateAgentText(checked.fit.why) ? `${agent.name} can do this job.` : checked.fit.why;
     const bid = submitBid({ openTaskId: t.openTaskId, agentId: agent.agentId, price: agent.price!, message: pitch });
     if (!bid.success) {
-      decide(b.businessId, "decline", `Could not bid: ${bid.error}`, { subject: t.openTaskId, once: `ot:${t.openTaskId}`, nowMs });
+      decide(b.businessId, "decline", `Could not bid: ${bid.error}`, { subject: t.openTaskId, once: `ot:${t.openTaskId}`, detail: { job: jobLine(t) }, nowMs });
       out.declined++;
       continue;
     }
     const team = checked.fit.help && b.limits.kinds.includes("hire") && canLead(agent);
     getDb().prepare("INSERT INTO business_jobs (business_id, open_task_id, bid_id, status, team, price_wei, created_at, updated_at) VALUES (?, ?, ?, 'bid', ?, ?, ?, ?) ON CONFLICT DO NOTHING")
       .run(b.businessId, t.openTaskId, bid.bid.bidId, team ? 1 : 0, parsePaymentAmount(agent.price!)!.wei.toString(), new Date(nowMs).toISOString(), new Date(nowMs).toISOString());
-    decide(b.businessId, "take", `Bid ${agent.price}: ${checked.fit.why}${team ? " It will bring in help for part of it." : ""}`, { subject: t.openTaskId, once: `ot:${t.openTaskId}`, detail: { bidId: bid.bid.bidId, price: agent.price, team }, nowMs });
+    decide(b.businessId, "take", `Bid ${agent.price}: ${checked.fit.why}${team ? " It will bring in help for part of it." : ""}`, { subject: t.openTaskId, once: `ot:${t.openTaskId}`, detail: { bidId: bid.bid.bidId, price: agent.price, team, job: jobLine(t) }, nowMs });
     out.bid++;
   }
   return out;
