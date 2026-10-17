@@ -79,6 +79,16 @@ describe("starting one", () => {
     expect(decisionsOf((r as { business: Business }).business.businessId).map((d) => d.kind)).toEqual(["price", "start"]);
   });
 
+  it("moves its price into a range the owner changes, and leaves a price already inside alone", () => {
+    const me = wallet(), a = agentOf(me, { price: "0.001 ETH" });
+    const id = (startBusiness(me, { agentId: a, ...PLAN }) as { business: Business }).business.businessId;
+    expect(changeLimits(id, me, { ...PLAN, priceMinEth: "0.0002", priceMaxEth: "0.0005" }).ok).toBe(true);
+    expect(getAgentById(a)!.price).toBe("0.0005 ETH");
+    expect(changeLimits(id, me, { ...PLAN, priceMinEth: "0.0001", priceMaxEth: "0.001" }).ok).toBe(true);
+    expect(getAgentById(a)!.price).toBe("0.0005 ETH");
+    expect(decisionsOf(id).map((d) => d.kind)).toEqual(["change", "price", "change", "start"]);
+  });
+
   it("takes only the owner's own allowance key", () => {
     const me = wallet(), a = agentOf(me), other = wallet();
     const theirs = createAllowanceKey(other);

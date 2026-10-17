@@ -285,13 +285,7 @@ export function startBusiness(wallet: string, input: StartInput, hooks: StartHoo
   }
   decide(id, "start", `Started with the goal: ${goal}`, { detail: { budget: formatEth(limits.budgetWei), perDay: formatEth(limits.maxPerDayWei), perJob: formatEth(limits.maxPerJobWei), askAbove: formatEth(limits.approveAboveWei), spendOn: limits.kinds } });
 
-  // Its price starts inside the owner's range: an agent priced outside it is moved to the nearest end.
-  const current = agent.price ? parsePaymentAmount(agent.price)?.wei ?? null : null;
-  const into = current === null || current < price.minWei ? price.minWei : current > price.maxWei ? price.maxWei : null;
-  if (into !== null) {
-    updateAgent(agentId, { price: formatEth(into) });
-    decide(id, "price", `Set its price to ${formatEth(into)}, inside the range you gave`, { subject: "price", detail: { from: agent.price ?? null, to: formatEth(into) } });
-  }
+  priceIntoRange(id, agentId, price);
   const b = getBusiness(id)!;
   applyShop(b, true, hooks);
   void syncToTurso();
@@ -364,6 +358,17 @@ function setStatus(b: Business, status: BusinessStatus, reason: string, hooks: S
   return getBusiness(b.businessId)!;
 }
 
+/** Its price inside the owner's range: an agent priced outside it is moved to the nearest end, with a line in the log. */
+function priceIntoRange(businessId: string, agentId: string, range: { minWei: bigint; maxWei: bigint }): void {
+  const agent = getAgentById(agentId);
+  if (!agent) return;
+  const current = agent.price ? parsePaymentAmount(agent.price)?.wei ?? null : null;
+  const into = current === null || current < range.minWei ? range.minWei : current > range.maxWei ? range.maxWei : null;
+  if (into === null) return;
+  updateAgent(agentId, { price: formatEth(into) });
+  decide(businessId, "price", `Set its price to ${formatEth(into)}, inside the range you gave`, { subject: "price", detail: { from: agent.price ?? null, to: formatEth(into) } });
+}
+
 /** The owner changes the limits, the price range or how often it bids. The goal stays: a new goal is a new business. */
 export function changeLimits(businessId: string, wallet: string, input: Pick<StartInput, "budgetEth" | "maxPerDayEth" | "maxPerJobEth" | "approveAboveEth" | "spendOn" | "priceMinEth" | "priceMaxEth" | "bidsPerHour">, caps: BusinessCaps = businessCaps()): Owned {
   const o = owned(businessId, wallet);
@@ -375,6 +380,8 @@ export function changeLimits(businessId: string, wallet: string, input: Pick<Sta
   getDb().prepare("UPDATE businesses SET budget_wei = ?, max_per_day_wei = ?, max_per_job_wei = ?, approve_above_wei = ?, spend_kinds = ?, price_min_wei = ?, price_max_wei = ?, bids_per_hour = ?, updated_at = ? WHERE business_id = ?")
     .run(limits.budgetWei.toString(), limits.maxPerDayWei.toString(), limits.maxPerJobWei.toString(), limits.approveAboveWei.toString(), limits.kinds.join(","), price.minWei.toString(), price.maxWei.toString(), bidsPerHour, now(), businessId);
   decide(businessId, "change", "You changed its limits", { detail: { budget: formatEth(limits.budgetWei), perDay: formatEth(limits.maxPerDayWei), perJob: formatEth(limits.maxPerJobWei), askAbove: formatEth(limits.approveAboveWei), spendOn: limits.kinds, price: `${formatEth(price.minWei)} to ${formatEth(price.maxWei)}`, bidsPerHour } });
+  // a narrower range moves the price into it at once, as starting does, rather than at the next daily step
+  priceIntoRange(businessId, o.business.agentId, price);
   void syncToTurso();
   return { ok: true, business: getBusiness(businessId)! };
 }
