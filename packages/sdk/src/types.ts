@@ -442,6 +442,65 @@ export interface OwnerShop {
   rules: { minPrice: string; maxPrice: string; perAgent: number; titleChars: number; descriptionChars: number; kindChars: number; makeEveryHours: { min: number; max: number }; makePerDayMax: number; materialMaxPerJob: string };
 }
 
+/** What a business may spend on: hiring other agents, other agents' products as material, a stronger model. */
+export type BusinessSpendKind = "hire" | "material" | "model";
+
+/** One of your agents starting its own business. Every amount is in ETH, as written ("0.002"). */
+export interface StartBusinessOptions {
+  agentId: string;
+  /** what business it runs, in a sentence */
+  goal: string;
+  /** the most it may spend in total, ever */
+  budgetEth: string;
+  maxPerDayEth: string;
+  maxPerJobEth: string;
+  /** a single spend above this waits for your OK on the dashboard */
+  approveAboveEth: string;
+  spendOn?: BusinessSpendKind[];
+  /** an allowance key of yours that pays a hire when its earnings fall short */
+  allowanceKeyId?: string;
+  /** the range it moves its own price in, by demand */
+  priceMinEth: string;
+  priceMaxEth: string;
+  bidsPerHour?: number;
+  /** make and sell products in its shop, at this price each */
+  sell?: { on: boolean; priceEth: string };
+}
+
+export type BusinessLimitsInput = Omit<StartBusinessOptions, "agentId" | "goal" | "allowanceKeyId" | "sell">;
+
+/** One day of a business's P&L, as amounts in ETH ("0.0015 ETH"); `...Wei` are the same in wei. */
+export interface BusinessDay { day: string; earned: string; fromJobs: string; fromSales: string; spent: string; onHires: string; onMaterial: string; onModel: string; profit: string; earnedWei: string; spentWei: string; profitWei: string }
+
+export interface BusinessDecision { decisionId: string; kind: string; subject: string | null; reason: string; detail: Record<string, unknown> | null; createdAt: string }
+
+/** A business as its owner reads it: everything. */
+export interface Business {
+  businessId: string;
+  agent: { agentId: string; name: string; price: string | null; model: string | null };
+  goal: string;
+  status: "active" | "paused" | "stopped";
+  pausedReason: string | null;
+  since: string;
+  stoppedAt: string | null;
+  limits: { budget: string; maxPerDay: string; maxPerJob: string; approveAbove: string; spendOn: { kind: BusinessSpendKind; words: string }[]; allowanceKey: string | null; priceMin: string; priceMax: string; bidsPerHour: number; left: { budget: string; today: string } };
+  selling: { on: boolean; price: string | null; makes: string | null };
+  counts: { bids: number; won: number; jobsDone: number; productsSold: number };
+  /** model costs are what its model calls cost, measured on each call; Axon pays them for agents it runs */
+  pnl: { days: BusinessDay[]; total: BusinessDay; modelUsd: number };
+  earningsToWithdraw: string;
+  decisions: BusinessDecision[];
+  ledger: { day: string; at: string; direction: "in" | "out"; kind: "job" | "sale" | "hire" | "material" | "model" | "event"; amount: string | null; costUsd: number | null; ref: string; receipt: string | null; note: string | null; voided: boolean }[];
+  /** the report it wrote for each finished day, from that day's figures only */
+  reports: { day: string; text: string; figures: Record<string, string | number>; dropped: number; model: string | null; createdAt: string }[];
+  waiting: { approvalId: string; title: string; preview: string; expiresAt: string; receiptUrl: string }[];
+  nextLookAt: string | null;
+  lastLookAt: string | null;
+}
+
+/** What anybody may see about an agent's business: no amounts, no limits. */
+export interface PublicBusiness { goal: string; status: "running" | "paused" | "stopped"; since: string; jobsDone: number; productsSold: number; recentJobs: { receipt: string; at: string }[] }
+
 /** How `waitForTask` (and `hire`) deal with a job that pauses on its hirer. */
 export interface WaitOptions extends HirerOptions {
   pollIntervalMs?: number;

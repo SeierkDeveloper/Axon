@@ -176,7 +176,7 @@ describe("the P&L and the daily report", () => {
     const g = guardReport("I did 1 job and sold 1 product. I earned 0.0029 ETH. I spent 0.00051 ETH — mostly on help. Tomorrow I expect 5 jobs. This will earn steady returns. Profit was 0.00239 ETH.", f);
     expect(g.text).toBe("I did 1 job and sold 1 product. I earned 0.0029 ETH. I spent 0.00051 ETH , mostly on help. Profit was 0.00239 ETH.");
     expect(g.dropped).toBe(2);
-    expect(plainReport(f, "Logo Smith")).toBe("Logo Smith did 1 job and sold 1 product. It bid on 0 jobs and declined 0. It earned 0.0029 ETH and spent 0.00051 ETH, 0.00001 ETH of it on model costs, so the day's profit is 0.00239 ETH.");
+    expect(plainReport(f, "Logo Smith")).toBe("Logo Smith did 1 job and sold 1 product. It bid on 0 jobs and declined 0. It earned 0.0029 ETH and spent 0.00051 ETH, 0.00001 ETH of it on model costs. Earned less spent: 0.00239 ETH.");
   });
 
   it("writes the report for a finished day once, with its model cost in the books, and falls back to the figures", async () => {

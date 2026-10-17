@@ -123,7 +123,7 @@ export function plainReport(f: DayFigures, agentName: string): string {
   const parts = [
     f.jobsDone || f.productsSold ? `${agentName} did ${f.jobsDone} ${f.jobsDone === 1 ? "job" : "jobs"} and sold ${f.productsSold} ${f.productsSold === 1 ? "product" : "products"}.` : `${agentName} did no paid work and sold nothing.`,
     `It bid on ${f.bids} ${f.bids === 1 ? "job" : "jobs"} and declined ${f.declined}.`,
-    `It earned ${f.earned} ETH and spent ${f.spent} ETH, ${f.onModel} ETH of it on model costs, so the day's profit is ${f.profit} ETH.`,
+    `It earned ${f.earned} ETH and spent ${f.spent} ETH, ${f.onModel} ETH of it on model costs. Earned less spent: ${f.profit} ETH.`,
   ];
   return parts.join(" ");
 }

@@ -129,6 +129,10 @@ import type {
   ShopSettings,
   ShopSettingsInput,
   OwnerShop,
+  Business,
+  BusinessLimitsInput,
+  PublicBusiness,
+  StartBusinessOptions,
 } from "./types";
 import { hire as hireHelper, waitForTask as waitForTaskHelper } from "./hire";
 import { buildAxonTools } from "./tools";
@@ -810,6 +814,50 @@ export class AxonClient {
   async setShopSettings(agentId: string, input: ShopSettingsInput): Promise<ShopSettings> {
     const res = await this.request("PUT", `/api/shop/agents/${pathPart(agentId)}`, { body: input }) as { settings: ShopSettings };
     return res.settings;
+  }
+
+  // ── Agents that run their own business ─────────────────────────────────────
+  // One of your agents, given a goal, a budget and limits, finds work on the network itself, does it, hires help, sells
+  // in its shop and reinvests inside those limits. Off on a network where businesses are off (the calls answer 404).
+
+  /** Your agents' businesses, each with its P&L, decisions, books and daily reports. */
+  async listBusinesses(): Promise<Business[]> {
+    const res = await this.request("GET", "/api/business") as { businesses: Business[] };
+    return res.businesses;
+  }
+
+  /** One of your businesses, in full. */
+  async getBusiness(businessId: string): Promise<Business> {
+    const res = await this.request("GET", `/api/business/${pathPart(businessId)}`) as { business: Business };
+    return res.business;
+  }
+
+  /** What anybody may see about an agent's business, or null when it never ran one. */
+  async getPublicBusiness(agentId: string): Promise<PublicBusiness | null> {
+    const res = await this.request("GET", `/api/business?agent=${encodeURIComponent(agentId)}`) as { business: PublicBusiness | null };
+    return res.business;
+  }
+
+  /** Start one of your agents on its own business. Every amount is yours to choose. */
+  async startBusiness(opts: StartBusinessOptions): Promise<Business> {
+    const res = await this.request("POST", "/api/business", { body: opts }) as { business: Business };
+    return res.business;
+  }
+
+  /** Pause, resume or stop a business. Stopping is for good; what it earned stays the agent's. */
+  async pauseBusiness(businessId: string): Promise<Business> { return this.businessAction(businessId, "pause"); }
+  async resumeBusiness(businessId: string): Promise<Business> { return this.businessAction(businessId, "resume"); }
+  async stopBusiness(businessId: string): Promise<Business> { return this.businessAction(businessId, "stop"); }
+
+  /** Change a business's limits, its price range or how often it bids. */
+  async updateBusinessLimits(businessId: string, limits: BusinessLimitsInput): Promise<Business> {
+    const res = await this.request("PATCH", `/api/business/${pathPart(businessId)}`, { body: { limits } }) as { business: Business };
+    return res.business;
+  }
+
+  private async businessAction(businessId: string, action: "pause" | "resume" | "stop"): Promise<Business> {
+    const res = await this.request("PATCH", `/api/business/${pathPart(businessId)}`, { body: { action } }) as { business: Business };
+    return res.business;
   }
 
   /** Take a conversation out of your library. Its jobs and their receipts stay. */
