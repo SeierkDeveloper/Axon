@@ -267,8 +267,17 @@ export function followWork(b: Business, nowMs = Date.now()): FollowResult {
   return out;
 }
 
-/** The business job a task is, if it is one: what the worker asks before it runs a job. */
+/**
+ * The business job a task is, if it is one: what the worker asks before it runs a job. Read through the open task's
+ * accepted bid as well, because the worker picks a paid job up the moment it is accepted, before the books pass has
+ * written its task down.
+ */
 export function businessJobOf(taskId: string): { businessId: string; team: boolean } | null {
-  const r = getDb().prepare("SELECT business_id, team FROM business_jobs WHERE task_id = ? LIMIT 1").get(taskId) as { business_id: string; team: number } | undefined;
+  const db = getDb();
+  const r = (db.prepare("SELECT business_id, team FROM business_jobs WHERE task_id = ? LIMIT 1").get(taskId)
+    ?? db.prepare(
+      `SELECT j.business_id, j.team FROM open_tasks o JOIN business_jobs j ON j.open_task_id = o.open_task_id AND j.bid_id = o.accepted_bid_id
+        WHERE o.accepted_task_id = ? LIMIT 1`,
+    ).get(taskId)) as { business_id: string; team: number } | undefined;
   return r ? { businessId: r.business_id, team: r.team === 1 } : null;
 }

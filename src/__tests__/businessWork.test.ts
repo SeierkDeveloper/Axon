@@ -137,6 +137,8 @@ describe("following a bid to the money", () => {
     const accepted = acceptBid(ot.openTaskId, bid.bidId);
     if (!accepted.success) throw new Error(accepted.error);
     const taskId = accepted.task.taskId;
+    // the worker asks before the books pass has run: the job is the business's already
+    expect(businessJobOf(taskId)).toEqual({ businessId: b.businessId, team: false });
     expect(followWork(b)).toMatchObject({ won: 1 });
     expect(businessJobOf(taskId)).toEqual({ businessId: b.businessId, team: false });
     // the job finishes and its payment settles: 0.00045 ETH to the agent after the fee
