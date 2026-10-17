@@ -10,7 +10,7 @@
 import type { Agent } from "@/sdk/types";
 import { getProvider } from "./providers";
 import { createHiredTask, parsePlan, type ThinkFn } from "./planner";
-import { selectAgent } from "./routing";
+import { rankAgents, selectAgent } from "./routing";
 import { getTaskById, completeTask, failTask, type Task } from "./tasks";
 import { settleCompletedTask } from "./sla";
 import { parsePriceToEth, refundPayment } from "./payments";
@@ -57,6 +57,16 @@ export interface OrchestrationOptions {
   pollMs?: number;
   /** Injected for tests; defaults to the agent's real provider. */
   think?: ThinkFn;
+  /**
+   * Who else may not be hired, beyond the orchestrator's own rules (a business hires only verified agents of other
+   * owners). The best specialist that passes is taken.
+   */
+  accept?: (worker: Agent) => boolean;
+  /**
+   * How one specialist is hired. Defaults to paying from the agent's own balance (createHiredTask). Throws to skip the
+   * part, with the reason in the message, the way a budget cap or a short balance does.
+   */
+  hire?: (worker: Agent, task: string, context?: Record<string, unknown>) => Promise<{ taskId: string; price: string | null }>;
 }
 
 /**
@@ -124,7 +134,12 @@ export async function runOrchestration(agent: Agent, task: Task, opts: Orchestra
     // empty filters); a blank task would hire a specialist with no instruction.
     // Skip either rather than hire someone unrelated to do nothing.
     if (!step.capability?.trim() || !step.task?.trim()) continue;
-    const routed = selectAgent({ capability: step.capability, fromAgent: agent.agentId, exclude: [agent.agentId] });
+    const routed = opts.accept
+      ? (() => {
+          const found = rankAgents({ capability: step.capability, fromAgent: agent.agentId, exclude: [agent.agentId] }).find((c) => !c.agent.orchestrator && opts.accept!(c.agent));
+          return found ? { agent: found.agent } : null;
+        })()
+      : selectAgent({ capability: step.capability, fromAgent: agent.agentId, exclude: [agent.agentId] });
     // v1: orchestrators hire non-orchestrator specialists only. Excluding self stops
     // a direct self-hire; refusing to hire another orchestrator stops cycles (A→B→A)
     // and unbounded nested fan-out. Nested teams can be enabled later behind a depth cap.
@@ -161,7 +176,7 @@ export async function runOrchestration(agent: Agent, task: Task, opts: Orchestra
     const hireContext = Object.keys(context).length > 0 ? context : undefined;
     let hire: { taskId: string; price: string | null };
     try {
-      hire = createHiredTask(agent.agentId, routed.agent.agentId, step.task, hireContext);
+      hire = opts.hire ? await opts.hire(routed.agent, step.task, hireContext) : createHiredTask(agent.agentId, routed.agent.agentId, step.task, hireContext);
     } catch (err) {
       // budget cap, insufficient balance, or no worker — skip this part, keep going.
       // A brand-new orchestrator with no earned ETH yet hits this on every priced

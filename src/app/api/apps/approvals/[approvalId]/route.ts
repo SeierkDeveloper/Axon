@@ -4,6 +4,7 @@ import { requireApiKey } from "@/lib/apiAuth";
 import { withRequestContext } from "@/lib/withRequestContext";
 import { checkRateLimit, tooManyRequests } from "@/lib/rateLimit";
 import { appsEnabled } from "@/lib/appRegistry";
+import { businessEnabled } from "@/lib/businessPolicy";
 import { decideApproval } from "@/lib/appPermissions";
 import { carryOut } from "@/lib/appCarryOut";
 import { appRefusal, noStore } from "@/lib/appsHttp";
@@ -16,7 +17,8 @@ type Params = { params: Promise<{ approvalId: string }> };
 // that went: posted (with a link where the app gives one), later (the app was busy; tried again), or failed and why.
 export async function POST(req: NextRequest, { params }: Params) {
   return withRequestContext(req, async () => {
-    if (!appsEnabled()) return apiError("NOT_FOUND", "Not found", 404);
+    // the same inbox holds what an agent running its own business wants to spend above its owner's amount
+    if (!appsEnabled() && !businessEnabled()) return apiError("NOT_FOUND", "Not found", 404);
     const auth = requireApiKey(req);
     if (!auth.ok) return auth.response;
     const rl = checkRateLimit(`apps-decide:${auth.user.walletAddress}`, 240, 3_600_000);

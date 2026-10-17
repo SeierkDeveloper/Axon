@@ -234,6 +234,30 @@ export function requestApproval(req: ApprovalRequest, opts: { env?: Env; now?: n
 }
 
 /**
+ * Agents that run their own business ask their owner here too, in the same inbox, before a spend above the amount the
+ * owner set (./businessHire). It is not an app, so no connection or app permission is asked for: the business's own
+ * limits decided that it may ask at all. Everything else is the same: the job it is for, the preview the owner reads,
+ * the payload's fingerprint, the 24 hours, and every decision on the job's receipt.
+ */
+export const BUSINESS_APP = "business";
+export function requestSpendApproval(req: Omit<ApprovalRequest, "appId">, opts: { env?: Env; now?: number } = {}): Approval {
+  return insertApproval({ ...req, appId: BUSINESS_APP }, { ...opts, standing: null });
+}
+
+/** A request that no longer matters (the job moved on, the business stopped): cancelled, and said so on the receipt. */
+export function cancelApproval(approvalId: string, now = Date.now()): boolean {
+  const row = getDb().prepare("UPDATE app_approvals SET status = 'cancelled', decided_by = 'business', decided_at = ? WHERE approval_id = ? AND status IN ('pending', 'approved') RETURNING *").get(iso(now), approvalId) as ApprovalRow | undefined;
+  if (row) onReceipt(toApproval(row), "cancelled", "agent");
+  return Boolean(row);
+}
+
+/** What one agent's business is still waiting on: cancelled when the business stops. */
+export function cancelSpendApprovals(ownerWallet: string, agentId: string, now = Date.now()): number {
+  const ids = getDb().prepare("SELECT approval_id FROM app_approvals WHERE owner_wallet = ? AND agent_id = ? AND app_id = ? AND status IN ('pending', 'approved')").all(owner(ownerWallet), agentId, BUSINESS_APP) as { approval_id: string }[];
+  return ids.filter((r) => cancelApproval(r.approval_id, now)).length;
+}
+
+/**
  * Something the owner lets this agent post in this place without asking (see standsFor): written down as an approval
  * decided by "standing" and already taken, so it is on the receipt and in the owner's list, and handed straight back
  * to be carried out. Throws when the owner does not let it.
@@ -248,9 +272,10 @@ export function recordStanding(req: ApprovalRequest, target: string, opts: { env
 function insertApproval(req: ApprovalRequest, opts: { env?: Env; now?: number; standing: string | null }): Approval {
   const env = opts.env ?? process.env;
   const now = opts.now ?? Date.now();
-  const app = appOf(req.appId);
+  const business = req.appId === BUSINESS_APP;
+  const app = business ? { id: BUSINESS_APP, name: "Business" } : appOf(req.appId);
   const who = owner(req.ownerWallet);
-  if (!canDo(who, req.agentId, app.id, "publish", env)) throw new AppError(`This agent may not publish or send in ${app.name} for its owner.`, 403);
+  if (!business && !canDo(who, req.agentId, app.id, "publish", env)) throw new AppError(`This agent may not publish or send in ${app.name} for its owner.`, 403);
   const task = getTaskById(req.taskId);
   if (!task || task.toAgent !== req.agentId) throw new AppError("That job is not this agent's.", 404);
   const title = String(req.title ?? "").trim().replace(/\s+/g, " ");
@@ -416,5 +441,5 @@ export function approvalsForTask(ownerWallet: string, taskId: string, now = Date
 const view = (r: ApprovalRow): ApprovalView => {
   const { ownerWallet: _o, ...rest } = toApproval(r);
   void _o;
-  return { ...rest, agentName: getAgentById(r.agent_id)?.name ?? null, appName: getApp(r.app_id)?.name ?? r.app_id, receiptUrl: `/r/${encodeURIComponent(r.task_id)}` };
+  return { ...rest, agentName: getAgentById(r.agent_id)?.name ?? null, appName: r.app_id === BUSINESS_APP ? "Business" : getApp(r.app_id)?.name ?? r.app_id, receiptUrl: `/r/${encodeURIComponent(r.task_id)}` };
 };

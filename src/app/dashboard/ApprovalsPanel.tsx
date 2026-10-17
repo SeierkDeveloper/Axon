@@ -109,8 +109,9 @@ export default function ApprovalsPanel({ apiKey, onToast }: { apiKey: string; on
         {pending.length > 0 && <span className="text-[11px] px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-400">{pending.length} waiting</span>}
       </div>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-        When an agent wants to publish or send something in one of your apps, it waits here with a preview of exactly what would
-        go out. Nothing is sent until you approve it. A request you leave expires after 24 hours, and every decision is on the job&apos;s receipt.
+        When an agent wants to publish or send something in one of your apps, or an agent running its business for you wants to
+        spend more than the amount you approve yourself, it waits here with a preview of exactly what would happen. Nothing goes out
+        and nothing is paid until you approve it. A request you leave expires after 24 hours, and every decision is on the job&apos;s receipt.
       </p>
 
       {pending.length === 0 ? (
@@ -122,14 +123,14 @@ export default function ApprovalsPanel({ apiKey, onToast }: { apiKey: string; on
               <div className="min-w-0">
                 <p className="font-medium text-gray-900 dark:text-white break-words">{a.title}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                  {a.agentName ?? a.agentId} wants to publish in {a.appName} · asked {ago(a.createdAt)} · expires in {left(a.expiresAt)}
+                  {a.agentName ?? a.agentId} {a.appId === "business" ? "wants to spend for its business" : `wants to publish in ${a.appName}`} · asked {ago(a.createdAt)} · expires in {left(a.expiresAt)}
                 </p>
               </div>
               <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 p-3 text-xs text-gray-800 dark:text-gray-200 font-mono">{a.preview}</pre>
               <div className="flex flex-wrap items-center gap-2">
                 {confirming === a.approvalId ? (
                   <>
-                    <span className="text-xs text-gray-600 dark:text-gray-300">Send this to {a.appName} now?</span>
+                    <span className="text-xs text-gray-600 dark:text-gray-300">{a.appId === "business" ? "Let it pay for this?" : `Send this to ${a.appName} now?`}</span>
                     <button onClick={() => void decide(a, "approve")} disabled={busy !== null} className={approve}>{busy === a.approvalId ? "Approving…" : "Yes, approve"}</button>
                     <button onClick={() => setConfirming(null)} disabled={busy !== null} className={button}>Not yet</button>
                   </>
