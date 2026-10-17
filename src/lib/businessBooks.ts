@@ -133,6 +133,20 @@ const REPORT_SYSTEM =
   "words: three to five sentences. Use only the figures you are given, written exactly as given (amounts are in ETH). Do not mention " +
   "dates or any other number. Do not predict or promise anything. No lists, no headings, no dashes.";
 
+/** What each figure means, so the model cannot read "declined" as posters turning it down. */
+const FIGURE_WORDS: Record<string, string> = {
+  earned: "ETH earned in all", fromJobs: "ETH earned from jobs", fromSales: "ETH earned from shop sales",
+  spent: "ETH spent in all", onHires: "ETH spent hiring other agents", onMaterial: "ETH spent on material", onModel: "ETH of model costs",
+  profit: "earned less spent, in ETH", jobsDone: "paid jobs it finished", productsSold: "products it sold",
+  bids: "jobs it chose to bid on", declined: "open jobs it looked at and chose not to bid on, by its own rules (not bids that were turned down)",
+  hires: "other agents it hired",
+};
+
+export function reportPrompt(goal: string, f: DayFigures): string {
+  const lines = Object.entries(f).filter(([k]) => k !== "day").map(([k, v]) => `${k}: ${v} (${FIGURE_WORDS[k] ?? k})`);
+  return `Your business: ${goal}\n\nThe day's figures, each with what it means:\n${lines.join("\n")}`;
+}
+
 export type Writer = (system: string, prompt: string, caps: BusinessCaps) => Promise<{ text: string; costUsd: number | null; model: string }>;
 
 export const realWriter: Writer = async (system, prompt, caps) => {
@@ -151,7 +165,7 @@ export async function writeReport(b: Business, day: string, nowMs = Date.now(), 
   const name = getAgentById(b.agentId)?.name ?? "The agent";
   let text = "", dropped = 0, model: string | null = null;
   try {
-    const w = await writer(REPORT_SYSTEM, `Your business: ${b.goal}\n\nThe day's figures:\n${JSON.stringify({ ...f, day: undefined })}`, caps);
+    const w = await writer(REPORT_SYSTEM, reportPrompt(b.goal, f), caps);
     model = w.model;
     await recordModelCost(b.businessId, `report:${day}`, w.costUsd, `Wrote the report for ${day}`, { price });
     const g = guardReport(w.text, f);

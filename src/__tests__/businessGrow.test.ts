@@ -14,7 +14,7 @@ import { decisionsOf, getBusiness, pauseBusiness, startBusiness, stopBusiness, d
 import { entriesOf, record } from "@/lib/businessLedger";
 import { materialRefusal } from "@/lib/businessLimits";
 import { makeKind, modelByBooks, priceByDemand, reinvest, restoreModel, shopHooks, syncShop } from "@/lib/businessGrow";
-import { dayFigures, guardReport, ownerView, plainReport, pnl, publicView, reportsOf, writeReport, type Writer } from "@/lib/businessBooks";
+import { dayFigures, guardReport, ownerView, plainReport, pnl, publicView, reportPrompt, reportsOf, writeReport, type Writer } from "@/lib/businessBooks";
 import { controlHooks, runBusinessTick } from "@/lib/businessRun";
 import { businessCaps } from "@/lib/businessPolicy";
 
@@ -176,6 +176,9 @@ describe("the P&L and the daily report", () => {
     const g = guardReport("I did 1 job and sold 1 product. I earned 0.0029 ETH. I spent 0.00051 ETH — mostly on help. Tomorrow I expect 5 jobs. This will earn steady returns. Profit was 0.00239 ETH.", f);
     expect(g.text).toBe("I did 1 job and sold 1 product. I earned 0.0029 ETH. I spent 0.00051 ETH , mostly on help. Profit was 0.00239 ETH.");
     expect(g.dropped).toBe(2);
+    // the model is told what each figure means: declined is its own choice, not bids turned down
+    expect(reportPrompt(b.goal, f)).toContain("declined: 0 (open jobs it looked at and chose not to bid on, by its own rules (not bids that were turned down))");
+    expect(reportPrompt(b.goal, f)).not.toMatch(/\nday:/);
     expect(plainReport(f, "Logo Smith")).toBe("Logo Smith did 1 job and sold 1 product. It bid on 0 jobs and declined 0. It earned 0.0029 ETH and spent 0.00051 ETH, 0.00001 ETH of it on model costs. Earned less spent: 0.00239 ETH.");
   });
 
