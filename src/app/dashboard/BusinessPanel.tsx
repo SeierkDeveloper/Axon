@@ -210,7 +210,7 @@ export default function BusinessPanel({ apiKey, onToast }: { apiKey: string; onT
             {field("priceMinEth", "Lowest price")}
             {field("priceMaxEth", "Highest price")}
             {field("bidsPerHour", "Bids an hour", `1 to ${rules.bidsPerHourMax}`)}
-            {rules.shop && field("sellPriceEth", "Shop price")}
+            {rules.shop && form.sellOn && field("sellPriceEth", "Shop price")}
           </div>
           <div>
             <span className={label}>It may spend on</span>
@@ -404,21 +404,31 @@ function PnlTable({ days, total }: { days: Day[]; total: Day }) {
  */
 function PnlChart({ days }: { days: Day[] }) {
   const [hover, setHover] = useState<number | null>(null);
-  const W = 640, H = 160, top = 14, bottom = 22, left = 4;
+  // drawn at the width it is shown at, so bars and labels keep their size from a phone to a wide screen
+  const box = useRef<HTMLDivElement>(null);
+  const [W, setW] = useState(640);
+  useEffect(() => {
+    const el = box.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([e]) => setW(Math.max(240, Math.round(e.contentRect.width))));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const H = 160, top = 14, bottom = 22, left = 4;
   const shown = days.slice(-14);
   const max = useMemo(() => shown.reduce((m, d) => { const e = BigInt(d.earnedWei), s = BigInt(d.spentWei); return e > m ? e : s > m ? s : m; }, 0n), [shown]);
   const scale = (w: string) => (max === 0n ? 0 : Number((BigInt(w) * 10_000n) / max) / 10_000) * (H - top - bottom);
   const slot = (W - left) / Math.max(shown.length, 1);
-  const bar = Math.max(4, Math.min(18, (slot - 8) / 2));
+  const bar = Math.max(4, Math.min(22, (slot - 8) / 2));
   const h = hover !== null ? shown[hover] : null;
   return (
-    <div className="relative">
+    <div className="relative" ref={box}>
       <div className="flex items-center gap-4 mb-1 text-[11px] text-gray-500 dark:text-gray-400">
         <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#1baf7a] dark:bg-[#199e70]" />Earned</span>
         <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#4a3aa7] dark:bg-[#9085e9]" />Spent</span>
         {max === 0n && <span>Nothing earned or spent yet</span>}
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-40" role="img" aria-label="Earned and spent per day" onMouseLeave={() => setHover(null)}>
+      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} className="block max-w-full" role="img" aria-label="Earned and spent per day" onMouseLeave={() => setHover(null)}>
         <line x1={0} x2={W} y1={H - bottom} y2={H - bottom} className="stroke-gray-200 dark:stroke-gray-700" strokeWidth={1} />
         {shown.map((d, i) => {
           const x = left + i * slot + slot / 2;

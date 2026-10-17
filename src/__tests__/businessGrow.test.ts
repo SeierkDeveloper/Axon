@@ -207,6 +207,18 @@ describe("the P&L and the daily report", () => {
   });
 });
 
+describe("model costs without a price", () => {
+  it("are kept in dollars and given their ETH value once the price can be read", async () => {
+    const { b } = startOne();
+    const { recordModelCost, repriceModelCosts } = await import("@/lib/businessWork");
+    await recordModelCost(b.businessId, "check:x", 0.002, "a check", { price: async () => null });
+    expect(entriesOf(b.businessId).find((e) => e.ref === "check:x")).toMatchObject({ amountWei: 0n, costUsd: 0.002 });
+    expect(await repriceModelCosts(b.businessId, async () => null)).toBe(0);
+    expect(await repriceModelCosts(b.businessId, price)).toBe(1);
+    expect(entriesOf(b.businessId).find((e) => e.ref === "check:x")?.amountWei).toBe(1_000_000_000_000n);
+  });
+});
+
 describe("the worker's pass", () => {
   it("looks for work when due, then waits; pauses a business whose agent changed hands", async () => {
     const { a, b } = startOne();

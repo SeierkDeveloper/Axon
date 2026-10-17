@@ -74,9 +74,10 @@ describe("the rules, before any model", () => {
   });
 
   it("reads the model's answer strictly", () => {
-    expect(parseFit('{"take": true, "why": "Fits — well.", "help": true}')).toEqual({ take: true, why: "Fits , well.", help: true });
+    expect(parseFit('{"take": true, "why": "Fits — well.", "help": true}')).toEqual({ take: true, why: "Fits, well.", help: true });
     expect(parseFit('{"take": "yes", "why": "x"}').take).toBe(false);
     expect(parseFit("I think so").take).toBe(false);
+    expect(parseFit('{"take": true, "why": "This is what we do - minutes with action items."}').why).toBe("This is what we do, minutes with action items.");
     expect(parseFit('{"take": true, "why": ""}').take).toBe(false);
   });
 });

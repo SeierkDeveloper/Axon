@@ -67,7 +67,8 @@ export function parseFit(raw: string): Fit {
   const m = raw.match(/\{[\s\S]*\}/);
   try {
     const j = JSON.parse(m ? m[0] : raw) as { take?: unknown; why?: unknown; help?: unknown };
-    const why = typeof j.why === "string" ? j.why.replace(/[—–]/g, ",").replace(/\s+/g, " ").trim().slice(0, BUSINESS.pitchChars) : "";
+    // no dashes between clauses, whatever the model wrote: a comma reads the same
+    const why = typeof j.why === "string" ? j.why.replace(/\s*[—–]\s*|\s+-\s+/g, ", ").replace(/\s+/g, " ").trim().slice(0, BUSINESS.pitchChars) : "";
     return { take: j.take === true && why.length > 0, why: why || "The check gave no reason", help: j.help === true };
   } catch {
     return { take: false, why: "The check did not give a clear answer", help: false };
@@ -85,6 +86,17 @@ export async function recordModelCost(businessId: string, ref: string, costUsd: 
   const usd = await (o.price ?? ethUsd)().catch(() => null);
   const wei = usd ? toWei(costUsd / usd) ?? 0n : 0n;
   record(businessId, { kind: "model", amountWei: wei, costUsd, ref, jobRef: o.jobRef ?? null, note });
+}
+
+/** Model costs written while the ETH price could not be read: given their ETH value once it can. */
+export async function repriceModelCosts(businessId: string, price: () => Promise<number | null> = ethUsd): Promise<number> {
+  const rows = getDb().prepare("SELECT entry_id, cost_usd FROM business_ledger WHERE business_id = ? AND kind = 'model' AND amount_wei = '0' AND cost_usd > 0 LIMIT 200").all(businessId) as { entry_id: string; cost_usd: number }[];
+  if (!rows.length) return 0;
+  const usd = await price().catch(() => null);
+  if (!usd) return 0;
+  const set = getDb().prepare("UPDATE business_ledger SET amount_wei = ? WHERE entry_id = ?");
+  for (const r of rows) set.run((toWei(r.cost_usd / usd) ?? 0n).toString(), r.entry_id);
+  return rows.length;
 }
 
 // ── The rules ────────────────────────────────────────────────────────────────

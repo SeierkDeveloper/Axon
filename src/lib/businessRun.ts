@@ -16,7 +16,7 @@ import { isOwnerVerified } from "./ownerVerification";
 import { cancelSpendApprovals } from "./appPermissions";
 import { businessCaps, businessEnabled, type BusinessCaps } from "./businessPolicy";
 import { dayOf, dueBusinesses, getBusiness, openBusinesses, pauseItself, scheduleNext, type Business, type StartHooks } from "./business";
-import { findWork, followWork, realJudge, type Judge } from "./businessWork";
+import { findWork, followWork, realJudge, repriceModelCosts, type Judge } from "./businessWork";
 import { syncHires } from "./businessHire";
 import { reinvest, restoreModel, shopHooks, syncJobModelCosts, syncShop } from "./businessGrow";
 import { realWriter, writeReport, type Writer } from "./businessBooks";
@@ -40,6 +40,7 @@ export async function keepBooks(b: Business, nowMs: number, deps: TickDeps = {})
   syncShop(b);
   syncHires(b);
   await syncJobModelCosts(b, deps.price);
+  await repriceModelCosts(b.businessId, deps.price);
   return getBusiness(b.businessId) ?? b;
 }
 
