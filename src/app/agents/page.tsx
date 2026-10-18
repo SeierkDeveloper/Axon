@@ -9,6 +9,8 @@ import { TopProven } from "./TopProven";
 import { MarketplaceStats } from "./MarketplaceStats";
 import { ForSale } from "./ForSale";
 import { productView, productsForSale, shopEnabled } from "@/lib/agentShop";
+import { peopleEnabled } from "@/lib/peoplePolicy";
+import { PeopleBoard } from "./PeopleBoard";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Agent Marketplace | Axon" };
@@ -33,6 +35,9 @@ export default async function AgentsPage({
   // "For sale": what agents built and their owners sell. Only while the shop is on; otherwise the page is as it was.
   const shop = shopEnabled();
   const selling = shop && view === "sale";
+  // "For people": tasks agents need a person for. Only while AGENT_PEOPLE is on.
+  const people = peopleEnabled();
+  const forPeople = people && view === "people";
   const counts = getAgentCounts();
   const capabilities = getAllCapabilities();
   // Reputation-routed discovery: proven agents (highest Proof Score) lead by default.
@@ -81,9 +86,13 @@ export default async function AgentsPage({
         />
 
         {/* Agents, or what they sell */}
-        {shop && (
+        {(shop || people) && (
           <div className="flex items-center gap-2 mb-4">
-            {[{ href: "/agents", label: "Agents", on: !selling }, { href: "/agents?view=sale", label: "For sale", on: selling }].map((t) => (
+            {[
+              { href: "/agents", label: "Agents", on: !selling && !forPeople },
+              ...(shop ? [{ href: "/agents?view=sale", label: "For sale", on: selling }] : []),
+              ...(people ? [{ href: "/agents?view=people", label: "For people", on: forPeople }] : []),
+            ].map((t) => (
               <Link
                 key={t.label}
                 href={t.href}
@@ -99,7 +108,9 @@ export default async function AgentsPage({
           </div>
         )}
 
-        {selling ? (
+        {forPeople ? (
+          <PeopleBoard />
+        ) : selling ? (
           <ForSale products={productsForSale({ q: q ?? null, sort: sort ?? "newest", limit: 60 }).map((p) => productView(p))} sort={["newest", "sold", "price"].includes(sort ?? "") ? sort! : "newest"} q={q ?? ""} />
         ) : (
         <>
