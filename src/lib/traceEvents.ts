@@ -38,6 +38,10 @@ export type TraceEventKind =
   // (./appActivity). The app, the kind of action, a word for what and how it went are in meta, with fingerprints of
   // where and of what was written. Never the content, never a channel's name.
   | "app.action"
+  // An agent posted a task for a person during this job (./people), or one it posted was accepted and paid, or it
+  // closed unused. The task's id, its status, the pay and the payout's transaction are in meta. Never the task's words,
+  // never the person's proof.
+  | "people.task"
   | "progress"
   | "task.completed"
   | "task.failed"

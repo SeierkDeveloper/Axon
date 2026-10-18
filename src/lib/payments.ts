@@ -624,7 +624,16 @@ export function getAvailableBalanceWei(agentId: string): bigint {
   const escrow = sum("SELECT amount_eth AS v FROM transactions WHERE from_agent=? AND status='escrow' AND funding_source='balance'");
   // ETH its owner took out (or is taking out) to their wallet is no longer the agent's to spend
   const withdrawn = sum("SELECT amount_eth AS v FROM agent_withdrawals WHERE agent_id=? AND status IN ('pending','sent')");
-  return earned - spent - escrow - withdrawn;
+  return earned - spent - escrow - withdrawn - peopleLockedWei(agentId);
+}
+
+/**
+ * What its tasks for people hold of its earnings, or paid out of them (./people): locked when a task is posted, paid to
+ * the person on accept, and only handed back when nobody finished it.
+ */
+export function peopleLockedWei(agentId: string): bigint {
+  return (getDb().prepare("SELECT price_wei FROM people_tasks WHERE agent_id = ? AND funding = 'earnings' AND lock_state IN ('held', 'paid')").all(agentId) as { price_wei: string }[])
+    .reduce((n, r) => n + (/^\d+$/.test(r.price_wei) ? BigInt(r.price_wei) : 0n), 0n);
 }
 
 // Pay for a task from an agent's earned ledger balance instead of a fresh

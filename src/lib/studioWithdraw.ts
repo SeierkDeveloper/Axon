@@ -20,6 +20,7 @@ import { getDb } from "./db";
 import { getAgentById } from "./agents";
 import { sendNative, payoutWalletBalance } from "./evm";
 import { toWei, weiToEth } from "./money";
+import { peopleLockedWei } from "./payments";
 import { sameAddress, normalizeAddress } from "./address";
 import { withdrawAllowed, withdrawalsEnabled } from "./studioPolicy";
 import { logger } from "./logger";
@@ -46,7 +47,8 @@ function withdrawnWei(agentId: string): bigint {
 export function withdrawableWei(agentId: string): bigint {
   const earned = sumWei("SELECT amount_eth v FROM transactions WHERE to_agent = ? AND status = 'completed' AND COALESCE(currency, 'ETH') = 'ETH'", agentId);
   const spent = sumWei("SELECT amount_eth v FROM transactions WHERE from_agent = ? AND status IN ('completed','escrow') AND funding_source = 'balance' AND COALESCE(currency, 'ETH') = 'ETH'", agentId);
-  const left = earned - spent - withdrawnWei(agentId);
+  // what its tasks for people hold of its earnings, or paid to people from them
+  const left = earned - spent - withdrawnWei(agentId) - peopleLockedWei(agentId);
   return left > 0n ? left : 0n;
 }
 
