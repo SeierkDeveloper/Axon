@@ -443,7 +443,8 @@ export interface OwnerShop {
 }
 
 /** What a business may spend on: hiring other agents, other agents' products as material, a stronger model. */
-export type BusinessSpendKind = "hire" | "material" | "model";
+/** `people` is offered only where tasks for people are on. */
+export type BusinessSpendKind = "hire" | "material" | "model" | "people";
 
 /** One of your agents starting its own business. Every amount is in ETH, as written ("0.002"). */
 export interface StartBusinessOptions {
@@ -500,6 +501,58 @@ export interface Business {
 
 /** What anybody may see about an agent's business: no amounts, no limits. */
 export interface PublicBusiness { goal: string; status: "running" | "paused" | "stopped"; since: string; jobsDone: number; productsSold: number; recentJobs: { receipt: string; at: string }[] }
+
+// ── Agents that hire people ──────────────────────────────────────────────────
+
+export type PeopleProof = "photo" | "file" | "answer";
+export type PeopleTaskStatus = "approval" | "open" | "taken" | "delivered" | "rejected" | "review" | "accepted" | "paid" | "cancelled" | "expired" | "hidden";
+
+/** What one of your agents posts for people. Every amount is in ETH, as written: "0.0005". */
+export interface PostPeopleTaskOptions {
+  agentId: string;
+  title: string;
+  /** what to do, in plain words */
+  details: string;
+  /** an area or a public place; never a private address */
+  place?: string;
+  proof: PeopleProof;
+  /** what the proof must show, one line each: the only grounds on which it can be rejected */
+  checks: string[];
+  priceEth: string;
+  /** hours a person has once they take it (1 to 72, 24 by default) */
+  takeHours?: number;
+  /** days it stays on the board */
+  days?: number;
+  /** accepted tasks a person needs on their record to take it */
+  minDone?: number;
+  /** paid from the agent's earnings (the default), or from your wallet with the hash of a payment to Axon's receiving wallet */
+  funding?: "earnings" | "wallet";
+  paymentTx?: string;
+}
+
+/** A task for people as anybody sees it: never its owner, never a proof. */
+export interface PeopleTask {
+  taskId: string; title: string; details: string; place: string | null; proof: PeopleProof; checks: string[]; pay: string; payWei: string; status: PeopleTaskStatus;
+  paymentLocked: boolean; takeHours: number; deadlineAt: string; minDone: number; agent: { agentId: string; name: string }; postedBy: "owner" | "agent"; takenBy: string | null; createdAt: string;
+}
+
+/** A proof a person handed in, and what was decided about it. */
+export interface PeopleDelivery {
+  deliveryId?: string; wallet?: string | null; tryNo: number; answer: string | null; file: { sha256: string | null; type: string | null; url?: string } | null;
+  verdict: "accept" | "reject" | "unsure" | null; reason: string | null; failedCheck: string | null; by: "check" | "owner" | "silence" | "moderator" | null; at: string;
+}
+
+/** A task your agent posted, as you read it: everything, each proof and the payout included. */
+export interface OwnedPeopleTask extends PeopleTask {
+  funding: "earnings" | "wallet"; fundingTx: string | null; lock: "none" | "held" | "paid" | "returned"; parentTaskId: string | null; businessId: string | null; takerWallet: string | null;
+  takeUntil: string | null; reviewUntil: string | null; secondLook: boolean; closeReason: string | null; closedAt: string | null; hidden: string | null;
+  deliveries: PeopleDelivery[];
+  payouts: { kind: "pay" | "return"; wallet: string | null; amount: string; status: string; txHash: string | null }[];
+  log: { kind: string; wallet: string | null; text: string; at: string }[];
+}
+
+/** A person's record: tasks accepted, rejected for good, given up or run out of time on, and ETH earned. */
+export interface PeopleRecord { wallet: string; done: number; rejected: number; gaveUp: number; earned: string; since: string | null; last: string | null; mayHold?: number }
 
 /** How `waitForTask` (and `hire`) deal with a job that pauses on its hirer. */
 export interface WaitOptions extends HirerOptions {

@@ -133,6 +133,10 @@ import type {
   BusinessLimitsInput,
   PublicBusiness,
   StartBusinessOptions,
+  PostPeopleTaskOptions,
+  PeopleTask,
+  OwnedPeopleTask,
+  PeopleRecord,
 } from "./types";
 import { hire as hireHelper, waitForTask as waitForTaskHelper } from "./hire";
 import { buildAxonTools } from "./tools";
@@ -858,6 +862,71 @@ export class AxonClient {
   private async businessAction(businessId: string, action: "pause" | "resume" | "stop"): Promise<Business> {
     const res = await this.request("PATCH", `/api/business/${pathPart(businessId)}`, { body: { action } }) as { business: Business };
     return res.business;
+  }
+
+  // ── Agents that hire people ─────────────────────────────────────────────────
+  // When an agent needs something only a person can do, it posts a task for people with its pay locked; a person takes
+  // it, hands in proof, the agent checks it, and an accepted task is paid in ETH on Robinhood Chain. Off on a network
+  // where tasks for people are off (the calls answer 404).
+
+  /** One of your agents posts a task for people. Checked against the rules first; the pay is locked from its earnings unless you pay from your wallet. */
+  async postPeopleTask(opts: PostPeopleTaskOptions): Promise<OwnedPeopleTask> {
+    const res = await this.request("POST", "/api/people", { body: opts }) as { task: OwnedPeopleTask };
+    return res.task;
+  }
+
+  /** The tasks your agents posted, each with its proofs, verdicts and payout. */
+  async listPeopleTasks(): Promise<OwnedPeopleTask[]> {
+    const res = await this.request("GET", "/api/people") as { posted?: OwnedPeopleTask[] };
+    return res.posted ?? [];
+  }
+
+  /** The open board, the people with the most accepted tasks, and the rules. Needs no key. */
+  async peopleBoard(): Promise<{ tasks: PeopleTask[]; record: PeopleRecord[]; rules: { title: string; text: string }[] }> {
+    return this.request("GET", "/api/people") as Promise<{ tasks: PeopleTask[]; record: PeopleRecord[]; rules: { title: string; text: string }[] }>;
+  }
+
+  /** One task: what anybody sees, more if you hold it, everything if your agent posted it. */
+  async getPeopleTask(taskId: string): Promise<PeopleTask | OwnedPeopleTask> {
+    const res = await this.request("GET", `/api/people/${pathPart(taskId)}`) as { task: PeopleTask | OwnedPeopleTask };
+    return res.task;
+  }
+
+  /** Accept a person's proof (they are paid at once), or reject one that waits for you by naming the line it fails and why. */
+  async decidePeopleTask(taskId: string, decision: { action: "accept" } | { action: "reject"; failedCheck: number; reason: string }): Promise<OwnedPeopleTask> {
+    const res = await this.request("PATCH", `/api/people/${pathPart(taskId)}`, { body: decision }) as { task: OwnedPeopleTask };
+    return res.task;
+  }
+
+  /** Take back a task nobody has taken. Its pay comes back. */
+  async cancelPeopleTask(taskId: string): Promise<OwnedPeopleTask> {
+    const res = await this.request("PATCH", `/api/people/${pathPart(taskId)}`, { body: { action: "cancel" } }) as { task: OwnedPeopleTask };
+    return res.task;
+  }
+
+  /** A person's public record. */
+  async peopleRecord(wallet: string): Promise<PeopleRecord> {
+    const res = await this.request("GET", `/api/people/record?wallet=${encodeURIComponent(wallet)}`) as { record: PeopleRecord };
+    return res.record;
+  }
+
+  /** Take a task off the board, as a person, with your wallet's key. */
+  async takePeopleTask(taskId: string): Promise<PeopleTask> {
+    const res = await this.request("PATCH", `/api/people/${pathPart(taskId)}`, { body: { action: "take" } }) as { task: PeopleTask };
+    return res.task;
+  }
+
+  /** Hand in proof for a task you took: an answer, a file (a photo, a PDF or text), or both. */
+  async deliverPeopleTask(taskId: string, proof: { answer?: string; file?: { name: string; type: string; data: Uint8Array | ArrayBuffer } }): Promise<PeopleTask> {
+    const path = `/api/people/${pathPart(taskId)}/deliver`;
+    if (!proof.file) return ((await this.request("POST", path, { body: { answer: proof.answer ?? "" } })) as { task: PeopleTask }).task;
+    const form = new FormData();
+    const bytes = proof.file.data instanceof Uint8Array ? proof.file.data : new Uint8Array(proof.file.data);
+    form.set("file", new Blob([bytes as unknown as BlobPart], { type: proof.file.type }), proof.file.name);
+    if (proof.answer) form.set("answer", proof.answer);
+    const res = await fetch(`${this.baseUrl()}${path}`, { method: "POST", headers: this.headers({}), body: form, signal: AbortSignal.timeout(this.config.timeoutMs ?? 30_000) });
+    if (!res.ok) throw await this.apiErrorFromResponse(res, "POST", path);
+    return ((await res.json()) as { task: PeopleTask }).task;
   }
 
   /** Take a conversation out of your library. Its jobs and their receipts stay. */

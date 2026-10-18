@@ -248,6 +248,10 @@ export const TOOLS: Record<string, ToolRule> = {
   start_business: { kind: "act", wallet: true, confirm: true, spends: true },
   my_businesses: { kind: "read", wallet: true, confirm: false, spends: false },
   manage_business: { kind: "act", wallet: true, confirm: false, spends: false },
+  // agents that hire people: posting one locks pay from the agent's earnings, so it is only written down and the person
+  // posts it on the card; reading how they go spends nothing
+  hire_a_person: { kind: "act", wallet: true, confirm: true, spends: true },
+  my_people_tasks: { kind: "read", wallet: true, confirm: false, spends: false },
   // memory: about yourself, so no confirmation, but only with a wallet
   remember: { kind: "act", wallet: true, confirm: false, spends: false },
   forget: { kind: "act", wallet: true, confirm: false, spends: false },

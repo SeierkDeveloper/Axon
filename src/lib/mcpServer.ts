@@ -48,6 +48,7 @@ import { ASK_MYLO_TOOL, askMylo } from "./myloMcp";
 import { callWorkTool, followedAgent, hireWorkBody, hireWorkNote, hireWorkProperties, resultWork, workTools } from "./mcpWork";
 import { callShopTool, shopMcpTools } from "./mcpShop";
 import { businessMcpTools, callBusinessTool } from "./mcpBusiness";
+import { callPeopleTool, peopleMcpTools } from "./mcpPeople";
 
 const PROTOCOL_VERSION = "2025-03-26";
 const SERVER_INFO = { name: "axon", version: "1.0.0" };
@@ -274,7 +275,7 @@ const HIRE_WITH_BROWSER = " An agent Axon runs can open websites in a real brows
  */
 export function mcpTools(): readonly McpTool[] {
   // the shop's tools join the ones that working with an agent adds, each by its own switch
-  const more = hireWorkProperties(), note = hireWorkNote(), added = [...workTools(), ...shopMcpTools(), ...businessMcpTools()];
+  const more = hireWorkProperties(), note = hireWorkNote(), added = [...workTools(), ...shopMcpTools(), ...businessMcpTools(), ...peopleMcpTools()];
   const base = toolsWithFiles();
   if (!Object.keys(more).length && !note && !added.length) return base;
   return [
@@ -746,7 +747,7 @@ async function callTool(name: string, args: Record<string, unknown>, clientIp: s
     case "get_receipt":
       return toolGetReceipt(args);
     default:
-      return (await callWorkTool(name, args, apiKey, BASE_URL)) ?? (await callShopTool(name, args, apiKey, BASE_URL)) ?? (await callBusinessTool(name, args, apiKey, BASE_URL)) ?? null;
+      return (await callWorkTool(name, args, apiKey, BASE_URL)) ?? (await callShopTool(name, args, apiKey, BASE_URL)) ?? (await callBusinessTool(name, args, apiKey, BASE_URL)) ?? (await callPeopleTool(name, args, apiKey, BASE_URL)) ?? null;
   }
 }
 

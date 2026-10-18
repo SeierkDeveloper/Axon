@@ -51,6 +51,9 @@ import { formatEth } from "./money";
 import { BUSINESS, businessEnabled } from "./businessPolicy";
 import { businessOfAgent, mayRun as mayRunBusiness, readLimits as readBusinessLimits, startBusiness } from "./business";
 import { controlHooks } from "./businessRun";
+import { peopleEnabled, PROOF_WORDS } from "./peoplePolicy";
+import { mayPost as mayPostPeople, postPeopleTask, readTask as readPeopleTask, type PostInput as PeopleInput } from "./people";
+import { realRulesJudge } from "./peopleCheck";
 
 /** How long a proposal can wait for its confirmation: prices move and people change their minds. */
 export const PROPOSAL_MINUTES = 15;
@@ -61,7 +64,7 @@ export const TASK_CHARS = 4_000;
 
 export interface Hire { agentId: string; name: string; price: string | null; priceEth: number | null; taskId: string | null; error: string | null }
 export type ActionStatus = "proposed" | "running" | "done" | "failed" | "cancelled";
-export type ActionKind = "hire" | "build" | "publish" | "withdraw" | "improve" | "crew" | "schedule" | "business";
+export type ActionKind = "hire" | "build" | "publish" | "withdraw" | "improve" | "crew" | "schedule" | "business" | "people";
 /** A build: the sentence (or the change asked for), then the Studio build and how far it has got. */
 export interface BuildDetail { sentence: string; change: string | null; buildId: string | null; name: string | null; stage: string | null; round: number; score: number | null; error: string | null; changing?: boolean }
 /** A publish: the tested build, at the price shown when it was proposed. */
@@ -76,10 +79,12 @@ export interface CrewDetail { crewName: string; roles: string[]; current: number
 export interface ScheduleDetail { agentId: string; name: string; schedule: Record<string, unknown>; scheduleText: string; maxPriceEth: number; maxPerDayEth: number; maxRuns: number | null; retainerId: string | null; nextRunAt: string | null; error: string | null }
 /** An agent starting its own business: the goal and the limits exactly as the person gave them, and the business once it exists. */
 export interface BusinessDetail { agentId: string; name: string; goal: string; limits: BusinessLimitsInput; budget: string; perDay: string; perJob: string; askAbove: string; spendOn: string[]; businessId: string | null; error: string | null }
+/** A task for people: what it says, as the person confirmed it, and the task once it is posted. */
+export interface PeopleDetail { agentId: string; name: string; title: string; details: string; place: string | null; proof: string; checks: string[]; pay: string; payEth: string; takeHours: number; taskId: string | null; error: string | null }
 export interface BusinessLimitsInput { budgetEth: string; maxPerDayEth: string; maxPerJobEth: string; approveAboveEth: string; spendOn: string[]; priceMinEth: string; priceMaxEth: string; allowanceKeyId?: string; sell?: { on: boolean; priceEth: string } }
 /** A hire that continues a finished job, or shows its plan first; and which questions and plans were announced. */
 export interface HireDetail { followUpOf: string | null; planFirst: boolean; told: string[] }
-export type Detail = BuildDetail | PublishDetail | WithdrawDetail | ImproveDetail | CrewDetail | ScheduleDetail | HireDetail | BusinessDetail;
+export type Detail = BuildDetail | PublishDetail | WithdrawDetail | ImproveDetail | CrewDetail | ScheduleDetail | HireDetail | BusinessDetail | PeopleDetail;
 export interface Action { id: string; conversationId: string; owner: string; wallet: string; kind: ActionKind; task: string; hires: Hire[]; detail: Detail | null; status: ActionStatus; resultMessageId: string | null; expiresAt: string; createdAt: string }
 
 /** Studio, as Mylo uses it. Swappable in tests, so no test calls a model. */
@@ -125,6 +130,7 @@ function summaryOf(a: Pick<Action, "hires"> & Partial<Pick<Action, "kind" | "det
   if (a.kind === "crew") { const d = a.detail as CrewDetail; const cost = a.hires.reduce((x, h) => x + (h.priceEth ?? 0), 0); return `Run the crew "${d.crewName}": ${a.hires.map((h) => h.name).join(", then ")}${cost > 0 ? `, ${+cost.toFixed(8)} ETH in total` : ""}.`; }
   if (a.kind === "schedule") { const d = a.detail as ScheduleDetail; return `Put ${d.name} on autopilot: ${d.scheduleText.charAt(0).toLowerCase()}${d.scheduleText.slice(1)}, at most ${d.maxPriceEth} ETH a run from your allowance.`; }
   if (a.kind === "business") { const d = a.detail as BusinessDetail; return `Start ${d.name} on its own business: "${d.goal}". It may spend ${d.budget} in all, at most ${d.perDay} a day and ${d.perJob} on one job, and asks you above ${d.askAbove}${d.spendOn.length ? `, on: ${d.spendOn.join(", ")}` : ", and spends on nothing"}.`; }
+  if (a.kind === "people") { const d = a.detail as PeopleDetail; return `Post a task for people for ${d.name}: "${d.title}", paying ${d.pay} from its earnings for ${PROOF_WORDS[d.proof as keyof typeof PROOF_WORDS]?.toLowerCase() ?? "proof"} that shows ${d.checks.length === 1 ? "one thing" : `${d.checks.length} things`}.`; }
   if (a.kind === "improve") { const d = a.detail as ImproveDetail; return `Apply the better version of ${d.name}${d.fromScore !== null && d.toScore !== null ? ` (tested ${d.fromScore} before, ${d.toScore} now)` : ""}.`; }
   const cost = a.hires.reduce((s, h) => s + (h.priceEth ?? 0), 0);
   const who = a.hires.map((h) => `${h.name} (${h.priceEth === null ? "free" : `${h.priceEth} ETH`})`).join(" and ");
@@ -306,6 +312,24 @@ export function proposeBusiness(ctx: { wallet: string | null; owner: string; con
   return { id, summary: summaryOf({ hires: [], kind: "business", detail }) };
 }
 
+/**
+ * Write down a task for people one of the person's agents would post, for them to confirm. Checked now the way posting
+ * checks it (the owner, the words, the pay), so the card never shows what would be refused; the rules check runs on
+ * the confirmation, when it is posted.
+ */
+export function proposePeople(ctx: { wallet: string | null; owner: string; conversationId: string }, input: PeopleInput & { agentId: string }): { id: string; summary: string } | string {
+  if (!ctx.wallet) return "Sign in with your wallet first.";
+  if (!peopleEnabled()) return "Tasks for people are not open on this network.";
+  const refused = mayPostPeople(input.agentId, ctx.wallet);
+  if (refused) return refused;
+  const read = readPeopleTask(input);
+  if (!read.ok) return read.why;
+  const t = read.value;
+  const detail: PeopleDetail = { agentId: input.agentId, name: getAgentById(input.agentId)!.name, title: t.title, details: t.details, place: t.place, proof: t.proofKind, checks: t.checks, pay: formatEth(t.priceWei), payEth: formatEth(t.priceWei).replace(/ ETH$/, ""), takeHours: t.takeHours, taskId: null, error: null };
+  const id = insert({ ...ctx, wallet: ctx.wallet }, "people", t.title, [], detail);
+  return { id, summary: summaryOf({ hires: [], kind: "people", detail }) };
+}
+
 /** Write down publishing one of the person's tested builds, at a price, for them to confirm. */
 export function proposePublish(ctx: { wallet: string | null; owner: string; conversationId: string }, buildId: string, priceEth?: number): { id: string; summary: string } | string {
   if (!ctx.wallet) return "Sign in with your wallet first.";
@@ -362,6 +386,7 @@ export async function confirmAction(id: string, owner: string, wallet: string, c
   if (a.kind === "crew") return confirmCrew(a, wallet, c, createTask);
   if (a.kind === "schedule") return confirmSchedule(a, wallet);
   if (a.kind === "business") return confirmBusiness(a, wallet);
+  if (a.kind === "people") return confirmPeople(a, wallet);
 
   for (const h of a.hires) {
     const agent = getAgentById(h.agentId);
@@ -577,6 +602,16 @@ async function confirmBusiness(a: Action, wallet: string): Promise<Action> {
   return a;
 }
 
+/** Post the task for people exactly as the card showed it, from the agent's earnings. The rules check runs now. */
+async function confirmPeople(a: Action, wallet: string): Promise<Action> {
+  const d = a.detail as PeopleDetail;
+  const r = await postPeopleTask({ agentId: d.agentId, title: d.title, details: d.details, place: d.place ?? undefined, proof: d.proof, checks: d.checks, priceEth: d.payEth, takeHours: d.takeHours, funding: "earnings" }, { wallet, postedBy: "owner" }, realRulesJudge());
+  if (r.ok) a.detail = { ...d, taskId: r.task.taskId };
+  else { a.detail = { ...d, error: r.why }; a.status = "failed"; }
+  save(a);
+  return a;
+}
+
 const short = (s: string | null | undefined, n: number) => (!s ? "" : s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const STUDIO_DONE = new Set(["ready", "stopped", "failed", "published"]);
 
@@ -613,6 +648,7 @@ export function refreshAction(id: string, owner: string): { action: Action; task
   if (a.kind === "crew") return refreshCrew(a);
   if (a.kind === "schedule") return refreshSchedule(a);
   if (a.kind === "business") return refreshBusiness(a);
+  if (a.kind === "people") return refreshPeople(a);
   const tasks = a.hires.map((h) => {
     const t = h.taskId ? getTaskById(h.taskId) : null;
     return { agentId: h.agentId, status: t?.status ?? null, output: t?.status === "completed" ? (t.output ?? null) : null, error: h.error ?? (t?.status === "failed" ? (t.error ?? "It failed.") : null) };
@@ -724,6 +760,12 @@ function refreshBusiness(a: Action): Refresh {
   const d = a.detail as BusinessDetail;
   if (a.status !== "running" || !d.businessId) return { action: a, tasks: [], message: null };
   return finishWith(a, `**${d.name}** runs its own business now: it looks for work every few minutes, bids on what fits "${d.goal}", and keeps to your limits. You can follow its P&L, its decisions and its daily report on your [Dashboard](/dashboard#business), and ask me to pause or stop it any time.`, "done");
+}
+
+function refreshPeople(a: Action): Refresh {
+  const d = a.detail as PeopleDetail;
+  if (a.status !== "running" || !d.taskId) return { action: a, tasks: [], message: null };
+  return finishWith(a, `**"${d.title}"** is on the [board for people](/agents?view=people), paying ${d.pay}, locked from ${d.name}'s earnings. When someone hands in the proof, the agent checks it against what you listed, and you can follow it on your [Dashboard](/dashboard#people).`, "done");
 }
 
 function refreshImprove(a: Action): Refresh {

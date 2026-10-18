@@ -33,7 +33,8 @@ export interface ImproveDetail { improvementId: string; agentId: string; name: s
 export interface CrewDetail { crewName: string; roles: string[]; current: number; error: string | null }
 export interface ScheduleDetail { agentId: string; name: string; scheduleText: string; maxPriceEth: number; maxPerDayEth: number; retainerId: string | null; nextRunAt: string | null; error: string | null }
 export interface BusinessDetail { agentId: string; name: string; goal: string; budget: string; perDay: string; perJob: string; askAbove: string; spendOn: string[]; businessId: string | null; error: string | null }
-export interface ActionView { id: string; kind?: "hire" | "build" | "publish" | "withdraw" | "improve" | "crew" | "schedule" | "business"; detail?: BuildDetail | PublishDetail | WithdrawDetail | ImproveDetail | CrewDetail | ScheduleDetail | BusinessDetail | null; status: "proposed" | "running" | "done" | "failed" | "cancelled"; task: string; summary: string; expiresAt: string; hires: { agentId: string; name: string; price: string | null; priceEth: number | null; taskId: string | null; error: string | null }[]; payTo: string | null }
+export interface PeopleDetail { agentId: string; name: string; title: string; details: string; place: string | null; proof: string; checks: string[]; pay: string; takeHours: number; taskId: string | null; error: string | null }
+export interface ActionView { id: string; kind?: "hire" | "build" | "publish" | "withdraw" | "improve" | "crew" | "schedule" | "business" | "people"; detail?: BuildDetail | PublishDetail | WithdrawDetail | ImproveDetail | CrewDetail | ScheduleDetail | BusinessDetail | PeopleDetail | null; status: "proposed" | "running" | "done" | "failed" | "cancelled"; task: string; summary: string; expiresAt: string; hires: { agentId: string; name: string; price: string | null; priceEth: number | null; taskId: string | null; error: string | null }[]; payTo: string | null }
 
 // payments already made for a proposal, kept so a retry never asks anyone to pay the same agent twice
 const paidKey = (id: string) => `mylo.paid.${id}`;
@@ -329,7 +330,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
   // a build or a publish needs no payment: confirming starts it
   const confirmPlain = async () => {
     setErr(null);
-    setStep(a.kind === "build" ? "Starting the build" : a.kind === "withdraw" ? "Sending" : a.kind === "improve" ? "Applying" : a.kind === "schedule" ? "Starting autopilot" : a.kind === "business" ? "Starting the business" : "Publishing");
+    setStep(a.kind === "build" ? "Starting the build" : a.kind === "withdraw" ? "Sending" : a.kind === "improve" ? "Applying" : a.kind === "schedule" ? "Starting autopilot" : a.kind === "business" ? "Starting the business" : a.kind === "people" ? "Checking the rules and posting" : "Publishing");
     try {
       const res = await fetch(`/api/mylo/actions/${a.id}/confirm`, { method: "POST", headers: headers(), body: JSON.stringify({ method: "wallet", payments: {} }) });
       const j = (await res.json()) as { action?: ActionView; error?: string };
@@ -356,11 +357,12 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
   const crew = kind === "crew" ? (a.detail as CrewDetail) : null;
   const sched = kind === "schedule" ? (a.detail as ScheduleDetail) : null;
   const biz = kind === "business" ? (a.detail as BusinessDetail) : null;
+  const ppl = kind === "people" ? (a.detail as PeopleDetail) : null;
   // a hire and a crew are both paid per agent from the wallet; everything else is a plain OK
   const pays = kind === "hire" || kind === "crew";
-  const label = build ? (build.change ? "Change and retest" : "Build") : pub ? "Publish" : wd ? "Withdraw" : imp ? "Better version" : crew ? `Crew: ${crew.crewName}` : sched ? "Autopilot" : biz ? "Business" : a.hires.length > 1 ? "Second opinion" : "Hire";
-  const doneWord = build ? "Built" : pub ? "Live" : wd ? "Sent" : imp ? "Applied" : sched ? "On autopilot" : biz ? "Running" : "Done";
-  const badge = { proposed: expired ? "Expired" : "Waiting for your OK", running: waits ? "Needs your answer" : build ? "Building" : pub ? "Publishing" : wd ? "Sending" : imp ? "Applying" : sched || biz ? "Starting" : crew ? `Step ${crew.current + 1} of ${a.hires.length}` : "Working", done: doneWord, failed: "Didn't finish", cancelled: "Cancelled" }[a.status];
+  const label = build ? (build.change ? "Change and retest" : "Build") : pub ? "Publish" : wd ? "Withdraw" : imp ? "Better version" : crew ? `Crew: ${crew.crewName}` : sched ? "Autopilot" : biz ? "Business" : ppl ? "Task for people" : a.hires.length > 1 ? "Second opinion" : "Hire";
+  const doneWord = build ? "Built" : pub ? "Live" : wd ? "Sent" : imp ? "Applied" : sched ? "On autopilot" : biz ? "Running" : ppl ? "Posted" : "Done";
+  const badge = { proposed: expired ? "Expired" : "Waiting for your OK", running: waits ? "Needs your answer" : build ? "Building" : pub ? "Publishing" : wd ? "Sending" : imp ? "Applying" : sched || biz ? "Starting" : ppl ? "Posting" : crew ? `Step ${crew.current + 1} of ${a.hires.length}` : "Working", done: doneWord, failed: "Didn't finish", cancelled: "Cancelled" }[a.status];
   const stage = build ? ({ changing: "Making the change", drafting: "Writing the agent", drafted: "Getting ready to test", testing: `Testing${build.round ? `, round ${build.round + 1}` : ""}`, improving: `Improving after round ${build.round}` } as Record<string, string>)[build.stage ?? ""] ?? "Starting" : null;
   const studioLink = build?.buildId ? `/studio?build=${build.buildId}` : null;
   return (
@@ -454,6 +456,23 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
         </div>
       )}
 
+      {ppl && (
+        <div className="mt-3">
+          <p className="line-clamp-2 break-words text-sm font-semibold text-gray-900 dark:text-white">{ppl.title}</p>
+          <p className="mt-1 line-clamp-3 text-sm text-gray-600 dark:text-gray-300">{ppl.details}</p>
+          <p className="mt-3 font-mono text-[11px] tracking-wider text-gray-400">THE PROOF MUST SHOW</p>
+          <ol className="mt-1 list-decimal pl-5 text-xs text-gray-700 dark:text-gray-300">{ppl.checks.map((c, i) => <li key={i}>{c}</li>)}</ol>
+          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px] text-gray-500 dark:text-gray-400">
+            <dt>For</dt><dd className="text-right text-gray-900 dark:text-white">{ppl.name}</dd>
+            <dt>Proof</dt><dd className="text-right text-gray-900 dark:text-white">{ppl.proof}</dd>
+            <dt>Pay</dt><dd className="text-right text-gray-900 dark:text-white">{ppl.pay}</dd>
+            <dt>Time to do it</dt><dd className="text-right text-gray-900 dark:text-white">{ppl.takeHours} h</dd>
+          </dl>
+          {ppl.taskId && <Link href="/dashboard#people" className="mt-3 inline-block text-xs text-gray-500 underline underline-offset-2 hover:text-gray-900 dark:hover:text-white">Follow it on your Dashboard</Link>}
+          {ppl.error && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{ppl.error}</p>}
+        </div>
+      )}
+
       {sched && (
         <div className="mt-3">
           <div className="flex items-center justify-between gap-3 text-sm">
@@ -494,7 +513,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
           ) : !pays ? (
             <button type="button" onClick={() => void confirmPlain()} disabled={step !== null}
               className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200">
-              {build ? "Build it" : pub ? "Publish" : wd ? `Withdraw ${wd.amountEth} ETH` : sched ? "Start autopilot" : biz ? "Start the business" : "Apply"}
+              {build ? "Build it" : pub ? "Publish" : wd ? `Withdraw ${wd.amountEth} ETH` : sched ? "Start autopilot" : biz ? "Start the business" : ppl ? "Post it" : "Apply"}
             </button>
           ) : (
             <>
@@ -514,7 +533,7 @@ export function ActionCard({ initial, headers, onMessage }: { initial: ActionVie
       {err && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{err}</p>}
       {a.status === "proposed" && !expired && (
         <p className="mt-3 text-[11px] text-gray-400">
-          {crew ? `Paid from your wallet, one payment per paid step${cost > 0 ? "" : " (all free here)"}. The steps run in order.` : sched ? "Each run pays from your allowance, within its limits. Pause or stop it any time." : build ? "Free. Studio writes it and tests it, which takes a few minutes. Counts as one of today's Studio builds." : pub ? "Lists it on Axon for anyone to hire. What it earns is yours." : wd ? "Goes only to the wallet that owns the agent." : imp ? "Your agent's next jobs use the better version." : biz ? "Nothing is paid now. It spends only inside these limits, and you can pause or stop it on your Dashboard." : `Paid ${cost > 0 ? "from your wallet to Axon, checked on chain" : "nothing: this agent is free"}.`}
+          {crew ? `Paid from your wallet, one payment per paid step${cost > 0 ? "" : " (all free here)"}. The steps run in order.` : sched ? "Each run pays from your allowance, within its limits. Pause or stop it any time." : build ? "Free. Studio writes it and tests it, which takes a few minutes. Counts as one of today's Studio builds." : pub ? "Lists it on Axon for anyone to hire. What it earns is yours." : wd ? "Goes only to the wallet that owns the agent." : imp ? "Your agent's next jobs use the better version." : biz ? "Nothing is paid now. It spends only inside these limits, and you can pause or stop it on your Dashboard." : ppl ? "The pay is locked from the agent's earnings and goes to the person only when their proof is accepted. Checked against the rules first." : `Paid ${cost > 0 ? "from your wallet to Axon, checked on chain" : "nothing: this agent is free"}.`}
           {" "}Expires in {Math.max(1, Math.round((Date.parse(a.expiresAt) - nowMs) / 60_000))} min.
         </p>
       )}
