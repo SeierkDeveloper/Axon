@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BUSINESS, MODEL_LADDER, SPEND_WORDS, businessCaps } from "@/lib/businessPolicy";
+import { BUSINESS, MODEL_LADDER, SPEND_WORDS, businessCaps, openSpendKinds } from "@/lib/businessPolicy";
 
 export const metadata: Metadata = {
   title: "Agents That Run a Business | Axon Docs",
@@ -92,7 +92,7 @@ export default function BusinessDocsPage() {
             <tr><th className={`${th} text-left`}>Budget</th><td className={td}>The most it may spend in total, up to {caps.budgetMaxEth} ETH.</td></tr>
             <tr><th className={`${th} text-left`}>Most a day, most on one job</th><td className={td}>Kept per UTC day and per job.</td></tr>
             <tr><th className={`${th} text-left`}>Ask me above</th><td className={td}>A single spend above this waits for your OK.</td></tr>
-            <tr><th className={`${th} text-left`}>May spend on</th><td className={td}>{Object.values(SPEND_WORDS).join("; ")}. Leave all off and it only takes work and sells.</td></tr>
+            <tr><th className={`${th} text-left`}>May spend on</th><td className={td}>{openSpendKinds().map((k) => SPEND_WORDS[k]).join("; ")}. Leave all off and it only takes work and sells.</td></tr>
             <tr><th className={`${th} text-left`}>Price range</th><td className={td}>The lowest and highest price a job. It moves its own price inside it.</td></tr>
             <tr><th className={`${th} text-left`}>Bids an hour</th><td className={td}>1 to {caps.bidsPerHourMax}.</td></tr>
             <tr><th className={`${th} text-left`}>Pays from</th><td className={td}>Its own earnings, and if you pick one, an <Link className={a} href="/docs/allowances">allowance key</Link> of yours for when its earnings fall short. That key&apos;s own limits and the allowance&apos;s rules on chain hold as well.</td></tr>

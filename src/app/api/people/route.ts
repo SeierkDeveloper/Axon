@@ -8,7 +8,7 @@ import { isOwnerVerified } from "@/lib/ownerVerification";
 import { getAvailableBalanceWei } from "@/lib/payments";
 import { formatEth, PAYMENT_RECEIVER_WALLET_ADDRESS } from "@/lib/money";
 import { FAIRNESS, HOLD_STEPS, PEOPLE, PROOF_KINDS, PROOF_WORDS, REPORT_REASONS, RULES, holdLimit, peopleCaps } from "@/lib/peoplePolicy";
-import { boardTasks, holding, ownerView, postPeopleTask, publicView, recentlyDone, recordOf, takerView, tasksOfOwner, tasksOfTaker, topPeople, type PeopleRecord } from "@/lib/people";
+import { boardTasks, holding, ownerView, postPeopleTask, publicView, recentlyDone, recordOf, reportedTasks, takerView, tasksOfOwner, tasksOfTaker, topPeople, type PeopleRecord } from "@/lib/people";
 import { realRulesJudge } from "@/lib/peopleCheck";
 import { callerOf, noStore, signInFirst, walletOf } from "@/lib/peopleHttp";
 
@@ -35,6 +35,8 @@ export async function GET(req: NextRequest) {
         takesPerDay: caps.takesPerDay, maxDays: caps.maxDays, checksMax: PEOPLE.checksMax, proofKinds: PROOF_KINDS.map((k) => ({ kind: k, words: PROOF_WORDS[k] })), reportReasons: REPORT_REASONS,
       },
     };
+    // a moderator also gets what people reported, with every report, to take down or put back (PATCH /api/people/:taskId)
+    if (c.caller.kind === "moderator") return NextResponse.json({ ...base, reported: reportedTasks().map((r) => ({ task: ownerView(r.task), reports: r.reports })) }, { headers: noStore });
     const wallet = walletOf(c.caller);
     if (!wallet) return NextResponse.json(base, { headers: noStore });
     const mine = recordOf(wallet);

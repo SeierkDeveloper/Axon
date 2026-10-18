@@ -132,6 +132,9 @@ describe("/api/people", () => {
     expect((await report(await req(`/api/people/${task.taskId}/report`, { method: "POST", body: { reason: "nonsense" } }), ctx(task.taskId))).status).toBe(400);
     expect((await report(await req(`/api/people/${task.taskId}/report`, { method: "POST", body: { reason: "unsafe" } }), ctx(task.taskId))).status).toBe(201);
     expect((await report(await req(`/api/people/${task.taskId}/report`, { method: "POST", body: { reason: "unsafe" } }), ctx(task.taskId))).status).toBe(409);
+    const mod = await (await board(await req("/api/people", { key: "mod-secret" }))).json();
+    expect(mod.reported[0]).toMatchObject({ task: { taskId: task.taskId }, reports: [{ reason: "unsafe" }] });
+    expect((await (await board(await req("/api/people"))).json()).reported).toBeUndefined();
     expect((await act(await req(`/api/people/${task.taskId}`, { key: person().apiKey, method: "PATCH", body: { action: "hide" } }), ctx(task.taskId))).status).toBe(400);
     const hidden = await act(await req(`/api/people/${task.taskId}`, { key: "mod-secret", method: "PATCH", body: { action: "hide", reason: "Unsafe" } }), ctx(task.taskId));
     expect(hidden.status).toBe(200);

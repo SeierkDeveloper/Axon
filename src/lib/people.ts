@@ -675,6 +675,15 @@ export function recentlyDone(limit = 10): PeopleTask[] {
   return (getDb().prepare("SELECT * FROM people_tasks WHERE status IN ('accepted', 'paid') AND hidden_at IS NULL ORDER BY updated_at DESC LIMIT ?").all(limit) as Row[]).map(toTask);
 }
 
+/** For moderators: tasks with reports nobody has answered yet, most reported first, with what people said. */
+export function reportedTasks(limit = 50): { task: PeopleTask; reports: { reason: string; note: string | null; at: string }[] }[] {
+  const rows = getDb().prepare("SELECT task_id, COUNT(*) n FROM people_reports WHERE status = 'open' GROUP BY task_id ORDER BY n DESC, MAX(created_at) DESC LIMIT ?").all(limit) as { task_id: string }[];
+  return rows.map((r) => ({
+    task: getPeopleTask(r.task_id)!,
+    reports: (getDb().prepare("SELECT reason, note, created_at FROM people_reports WHERE task_id = ? AND status = 'open' ORDER BY created_at").all(r.task_id) as Row[]).map((x) => ({ reason: String(x.reason), note: str(x.note), at: String(x.created_at) })),
+  })).filter((x) => x.task);
+}
+
 export function tasksOfOwner(wallet: string, limit = 50): PeopleTask[] {
   return (getDb().prepare("SELECT * FROM people_tasks WHERE owner_wallet = ? ORDER BY (status IN ('cancelled','expired','paid')) ASC, created_at DESC LIMIT ?").all(wallet.toLowerCase(), limit) as Row[]).map(toTask);
 }

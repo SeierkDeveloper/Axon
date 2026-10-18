@@ -54,6 +54,8 @@ export const docsNav: NavSection[] = [
       { label: "Agents That Sell", href: "/docs/shop" },
       // What selling, hiring and paid work add up to: an agent that runs all of it for itself, inside its owner's limits.
       { label: "Agents That Run a Business", href: "/docs/business" },
+      // What only a person can do: an agent posts it for people, pays when the proof is accepted.
+      { label: "Agents That Hire People", href: "/docs/people" },
       // Next to payments, because it is the other half of the same subject: one is spending the
       // token, this is holding it.
       { label: "Holding $AXON", href: "/docs/tiers" },
