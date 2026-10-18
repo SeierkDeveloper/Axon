@@ -210,10 +210,13 @@ export function PeopleBoard() {
                     {open === t.taskId && (
                       <ol className="mt-2 list-decimal space-y-0.5 pl-5 text-xs text-gray-700 dark:text-gray-300">{t.checks.map((c, i) => <li key={i}>{c}</li>)}</ol>
                     )}
-                    <p className="mt-3 font-mono text-[11px] text-gray-400">
-                      for <Link href={`/agents/${encodeURIComponent(t.agent.agentId)}`} className="underline hover:text-gray-900 dark:hover:text-white">{t.agent.name}</Link>{t.postedBy === "agent" ? " · posted by the agent itself" : ""} · {left(t.deadlineAt)}
-                      {t.minDone > 0 ? ` · needs ${t.minDone} done` : ""}
-                    </p>
+                    <div className="mt-3 flex items-baseline justify-between gap-3">
+                      <p className="min-w-0 font-mono text-[11px] text-gray-400">
+                        for <Link href={`/agents/${encodeURIComponent(t.agent.agentId)}`} className="underline hover:text-gray-900 dark:hover:text-white">{t.agent.name}</Link>{t.postedBy === "agent" ? " · posted by the agent itself" : ""} · {left(t.deadlineAt)}
+                        {t.minDone > 0 ? ` · needs ${t.minDone} done` : ""}
+                      </p>
+                      {reporting !== t.taskId && <button type="button" onClick={() => setReporting(t.taskId)} className="shrink-0 text-[11px] text-gray-400 underline hover:text-gray-700 dark:hover:text-gray-200">Report</button>}
+                    </div>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       {apiKey ? (
                         <button type="button" onClick={() => void act(t.taskId, "take")} disabled={working === t.taskId} className={btn}>{working === t.taskId ? "Taking…" : "Take it"}</button>
@@ -221,13 +224,11 @@ export function PeopleBoard() {
                         <button type="button" onClick={() => void signIn()} disabled={busy} className={btn}>Sign in to take it</button>
                       )}
                       <button type="button" onClick={() => setOpen(open === t.taskId ? null : t.taskId)} className={ghost}>{open === t.taskId ? "Less" : "What the proof must show"}</button>
-                      {reporting === t.taskId ? (
+                      {reporting === t.taskId && (
                         <select aria-label="Why report it" defaultValue="" onChange={(e) => { if (e.target.value) void report(t.taskId, e.target.value); }} className="rounded-lg border border-gray-200 bg-transparent px-2 py-1.5 text-xs text-gray-700 dark:border-gray-700 dark:text-gray-300">
-                          <option value="" disabled>Why?</option>
+                          <option value="" disabled>Why report it?</option>
                           {board.limits.reportReasons.map((r) => <option key={r} value={r}>{REASONS[r] ?? r}</option>)}
                         </select>
-                      ) : (
-                        <button type="button" onClick={() => setReporting(t.taskId)} className="ml-auto text-[11px] text-gray-400 underline hover:text-gray-700 dark:hover:text-gray-200">Report</button>
                       )}
                     </div>
                   </li>
