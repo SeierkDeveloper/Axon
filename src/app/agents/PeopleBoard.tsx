@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useWallet } from "@/components/WalletProvider";
+import { explorerTxUrl } from "@/lib/chain";
 
 interface Task {
   taskId: string; title: string; details: string; place: string | null; proof: "photo" | "file" | "answer"; checks: string[]; pay: string; status: string;
@@ -244,7 +245,11 @@ export function PeopleBoard() {
                 {history.map((t) => (
                   <li key={t.taskId} className="flex items-center justify-between gap-3 px-4 py-2.5 text-xs">
                     <span className="min-w-0 truncate text-gray-700 dark:text-gray-300">{t.title}</span>
-                    <span className="shrink-0 font-mono text-gray-400">{t.payout?.status === "sent" ? `paid ${t.pay}` : STATUS[t.status] ?? t.status}</span>
+                    <span className="shrink-0 font-mono text-gray-400">
+                      {t.payout?.status === "sent" && t.payout.txHash ? (
+                        <>paid {t.pay} · <a href={explorerTxUrl(t.payout.txHash)} target="_blank" rel="noreferrer" className="underline hover:text-gray-900 dark:hover:text-white">{t.payout.txHash.slice(0, 8)}…{t.payout.txHash.slice(-4)}</a></>
+                      ) : t.payout?.status === "sent" ? `paid ${t.pay}` : STATUS[t.status] ?? t.status}
+                    </span>
                   </li>
                 ))}
               </ul>

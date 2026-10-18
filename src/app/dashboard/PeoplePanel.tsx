@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { payForBuild } from "@/lib/buildPaymentClient";
+import { explorerTxUrl } from "@/lib/chain";
 
 interface Delivery { deliveryId: string; wallet: string | null; tryNo: number; answer: string | null; file: { sha256: string | null; type: string | null; url: string } | null; verdict: string | null; reason: string | null; failedCheck: string | null; by: string | null; at: string }
 interface Posted {
@@ -214,7 +215,7 @@ export default function PeoplePanel({ apiKey, onToast }: { apiKey: string; onToa
                 </div>
               )}
               {t.payouts.map((p) => (
-                <p key={p.kind} className="mt-2 text-[11px] font-mono text-gray-500">{p.kind === "pay" ? `Paid ${p.amount} to ${p.wallet}` : `${p.amount} back to your wallet`} · {p.status}{p.txHash ? ` · ${p.txHash.slice(0, 10)}…${p.txHash.slice(-6)}` : ""}</p>
+                <p key={p.kind} className="mt-2 text-[11px] font-mono text-gray-500">{p.kind === "pay" ? `Paid ${p.amount} to ${p.wallet}` : `${p.amount} back to your wallet`} · {p.status}{p.txHash ? <> · <a href={explorerTxUrl(p.txHash)} target="_blank" rel="noreferrer" className="underline hover:text-gray-900 dark:hover:text-white">{p.txHash.slice(0, 10)}…{p.txHash.slice(-6)}</a></> : null}</p>
               ))}
               <div className="mt-3 flex flex-wrap gap-2">
                 {["delivered", "rejected", "review"].includes(t.status) && <button onClick={() => void act(t.taskId, "accept")} disabled={busy !== null} className={primary}>Accept and pay</button>}
