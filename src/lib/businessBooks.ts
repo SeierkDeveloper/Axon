@@ -236,7 +236,7 @@ export function ownerView(b: Business, nowMs = Date.now()) {
     pnl: { days: books.days.map(dayView), total: dayView(books.total), modelUsd: books.modelUsd },
     earningsToWithdraw: formatEth(available > 0n ? available : 0n),
     decisions: decisionsOf(b.businessId),
-    ledger: entriesOf(b.businessId, { limit: 50 }).map((e) => ({ day: e.day, at: e.createdAt, direction: e.direction, kind: e.kind, amount: e.kind === "event" ? null : eth(e.amountWei), costUsd: e.costUsd, ref: e.ref, receipt: e.kind === "job" || e.kind === "hire" || e.kind === "sale" || e.kind === "material" ? `/r/${e.ref}` : null, note: e.note, voided: e.voided })),
+    ledger: entriesOf(b.businessId, { limit: 50 }).map((e) => ({ day: e.day, at: e.createdAt, direction: e.direction, kind: e.kind, amount: e.kind === "event" ? null : eth(e.amountWei), costUsd: e.costUsd, ref: e.ref, receipt: e.ref.startsWith("pt_") ? "/dashboard#people" : e.kind === "job" || e.kind === "hire" || e.kind === "sale" || e.kind === "material" ? `/r/${e.ref}` : null, note: e.note, voided: e.voided })),
     reports: reportsOf(b.businessId),
     waiting: waiting.map((a) => ({ approvalId: a.approvalId, title: a.title, preview: a.preview, expiresAt: a.expiresAt, receiptUrl: a.receiptUrl })),
     nextLookAt: b.status === "active" ? b.nextScanAt : null,

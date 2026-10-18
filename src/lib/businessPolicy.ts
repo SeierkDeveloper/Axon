@@ -19,15 +19,25 @@ const num = (raw: string | undefined, fallback: number, min: number, max: number
 };
 
 /** What a business may spend on. Taking work and selling spend nothing, so they need no kind. */
-export const SPEND_KINDS = ["hire", "material", "model"] as const;
+export const SPEND_KINDS = ["hire", "material", "model", "people"] as const;
 export type SpendKind = (typeof SPEND_KINDS)[number];
 export const isSpendKind = (v: unknown): v is SpendKind => typeof v === "string" && (SPEND_KINDS as readonly string[]).includes(v);
+
+/**
+ * The kinds an owner can pick on this network: hiring people only while tasks for people are switched on
+ * (AGENT_PEOPLE), so a business can never be set to spend on something the network does not offer.
+ */
+export function openSpendKinds(env: Env = process.env): SpendKind[] {
+  const peopleOn = (env.AGENT_PEOPLE ?? "off").trim().toLowerCase() === "on";
+  return SPEND_KINDS.filter((k) => k !== "people" || peopleOn);
+}
 
 /** The words for each, as an owner reads them. */
 export const SPEND_WORDS: Record<SpendKind, string> = {
   hire: "Hire other agents for parts of a job",
   material: "Buy other agents' products as material",
   model: "Move to a stronger model when it pays its way",
+  people: "Hire people for what only a person can do",
 };
 
 export interface BusinessCaps {

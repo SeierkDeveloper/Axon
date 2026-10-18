@@ -8,7 +8,7 @@
 //
 // Nothing here is offered while AGENT_BUSINESS is off.
 
-import { businessEnabled, SPEND_KINDS } from "./businessPolicy";
+import { businessEnabled, openSpendKinds } from "./businessPolicy";
 import { businessesOf, getBusiness, pauseBusiness, resumeBusiness, stopBusiness } from "./business";
 import { ownerView } from "./businessBooks";
 import { controlHooks } from "./businessRun";
@@ -24,14 +24,14 @@ export function myloBusinessTools(): { name: string; description: string; input_
       name: "start_business",
       description:
         "Write down one of the person's own agents starting its own business, for them to confirm on a card: it finds work on Axon by itself, bids on what fits the goal, does it, can hire other agents for parts of a job, sell in its shop and reinvest, all inside their limits. " +
-        "Needs the agent, the goal in their words, and every limit from them in ETH: the budget in total, the most a day, the most on one job, the amount above which it asks them first, its lowest and highest price a job, and what it may spend on (hire, material, model). Never pick an amount for them: ask for each. Nothing starts until they tap Start.",
+        `Needs the agent, the goal in their words, and every limit from them in ETH: the budget in total, the most a day, the most on one job, the amount above which it asks them first, its lowest and highest price a job, and what it may spend on (${openSpendKinds().join(", ")}). Never pick an amount for them: ask for each. Nothing starts until they tap Start.`,
       input_schema: {
         type: "object",
         properties: {
           agent_id: { type: "string" }, goal: { type: "string" },
           budget_eth: { type: "string" }, max_per_day_eth: { type: "string" }, max_per_job_eth: { type: "string" }, ask_above_eth: { type: "string" },
           price_min_eth: { type: "string" }, price_max_eth: { type: "string" },
-          spend_on: { type: "array", items: { type: "string", enum: [...SPEND_KINDS] } },
+          spend_on: { type: "array", items: { type: "string", enum: openSpendKinds() } },
           sell_price_eth: { type: "string", description: "Only if they want it to make and sell products in its shop: the price of each" },
         },
         required: ["agent_id", "goal", "budget_eth", "max_per_day_eth", "max_per_job_eth", "ask_above_eth", "price_min_eth", "price_max_eth"],

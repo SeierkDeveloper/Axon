@@ -43,6 +43,8 @@ import { carryOutWaiting } from "../lib/appCarryOut";
 import { maySlack, slackTools, withSlackTools } from "../lib/slackTool";
 import { runDueMakes, settleMakeRuns } from "../lib/shopMake";
 import { mayShop, shopTools, withShop } from "../lib/shopTool";
+import { peopleBusiness, peopleTool, withPeople } from "../lib/peopleTool";
+import { peopleEnabled } from "../lib/peoplePolicy";
 import { runChainTriggers } from "../lib/triggerChain";
 import { runPageTriggers } from "../lib/triggerPage";
 import { retryFileCommitments } from "../lib/outputCommitment";
@@ -163,6 +165,8 @@ let pageTimer: NodeJS.Timeout | null = null;
 let shopTimer: NodeJS.Timeout | null = null;
 let businessTimer: NodeJS.Timeout | null = null;
 let businessRunning = false;
+let peopleTimer: NodeJS.Timeout | null = null;
+let peopleRunning = false;
 let appsTimer: NodeJS.Timeout | null = null;
 let triggerRunning = false;
 let pageRunning = false;
@@ -575,6 +579,12 @@ async function processTasks() {
           if (shopEnabled() && mayShop(agent, task, { viaMcp: Boolean(mcpHandler) })) {
             tools = withShop(tools, shopTools({ agentId: agent.agentId, taskId: task.taskId, payment: task.payment, traceId: task.traceId }));
           }
+          // Hiring people: an agent running its own business, whose owner lets it hire people, may post a task for a
+          // person when the job needs something only a person can do. Paid from its earnings within its business's limits.
+          {
+            const peopleBiz = peopleBusiness(agent, { viaMcp: Boolean(mcpHandler) });
+            if (peopleBiz) tools = withPeople(tools, peopleTool({ agentId: agent.agentId, taskId: task.taskId, business: peopleBiz, say: (line) => { live.say(line); } }));
+          }
           // Working in Slack: a job about Slack, for somebody who connected Slack and said who they are with the hire,
           // gives the agent what that person lets it do there: read, write drafts, ask to post. A post waits for their
           // OK on the job's receipt, unless a job that started itself posts where they let it post without asking.
@@ -888,6 +898,10 @@ function clearTimers(): void {
     clearInterval(businessTimer);
     businessTimer = null;
   }
+  if (peopleTimer) {
+    clearInterval(peopleTimer);
+    peopleTimer = null;
+  }
   if (shopTimer) {
     clearInterval(shopTimer);
     shopTimer = null;
@@ -1166,6 +1180,19 @@ export async function startWorkerLoops(): Promise<void> {
       .then((r) => { if (r.bids || r.reports || r.paused) logger.info("business.tick", "Agents running their own business", { ...r }); })
       .catch((err) => logger.error("business.tick_failed", "The tick for agents running their own business failed", { err }))
       .finally(() => { businessRunning = false; });
+  }, RETAINER_INTERVAL_MS);
+
+  // Agents that hire people: once a minute, open tasks their owner approved, let go of people whose time ran out,
+  // close tasks past their time (their payment comes back), pay reviews an owner left unanswered, check proofs a
+  // restart cut short, and send payouts. One pass at a time. Nothing while AGENT_PEOPLE is off.
+  peopleTimer = setInterval(() => {
+    if (peopleRunning || shutdownRequested || !peopleEnabled()) return;
+    peopleRunning = true;
+    import("../lib/peopleRun")
+      .then(({ runPeopleTick }) => runPeopleTick())
+      .then((r) => { if (r.opened || r.timedOut || r.expired || r.paidOnSilence || r.checked || r.sent) logger.info("people.tick", "Tasks for people", { ...r }); })
+      .catch((err) => logger.error("people.tick_failed", "The tick for tasks for people failed", { err }))
+      .finally(() => { peopleRunning = false; });
   }, RETAINER_INTERVAL_MS);
 
   // Apps an owner connected: requests for their OK that nobody answered in 24 hours expire (and say so on their

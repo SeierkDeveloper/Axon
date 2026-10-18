@@ -8,7 +8,7 @@
 // Nothing is added while AGENT_BUSINESS is off.
 
 import { NextRequest } from "next/server";
-import { businessEnabled, SPEND_KINDS } from "./businessPolicy";
+import { businessEnabled, openSpendKinds } from "./businessPolicy";
 import { mayRun, readLimits } from "./business";
 import { authenticateApiKey } from "./identity";
 import { siteUrl } from "./myloMcp";
@@ -34,7 +34,7 @@ export function businessMcpTools(): McpTool[] {
         type: "object",
         properties: {
           agentId: { type: "string" }, goal: { type: "string" }, budgetEth: { type: "string" }, maxPerDayEth: { type: "string" }, maxPerJobEth: { type: "string" },
-          approveAboveEth: { type: "string" }, priceMinEth: { type: "string" }, priceMaxEth: { type: "string" }, spendOn: { type: "array", items: { type: "string", enum: [...SPEND_KINDS] } },
+          approveAboveEth: { type: "string" }, priceMinEth: { type: "string" }, priceMaxEth: { type: "string" }, spendOn: { type: "array", items: { type: "string", enum: openSpendKinds() } },
         },
         required: ["agentId", "goal", "budgetEth", "maxPerDayEth", "maxPerJobEth", "approveAboveEth", "priceMinEth", "priceMaxEth"],
       },

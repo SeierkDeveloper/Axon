@@ -10,7 +10,7 @@ import { listAllowanceKeys } from "@/lib/allowanceKeys";
 import { formatEth } from "@/lib/money";
 import { shopEnabled } from "@/lib/agentShop";
 import { canMake } from "@/lib/shopMake";
-import { BUSINESS, SPEND_KINDS, SPEND_WORDS, businessCaps, businessEnabled } from "@/lib/businessPolicy";
+import { BUSINESS, SPEND_WORDS, businessCaps, businessEnabled, openSpendKinds } from "@/lib/businessPolicy";
 import { businessesOf, businessOfAgent, startBusiness, type StartInput } from "@/lib/business";
 import { canLead } from "@/lib/businessWork";
 import { ownerView, publicView } from "@/lib/businessBooks";
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
       agents: mine,
       allowanceKeys: listAllowanceKeys(wallet).map((k) => ({ keyId: k.keyId, keyPrefix: k.keyPrefix, label: k.label, perTask: formatEth(k.maxPerTaskWei), perDay: formatEth(k.maxPerDayWei), expiresAt: k.expiresAt })),
       rules: {
-        spendKinds: SPEND_KINDS.map((k) => ({ kind: k, words: SPEND_WORDS[k] })), budgetMaxEth: caps.budgetMaxEth, bidsPerHourMax: caps.bidsPerHourMax, perWallet: caps.perWallet,
+        spendKinds: openSpendKinds().map((k) => ({ kind: k, words: SPEND_WORDS[k] })), budgetMaxEth: caps.budgetMaxEth, bidsPerHourMax: caps.bidsPerHourMax, perWallet: caps.perWallet,
         goalChars: BUSINESS.goalChars, scanMinutes: caps.scanMinutes, approvalWaitMinutes: caps.approvalWaitMinutes, shop: shopEnabled(),
       },
     }, { headers: noStore });

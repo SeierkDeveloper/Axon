@@ -31,7 +31,7 @@ import { isOwnerVerified } from "./ownerVerification";
 import { validateAgentText } from "./agentContent";
 import { decimalToWei, formatEth, parsePaymentAmount } from "./money";
 import { listAllowanceKeys } from "./allowanceKeys";
-import { BUSINESS, businessCaps, businessEnabled, isSpendKind, type BusinessCaps, type SpendKind } from "./businessPolicy";
+import { BUSINESS, businessCaps, businessEnabled, isSpendKind, openSpendKinds, type BusinessCaps, type SpendKind } from "./businessPolicy";
 
 export type BusinessStatus = "active" | "paused" | "stopped";
 
@@ -209,7 +209,8 @@ export function readLimits(input: Pick<StartInput, "budgetEth" | "maxPerDayEth" 
   if (perJob.wei > perDay.wei) return { ok: false, why: "The most on one job cannot be above the most a day." };
   if (ask.wei > perJob.wei) return { ok: false, why: "The amount that needs your OK cannot be above the most on one job." };
   const kindsRaw = input.spendOn === undefined ? [] : input.spendOn;
-  if (!Array.isArray(kindsRaw) || !kindsRaw.every(isSpendKind)) return { ok: false, why: "What it may spend on is a list of: hire, material, model." };
+  const open = openSpendKinds();
+  if (!Array.isArray(kindsRaw) || !kindsRaw.every((k) => isSpendKind(k) && open.includes(k))) return { ok: false, why: `What it may spend on is a list of: ${open.join(", ")}.` };
   const kinds = [...new Set(kindsRaw as SpendKind[])];
   const min = eth(input.priceMinEth, "The lowest price");
   if (!min.ok) return min;
