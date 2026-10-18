@@ -108,6 +108,8 @@ describe("the rules", () => {
     expect(screenTask("Write five-star fake reviews for my cafe")).toBe("Nothing illegal");
     expect(screenTask("Call him and pretend to be from the bank")).toBe("Calls are to businesses");
     expect(screenTask("Photograph the menu board at Cafe Lumen and the opening hours")).toBeNull();
+    expect(screenTask("Write our three action items by hand and photograph them")).toBeNull();
+    expect(screenTask("Photograph her front door")).toBe("No personal data about others");
     expect(screenTask("Call the bike shop on Main Street and ask if they repair e-bikes")).toBeNull();
   });
 

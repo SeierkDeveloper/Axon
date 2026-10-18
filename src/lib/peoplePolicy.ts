@@ -127,7 +127,9 @@ export const FAIRNESS: readonly string[] = [
 const SCREEN: readonly { re: RegExp; rule: string }[] = [
   { re: /\b(home|house|private|residential)\s+address(es)?\b|\bwhere\s+(he|she|they)\s+lives?\b/i, rule: "No personal data about others" },
   { re: /\b(follow|tail|track|stalk|watch)\s+(him|her|them|someone|somebody|a\s+(man|woman|person|guy|girl))\b/i, rule: "No personal data about others" },
-  { re: /\b(photo(graph)?|picture|film|record|video)\s+(of\s+)?(the\s+|any\s+)?(him|her|them|someone|somebody|a\s+(man|woman|person|child|kid|neighbou?r)|people|persons?|faces?|children|kids)\b/i, rule: "No personal data about others" },
+  // "them" is left out here: "photograph them" is as often about things (the items, the signs) as about people, and the
+  // model's check reads the whole task
+  { re: /\b(photo(graph)?|picture|film|record|video)\s+(of\s+)?(the\s+|any\s+)?(him|her|someone|somebody|a\s+(man|woman|person|child|kid|neighbou?r)|people|persons?|faces?|children|kids)\b/i, rule: "No personal data about others" },
   { re: /\b(licen[cs]e\s+plates?|number\s+plates?|passport|id\s+card|social\s+security|ssn|national\s+id)\b/i, rule: "No personal data about others" },
   { re: /\b(drugs?|cocaine|heroin|meth|weed|cannabis|firearms?|guns?|ammo|ammunition|explosives?|weapons?)\b/i, rule: "Nothing illegal" },
   { re: /\b(break\s+in|trespass(ing)?|lock\s*pick|shoplift|steal|vandali[sz]e|graffiti)\b/i, rule: "Nobody put at risk" },
