@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-10-13T19:58:21.900Z",
-  "finishedAt": "2026-10-13T20:02:28.575Z",
-  "commit": "d0510d6",
+  "startedAt": "2026-10-28T09:57:01.408Z",
+  "finishedAt": "2026-10-28T09:57:27.391Z",
+  "commit": "81df27c",
   "checks": [
     {
       "id": "install-commands",
@@ -9,22 +9,102 @@
       "ok": true,
       "checked": 13,
       "findings": [],
-      "ms": 13331
+      "ms": 16619
     },
     {
       "id": "links",
       "title": "Internal links point at real pages",
       "ok": true,
-      "checked": 205,
+      "checked": 231,
       "findings": [],
-      "ms": 81
+      "ms": 99
     },
     {
       "id": "dead-exports",
       "title": "Exports are used",
       "ok": true,
-      "checked": 1253,
+      "checked": 1583,
       "findings": [
+        {
+          "severity": "warn",
+          "what": "actionForApproval() is exported and never used",
+          "why": "dead code reads exactly like live code",
+          "where": [
+            "src/lib/appActivity.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "listConnections() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/appConnect.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "standsFor() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/appPermissions.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "currentInstructions() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/autonomy3Improve.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "judgeMinEth() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/autonomy3Judge.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "estimateUsd() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/autonomy3Policy.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "steerSelling() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/businessGrow.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "keepBooks() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/businessRun.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "checkPrompt() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/businessWork.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "settledTo() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/businessWork.ts"
+          ]
+        },
         {
           "severity": "warn",
           "what": "followUpsOf() is exported and never used",
@@ -43,38 +123,87 @@
         },
         {
           "severity": "warn",
-          "what": "setTitle() is exported and never used",
+          "what": "hideTask() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/people.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "tasksOfJob() is exported and never used",
           "why": "dead code reads exactly like live code",
           "where": [
-            "src/lib/myloStore.ts"
+            "src/lib/people.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "checkAllowed() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/peopleCheck.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "rulesPrompt() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/peopleCheck.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "proofPrompt() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/peopleCheck.ts"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "sendPayout() is exported but only used inside its own file",
+          "why": "the export widens the surface without a caller to justify it",
+          "where": [
+            "src/lib/peoplePay.ts"
           ]
         }
       ],
-      "ms": 1405
+      "ms": 2551
     },
     {
       "id": "api-reference",
       "title": "The API reference matches the routes",
       "ok": true,
-      "checked": 386,
-      "findings": [],
-      "ms": 64
+      "checked": 414,
+      "findings": [
+        {
+          "severity": "warn",
+          "what": "26 public routes are not in the API reference, e.g. /api/agents/[agentId]/auto-improve, /api/apps/[appId]/callback, /api/apps/[appId]/connect",
+          "why": "a route nobody can find is a route nobody uses",
+          "where": [
+            "src/app/api/openapi/route.ts"
+          ]
+        }
+      ],
+      "ms": 79
     },
     {
       "id": "sdk-routes",
       "title": "The SDK calls routes that exist",
       "ok": true,
-      "checked": 149,
+      "checked": 175,
       "findings": [],
-      "ms": 27
+      "ms": 98
     },
     {
       "id": "examples",
       "title": "Examples import what the SDK exports",
       "ok": true,
-      "checked": 39,
+      "checked": 44,
       "findings": [],
-      "ms": 10
+      "ms": 12
     },
     {
       "id": "packages",
@@ -84,35 +213,26 @@
       "findings": [
         {
           "severity": "warn",
-          "what": "0 critical and 4 high vulnerabilities in shipped packages",
+          "what": "1 critical and 5 high vulnerabilities in shipped packages",
           "why": "known holes in what runs in production",
           "where": [
             "package-lock.json"
           ]
         }
       ],
-      "ms": 2105
+      "ms": 6517
     },
     {
       "id": "migrations",
       "title": "Migrations are complete and in order",
       "ok": true,
-      "checked": 126,
+      "checked": 135,
       "findings": [],
-      "ms": 0
+      "ms": 1
     }
   ],
   "errors": 0,
-  "warnings": 4,
-  "changed": true,
-  "changes": [
-    {
-      "what": "dropped the export from rpcCacheOn()",
-      "where": "src/lib/rpcCache.ts",
-      "files": [
-        "src/lib/rpcCache.ts"
-      ],
-      "status": "applied"
-    }
-  ]
+  "warnings": 20,
+  "changed": false,
+  "changes": []
 }
