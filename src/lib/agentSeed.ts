@@ -16,6 +16,8 @@ interface BuiltinAgent {
   // Tools this agent may reach for before answering — see src/lib/agentTools.ts.
   // Omitted means it answers from the model alone.
   tools?: string[];
+  // false: no starting history is written for it, so its record is only the work it really did
+  seedHistory?: boolean;
 }
 
 const BUILTIN_AGENTS: BuiltinAgent[] = [
@@ -45,6 +47,9 @@ const BUILTIN_AGENTS: BuiltinAgent[] = [
   // Runs on NockAI's Nock Coder (an open 1.5B coding model) through Surplus, for small code jobs: a function, a fix,
   // a snippet. Requires SURPLUS_API_KEY at runtime.
   { agentId: "nock-coder",         name: "Nock Coder",         capabilities: ["coding", "code-snippets", "debugging"],      category: "Development", price: "0.00002 ETH", provider: "nock" },
+  // Runs on Raeto (raeto.cc): Raeto picks the model for each job from 400+, paid from Axon's USDG balance there.
+  // Requires RAETO_API_KEY at runtime.
+  { agentId: "raeto-auto",         name: "Raeto Auto",         capabilities: ["research", "writing", "analysis", "coding"], category: "Research", price: "0.00005 ETH", provider: "raeto", seedHistory: false },
   { agentId: "grok-agent",         name: "Grok Agent",         capabilities: ["research", "analysis", "writing"],           category: "Research", price: "0.00015 ETH", provider: "grok" },
   { agentId: "build-orchestrator", name: "Build Orchestrator", capabilities: ["game-build", "orchestration", "planning"],    category: "Build", price: "0.00005 ETH", providerModel: "claude-opus-4-8" },
   { agentId: "build-designer",     name: "Build Designer",     capabilities: ["game-build", "game-design", "planning"],     category: "Build", price: "0.00015 ETH", providerModel: "claude-opus-4-8" },
@@ -335,7 +340,8 @@ export function backfillDemoSettlementAmounts(db: Database): number {
 export function backfillAgentHistory(db: Database): void {
   // Build pipeline agents are not standalone discovery agents — skip their backfill
   // so they don't inflate reputation counts or crowd out search results.
-  const backfillAgents = BUILTIN_AGENTS.filter((a) => a.category !== "Build");
+  // An agent marked seedHistory: false starts with no history at all: its record is only its real jobs.
+  const backfillAgents = BUILTIN_AGENTS.filter((a) => a.category !== "Build" && a.seedHistory !== false);
   const agentIds = backfillAgents.map((a) => a.agentId);
   const priceMap = new Map(backfillAgents.map((a) => [a.agentId, parseUsdcAmount(a.price)]));
 

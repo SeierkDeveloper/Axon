@@ -38,6 +38,8 @@ export default function TestAgent({ agentId, agentName, capabilities, hasExterna
   const [step, setStep] = useState<Step>("idle");
   const [output, setOutput] = useState("");
   const [latency, setLatency] = useState<number | null>(null);
+  // the model a routed agent's call landed on (Raeto picks it per call)
+  const [routed, setRouted] = useState<string | null>(null);
   const [remaining, setRemaining] = useState<number>(LIMIT);
   const [error, setError] = useState<string | null>(null);
   // Re-entry guard: the Run button only unmounts after the state flip renders, so
@@ -57,6 +59,7 @@ export default function TestAgent({ agentId, agentName, capabilities, hasExterna
     setOutput("");
     setError(null);
     setLatency(null);
+    setRouted(null);
 
     try {
       const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}/test`, {
@@ -100,6 +103,7 @@ export default function TestAgent({ agentId, agentName, capabilities, hasExterna
               done?: boolean;
               latencyMs?: number;
               remaining?: number;
+              model?: string;
               error?: string;
             };
 
@@ -108,6 +112,7 @@ export default function TestAgent({ agentId, agentName, capabilities, hasExterna
             } else if (data.done) {
               receivedDone = true;
               setLatency(data.latencyMs ?? null);
+              setRouted(data.model ?? null);
               setRemaining(data.remaining ?? 0);
               setStep("done");
             } else if (data.error) {
@@ -188,6 +193,9 @@ export default function TestAgent({ agentId, agentName, capabilities, hasExterna
               <div className="flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
                 {step === "done" && latency !== null && (
                   <span>{(latency / 1000).toFixed(1)}s</span>
+                )}
+                {step === "done" && routed && (
+                  <span>Raeto picked <span className="font-mono text-gray-600 dark:text-gray-300">{routed}</span></span>
                 )}
               </div>
               {step === "done" && (

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 
 type Step = "auth" | "configure" | "review" | "done";
-type Provider = "anthropic" | "openai" | "grok" | "nock" | "ollama" | "external";
+type Provider = "anthropic" | "openai" | "grok" | "nock" | "raeto" | "ollama" | "external";
 
 interface AuthState {
   apiKey: string;
@@ -61,6 +61,7 @@ const PROVIDER_LABELS: Record<Provider, string> = {
   openai: "OpenAI (GPT)",
   grok: "xAI (Grok)",
   nock: "NockAI (Nock Coder)",
+  raeto: "Raeto (400+ models, picked per job)",
   ollama: "Ollama (self-hosted)",
   external: "External HTTP endpoint",
 };
@@ -70,9 +71,21 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   openai: "gpt-4o-mini",
   grok: "grok-4.5",
   nock: "",
+  raeto: "raeto/auto",
   ollama: "",
   external: "",
 };
+
+// Raeto's routing, the only models a Raeto agent may name (src/lib/raeto.ts), in plain words.
+const RAETO_ROUTES: { model: string; label: string }[] = [
+  { model: "raeto/auto", label: "Auto: the right model for each job" },
+  { model: "raeto/auto:cheap", label: "Auto, cheapest: keeps the cheap answer" },
+  { model: "raeto/auto:code", label: "Auto, for code" },
+  { model: "raeto/auto:reason", label: "Auto, for hard reasoning" },
+];
+
+// Providers Axon runs without a tool loop: they answer from the words of the job.
+const runsTools = (p: Provider): boolean => p !== "external" && p !== "nock" && p !== "raeto";
 
 function slugify(name: string): string {
   return name
@@ -275,7 +288,7 @@ export default function PublishWizard() {
     }
     // Only for hosted agents: an external one runs its own inference, and the
     // API rejects grants alongside an endpoint.
-    if (form.provider !== "external" && form.provider !== "nock" && form.tools.length > 0) {
+    if (runsTools(form.provider) && form.tools.length > 0) {
       body.tools = form.tools;
     }
 
@@ -504,6 +517,26 @@ export default function PublishWizard() {
             </p>
           )}
 
+          {form.provider === "raeto" && (
+            <>
+              <Field label="Routing" hint="Raeto picks the model for each job from 400+, and every receipt names the one that answered.">
+                <select
+                  value={form.providerModel || "raeto/auto"}
+                  onChange={(e) => setForm((f) => ({ ...f, providerModel: e.target.value }))}
+                  className={inputCls}
+                >
+                  {RAETO_ROUTES.map((r) => (
+                    <option key={r.model} value={r.model}>{r.label}</option>
+                  ))}
+                </select>
+              </Field>
+              <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed -mt-2">
+                Raeto sends quick questions to a fast model, code to a stronger one and hard reasoning to the top tier,
+                and asks a stronger model again when an answer comes back broken. It runs without tools.
+              </p>
+            </>
+          )}
+
           {form.provider === "ollama" && (
             <Field label="Ollama endpoint" hint="Public HTTPS URL to your Ollama-compatible API.">
               <input
@@ -528,7 +561,7 @@ export default function PublishWizard() {
             </Field>
           )}
 
-          {form.provider !== "external" && form.provider !== "nock" && (
+          {runsTools(form.provider) && (
             <Field
               label="Tools (optional)"
               hint="Let this agent go and look before it answers. Every call it makes is recorded in the task's receipt."
@@ -603,7 +636,7 @@ export default function PublishWizard() {
               {form.providerModel.trim() && <ReviewRow label="Model" value={form.providerModel} mono />}
               {form.provider === "ollama" && form.providerEndpoint && <ReviewRow label="Ollama endpoint" value={form.providerEndpoint} mono />}
               {form.provider === "external" && form.endpoint && <ReviewRow label="Endpoint" value={form.endpoint} mono />}
-              {form.provider !== "external" && form.provider !== "nock" && (
+              {runsTools(form.provider) && (
                 <ReviewRow
                   label="Tools"
                   value={

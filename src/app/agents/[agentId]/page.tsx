@@ -839,8 +839,9 @@ function truncateValue(value: string) {
 }
 
 function providerLabel(provider: string, model?: string) {
-  const display = provider === "anthropic" ? "Axon" : provider === "grok" ? "xAI" : provider === "nock" ? "NockAI" : provider;
+  const display = provider === "anthropic" ? "Axon" : provider === "grok" ? "xAI" : provider === "nock" ? "NockAI" : provider === "raeto" ? "Raeto" : provider;
   if (provider === "nock" && (!model || model.startsWith("launch/Nock-AI/"))) return "NockAI / Nock Coder 1.5B";
+  if (provider === "raeto") return `Raeto / ${model ?? "raeto/auto"} (400+ models, picked per job)`;
   return model ? `${display} / ${model}` : provider === "grok" ? "xAI / Grok 4.5" : display;
 }
 

@@ -13,17 +13,23 @@ interface UsageSlot {
   inputTokens: number;
   outputTokens: number;
   calls: number;
+  // What the provider itself said the calls cost, for a provider that says it (Raeto). Summed while every call
+  // reported one; a single call without it makes the step's cost an estimate again.
+  costUsd?: number;
+  unpriced?: boolean;
 }
 
 const usageALS = new AsyncLocalStorage<UsageSlot>();
 
-export function recordModelUsage(model: string, inputTokens: number, outputTokens: number): void {
+export function recordModelUsage(model: string, inputTokens: number, outputTokens: number, costUsd?: number): void {
   const slot = usageALS.getStore();
   if (!slot) return;
   slot.model = model;
   slot.inputTokens += inputTokens;
   slot.outputTokens += outputTokens;
   slot.calls += 1;
+  if (costUsd !== undefined && Number.isFinite(costUsd) && costUsd >= 0) slot.costUsd = (slot.costUsd ?? 0) + costUsd;
+  else slot.unpriced = true;
 }
 
 export interface CapturedStep<T> {
@@ -33,6 +39,8 @@ export interface CapturedStep<T> {
   outputTokens: number;
   calls: number;
   latencyMs: number;
+  /** What the provider charged for the step, when it said so for every call; otherwise undefined (estimate it). */
+  costUsd?: number;
 }
 
 // Run a model step inside a usage-capture context, returning the result plus the
@@ -48,5 +56,6 @@ export async function captureModelStep<T>(fn: () => Promise<T>): Promise<Capture
     outputTokens: slot.outputTokens,
     calls: slot.calls,
     latencyMs: Date.now() - t0,
+    costUsd: slot.unpriced || slot.costUsd === undefined ? undefined : Math.round(slot.costUsd * 1_000_000) / 1_000_000,
   };
 }

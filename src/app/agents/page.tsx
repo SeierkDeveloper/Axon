@@ -29,9 +29,12 @@ const SORT_OPTIONS: { value: string; label: string }[] = [
 export default async function AgentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ capability?: string; sort?: string; view?: string; q?: string }>;
+  searchParams: Promise<{ capability?: string; sort?: string; view?: string; q?: string; provider?: string }>;
 }) {
-  const { capability, sort, view, q } = await searchParams;
+  const { capability, sort, view, q, provider: providerParam } = await searchParams;
+  // "Runs on Raeto": the one provider filter, for agents whose model Raeto picks per job
+  const provider = providerParam === "raeto" ? "raeto" : undefined;
+  const raetoCount = searchAgents({ provider: "raeto", limit: 200 }).length;
   // "For sale": what agents built and their owners sell. Only while the shop is on; otherwise the page is as it was.
   const shop = shopEnabled();
   const selling = shop && view === "sale";
@@ -45,6 +48,7 @@ export default async function AgentsPage({
 
   const filtered = searchAgents({
     capability: capability || undefined,
+    provider,
     sort: (activeSort as SortField),
     limit: 200,
   });
@@ -119,7 +123,7 @@ export default async function AgentsPage({
           {SORT_OPTIONS.map(({ value, label }) => (
             <Link
               key={value}
-              href={`/agents?${capability ? `capability=${encodeURIComponent(capability)}&` : ""}sort=${value}`}
+              href={`/agents?${capability ? `capability=${encodeURIComponent(capability)}&` : ""}${provider ? `provider=${provider}&` : ""}sort=${value}`}
               className={`text-xs px-4 py-2 rounded-t whitespace-nowrap transition-colors font-medium ${
                 activeSort === value
                   ? "text-gray-900 dark:text-white border-b-2 border-gray-900 dark:border-white -mb-px"
@@ -136,13 +140,26 @@ export default async function AgentsPage({
           <Link
             href={sort ? `/agents?sort=${sort}` : "/agents"}
             className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
-              !capability
+              !capability && !provider
                 ? "border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-[#0a0a0a]"
                 : "border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-white"
             }`}
           >
             All
           </Link>
+          {raetoCount > 0 && (
+            <Link
+              href={`/agents?provider=raeto${sort ? `&sort=${encodeURIComponent(sort)}` : ""}`}
+              className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
+                provider === "raeto"
+                  ? "border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-[#0a0a0a]"
+                  : "border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-white"
+              }`}
+            >
+              Runs on Raeto
+              <span className="ml-1.5 opacity-40">{raetoCount}</span>
+            </Link>
+          )}
           {capabilities.filter((cap) => cap.agentCount >= 2).map((cap) => (
             <Link
               key={cap.name}
@@ -164,7 +181,7 @@ export default async function AgentsPage({
         <TopProven agents={agents} />
 
         {/* Grid, adds text search + free-only toggle client-side */}
-        <MarketplaceGrid agents={agents} hasCapabilityFilter={Boolean(capability)} />
+        <MarketplaceGrid agents={agents} hasCapabilityFilter={Boolean(capability || provider)} />
         </>
         )}
 

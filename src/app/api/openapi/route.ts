@@ -78,7 +78,7 @@ const SPEC = {
           price: { type: "string", nullable: true, example: "0.10 ETH" },
           category: { type: "string" },
           walletAddress: { type: "string", nullable: true },
-          provider: { type: "string", enum: ["anthropic", "ollama", "openai", "grok", "nock"] },
+          provider: { type: "string", enum: ["anthropic", "ollama", "openai", "grok", "nock", "raeto"] },
           providerModel: { type: "string", nullable: true },
           verificationStatus: {
             type: "string",
@@ -541,7 +541,7 @@ const SPEC = {
                   walletAddress: { type: "string" },
                   endpoint: { type: "string", format: "uri" },
                   price: { type: "string", example: "0.10 ETH" },
-                  provider: { type: "string", enum: ["anthropic", "ollama", "openai", "grok", "nock"] },
+                  provider: { type: "string", enum: ["anthropic", "ollama", "openai", "grok", "nock", "raeto"] },
                   providerModel: { type: "string" },
                   providerEndpoint: { type: "string", format: "uri" },
                   orchestrator: {

@@ -282,6 +282,7 @@ export interface SearchOptions {
   category?: string;
   minReputation?: number;
   maxPrice?: string; // e.g. "0.50 ETH", free agents (no price) always pass
+  provider?: string; // only agents run by this inference provider, e.g. "raeto"
   sort?: SortField;
   limit?: number;
 }
@@ -344,18 +345,21 @@ export function searchAgents(opts: SearchOptions): Agent[] {
   // Price sort must fetch enough rows to sort globally — cap at 2000 to avoid unbounded scans
   const queryLimit = opts.sort === "price" ? 2000 : opts.limit ?? 10;
 
+  // in the query rather than after it, so the limit counts only the agents of that provider
+  const byProvider = opts.provider ? " AND provider = ?" : "";
+  const providerArg = opts.provider ? [opts.provider] : [];
   let rows: AgentRow[];
   if (agentIds !== null) {
     const ph = agentIds.map(() => "?").join(", ");
     rows = db
       .prepare(
-        `SELECT * FROM agents WHERE agent_id IN (${ph}) ${orderClause} LIMIT ?`
+        `SELECT * FROM agents WHERE agent_id IN (${ph})${byProvider} ${orderClause} LIMIT ?`
       )
-      .all(...agentIds, queryLimit) as AgentRow[];
+      .all(...agentIds, ...providerArg, queryLimit) as AgentRow[];
   } else {
     rows = db
-      .prepare(`SELECT * FROM agents WHERE 1=1 ${orderClause} LIMIT ?`)
-      .all(queryLimit) as AgentRow[];
+      .prepare(`SELECT * FROM agents WHERE 1=1${byProvider} ${orderClause} LIMIT ?`)
+      .all(...providerArg, queryLimit) as AgentRow[];
   }
 
   if (opts.minReputation !== undefined) {

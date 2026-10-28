@@ -39,12 +39,14 @@ const ACTIVITY_MODEL = "claude-sonnet-5";
 // agents are pinned to this for activity runs (real hires keep their own model). Override
 // via env to tune cost vs. answer quality; Haiku has an older knowledge cutoff.
 const ACTIVITY_RUN_MODEL = process.env.NETWORK_ACTIVITY_MODEL || "claude-haiku-4-5";
-const AGENT_MODELS: Record<string, string> = { "grok-agent": "grok-4.5", "nock-coder": "launch/Nock-AI/nock-coder-1.5b@18859c0" };
+const AGENT_MODELS: Record<string, string> = { "grok-agent": "grok-4.5", "nock-coder": "launch/Nock-AI/nock-coder-1.5b@18859c0", "raeto-auto": "raeto/auto" };
 const modelFor = (toAgent: string): string => AGENT_MODELS[toAgent] ?? ACTIVITY_MODEL;
 
 const TASK_POOL: { toAgent: string; task: string; output: string }[] = [
   { toAgent: "research-agent",  task: "Summarise the latest developments in agent-to-agent communication protocols.", output: "Recent work focuses on three areas: standardised task schemas (similar to JSON-RPC), payment-gated API calls using x402, and reputation layers built on verifiable on-chain outcomes. Projects like Axon define a full stack: identity, discovery, messaging, payments, and reputation as discrete composable layers." },
   { toAgent: "research-agent",  task: "What are the key differences between centralised and decentralised AI orchestration?", output: "Centralised orchestration uses a single coordinator that routes tasks, manages state, and handles retries, simpler to build but a single point of failure. Decentralised orchestration lets agents discover and hire each other directly via a shared protocol, removing the bottleneck and enabling permissionless participation at the cost of more complex coordination logic." },
+  { toAgent: "raeto-auto",      task: "Explain what a lending vault is in three sentences.", output: "A lending vault holds deposits from many people and lends them out to borrowers. The interest the borrowers pay goes back to the depositors, in proportion to what each put in. A depositor can take their deposit back, though a large withdrawal may wait while most of the vault is lent out." },
+  { toAgent: "raeto-auto",      task: "Write a regex that matches a 0x-prefixed transaction hash.", output: "```js\nconst txHash = /^0x[0-9a-fA-F]{64}$/;\n```\nA transaction hash is 32 bytes, so 64 hex characters after 0x. Anchored at both ends so nothing else can ride along." },
   { toAgent: "code-agent",      task: "Review the idempotency key pattern for distributed task queues and suggest improvements.", output: "The pattern is sound: hash (sender, recipient, task content) into a key, check on insert, and return the existing record on collision. Key improvements: (1) scope keys to a time window to allow retries after 24h, (2) store the key hash not the raw input to avoid storing sensitive task text twice, (3) add a status check so in-flight tasks don't get re-issued." },
   { toAgent: "code-agent",      task: "Write a TypeScript function that retries a failed async operation with exponential backoff.", output: "```ts\nasync function withRetry<T>(fn: () => Promise<T>, maxAttempts = 4, baseMs = 200): Promise<T> {\n  for (let i = 0; i < maxAttempts; i++) {\n    try { return await fn(); } catch (err) {\n      if (i === maxAttempts - 1) throw err;\n      await new Promise(r => setTimeout(r, baseMs * 2 ** i));\n    }\n  }\n  throw new Error('unreachable');\n}\n```" },
   { toAgent: "crypto-agent",    task: "Summarise on-chain activity trends for Robinhood Chain over the past week.", output: "Robinhood Chain maintained ~3,000 TPS average with peak bursts above 5,000. DeFi TVL held steady near $4.2B. ETH transfer volume increased 12% week-over-week, largely driven by DEX activity on Jupiter and Orca. Validator uptime remained above 99.8%. No major network incidents were recorded." },
@@ -250,7 +252,7 @@ export async function POST(req: NextRequest) {
         model: step.model ?? modelFor(item.toAgent),
         inputTokens: step.inputTokens || null,
         outputTokens: step.outputTokens || null,
-        costUsd: estimateCostUsd(step.model ?? modelFor(item.toAgent), step.inputTokens, step.outputTokens),
+        costUsd: step.costUsd ?? estimateCostUsd(step.model ?? modelFor(item.toAgent), step.inputTokens, step.outputTokens),
         latencyMs: step.latencyMs,
         // These figures are the provider's real reported usage — mark them
         // MEASURED so the receipt can say so (older network-activity events,

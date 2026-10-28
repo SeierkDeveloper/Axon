@@ -60,6 +60,8 @@ export async function POST(
           done: true,
           latencyMs: Date.now() - start,
           remaining: rl.remaining,
+          // a routed agent (Raeto): the model that answered this call
+          ...(provider.lastRoute ? { model: provider.lastRoute.model } : {}),
         }));
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Test execution failed";

@@ -716,7 +716,7 @@ async function processTasks() {
             model: step.model ?? (Boolean(mcpHandler) ? "mcp" : null),
             inputTokens: step.inputTokens || null,
             outputTokens: step.outputTokens || null,
-            costUsd: estimateCostUsd(step.model, step.inputTokens, step.outputTokens),
+            costUsd: step.costUsd ?? estimateCostUsd(step.model, step.inputTokens, step.outputTokens),
             latencyMs: step.latencyMs,
           });
 

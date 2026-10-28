@@ -20,9 +20,10 @@ import { notifyNewAgent } from "@/lib/telegram";
 import { normalizeAddress, sameAddress } from "@/lib/address";
 import { validateAgentContent } from "@/lib/agentContent";
 import { publicJson } from "@/lib/httpCache";
+import { RAETO_MODELS } from "@/lib/raeto";
 
 const VALID_SORT_FIELDS = new Set<string>(["proven", "reputation", "price", "createdAt", "activity", "successRate", "latency", "reviews"]);
-const VALID_PROVIDERS: InferenceProvider[] = ["anthropic", "ollama", "openai", "grok", "nock"];
+const VALID_PROVIDERS: InferenceProvider[] = ["anthropic", "ollama", "openai", "grok", "nock", "raeto"];
 
 function parseLimit(raw: string | null, fallback: number, max: number): number {
   const parsed = Number.parseInt(raw ?? "", 10);
@@ -134,10 +135,10 @@ async function handlePost(req: NextRequest) {
     if (endpointError) return apiError("VALIDATION_ERROR", endpointError, 400);
   }
   if (body.providerEndpoint) {
-    if ((body.provider ?? "anthropic") === "openai" || body.provider === "grok" || body.provider === "nock") {
+    if ((body.provider ?? "anthropic") === "openai" || body.provider === "grok" || body.provider === "nock" || body.provider === "raeto") {
       return apiError(
         "VALIDATION_ERROR",
-        "providerEndpoint is not supported for openai/grok/nock because it would receive the server API key",
+        "providerEndpoint is not supported for openai/grok/nock/raeto because it would receive the server API key",
         400
       );
     }
@@ -157,6 +158,11 @@ async function handlePost(req: NextRequest) {
       400
     );
   }
+  // Raeto agents run on Axon's own Raeto balance, so they take Raeto's routing and nothing else: it picks a model
+  // that fits each job, and no agent can point the balance at the dearest model on the list.
+  if (body.provider === "raeto" && body.providerModel && !RAETO_MODELS.includes(body.providerModel as (typeof RAETO_MODELS)[number])) {
+    return apiError("VALIDATION_ERROR", `providerModel for raeto agents must be one of: ${RAETO_MODELS.join(", ")}`, 400);
+  }
   if (body.tools?.length) {
     // An endpoint agent runs its own inference, so Axon never runs a tool loop
     // for it. Accepting grants would put tools on its public listing that it
@@ -170,6 +176,9 @@ async function handlePost(req: NextRequest) {
     }
     if (body.provider === "nock") {
       return apiError("VALIDATION_ERROR", "tools are not supported for nock agents, Nock Coder writes code from the words of the job", 400);
+    }
+    if (body.provider === "raeto") {
+      return apiError("VALIDATION_ERROR", "tools are not supported for raeto agents yet, a Raeto agent answers from the words of the job", 400);
     }
     if (usesServerTools(body.tools) && !modelSupportsServerTools(body.providerModel)) {
       return apiError(

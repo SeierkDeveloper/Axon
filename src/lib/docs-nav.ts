@@ -48,6 +48,8 @@ export const docsNav: NavSection[] = [
       { label: "AUREON Policy Check", href: "/docs/aureon" },
       // A model from a partner: NockAI's Nock Coder, as an agent to hire and a model to build on.
       { label: "Nock Coder (NockAI)", href: "/docs/nock-coder" },
+      // 400+ models behind one API, picked per job: Raeto, as an agent to hire and a model to build on.
+      { label: "Raeto (400+ models)", href: "/docs/raeto" },
       // Straight after allowances: the same payments, made on a schedule.
       { label: "Retainers", href: "/docs/retainers" },
       // What agents build, sold: paid like a hire, earned like a job.

@@ -11,6 +11,8 @@ import { getDb } from "./db";
 //   openai     — GPT models via OpenAI API (same REST shape as Ollama)
 //   grok       — Grok models via xAI API (same REST shape as OpenAI)
 //   nock       — NockAI's Nock Coder via Surplus (same REST shape as OpenAI), server-side SURPLUS_API_KEY
+//   raeto      — 400+ models through Raeto (same REST shape as OpenAI), server-side RAETO_API_KEY; raeto/auto
+//                picks the model per call
 
 import Anthropic, { toFile } from "@anthropic-ai/sdk";
 import type { Agent } from "@/sdk/types";
@@ -19,6 +21,7 @@ import { getInstructions, withKnowledge } from "./agentKnowledge";
 import { publicHttpFetch } from "./urlSecurity";
 import { logger } from "./logger";
 import { recordModelUsage } from "./modelUsage";
+import { RAETO_BASE_URL, DEFAULT_RAETO_MODEL, raetoEnabled } from "./raeto";
 // Type-only: the tool layer builds the definitions and closures, this module
 // only runs them. Keeps the DB off the model-call path at runtime.
 import type { ResolvedTools, LocalTool } from "./agentTools";
@@ -35,6 +38,7 @@ import { SYSTEM as dataSystem }              from "../workers/agents/data";
 import { SYSTEM as contentSystem }           from "../workers/agents/content";
 import { SYSTEM as codeSystem }              from "../workers/agents/code";
 import { SYSTEM as nockCoderSystem }         from "../workers/agents/nock-coder";
+import { SYSTEM as raetoAutoSystem }         from "../workers/agents/raeto-auto";
 import { SYSTEM as onchainSystem }           from "../workers/agents/onchain";
 import { SYSTEM as strategySystem }          from "../workers/agents/strategy";
 import { SYSTEM as seoSystem }               from "../workers/agents/seo";
@@ -95,6 +99,7 @@ const AGENT_SYSTEMS: Record<string, string> = {
   "content-agent":        contentSystem,
   "code-agent":           codeSystem,
   "nock-coder":           nockCoderSystem,
+  "raeto-auto":           raetoAutoSystem,
   "onchain-agent":        onchainSystem,
   "strategy-agent":       strategySystem,
   "seo-agent":            seoSystem,
@@ -363,6 +368,8 @@ export interface ProviderClient {
    */
   complete(system: string, message: string, maxTokens?: number, temperature?: number, attachments?: ModelAttachment[]): Promise<string>;
   stream(system: string, message: string, maxTokens?: number): AsyncIterable<string>;
+  /** After a stream from a provider that routes (Raeto): the model that really answered, and what it cost. */
+  lastRoute?: { model: string; costUsd?: number } | null;
   /**
    * Run the completion as a bounded tool loop: the model may search, fetch, and
    * call MCP tools before it answers. Optional — providers without tool support
@@ -1010,10 +1017,15 @@ class AnthropicProvider implements ProviderClient {
 // ── OpenAI-compatible (Ollama + OpenAI share the same REST shape) ─────────────
 
 class OpenAICompatibleProvider implements ProviderClient {
+  lastRoute: { model: string; costUsd?: number } | null = null;
+
   constructor(
     private baseUrl: string,
     private apiKey: string,
-    private model: string
+    private model: string,
+    // Raeto answers with the model that really ran and what the call cost, in headers: recorded instead of the
+    // model asked for (raeto/auto) and an estimate.
+    private reportsRoute = false,
   ) {}
 
   private headers(): Record<string, string> {
@@ -1075,7 +1087,9 @@ class OpenAICompatibleProvider implements ProviderClient {
       const content = data.choices?.[0]?.message?.content;
       if (!content) throw new Error("No content in provider response");
       try {
-        if (data.usage) recordModelUsage(this.model, data.usage.prompt_tokens ?? 0, data.usage.completion_tokens ?? 0);
+        const ran = this.reportsRoute ? res.headers.get("x-raeto-model")?.trim() || this.model : this.model;
+        const cost = this.reportsRoute ? Number(res.headers.get("x-raeto-cost") ?? NaN) : undefined;
+        if (data.usage) recordModelUsage(ran, data.usage.prompt_tokens ?? 0, data.usage.completion_tokens ?? 0, Number.isFinite(cost) ? cost : undefined);
       } catch {
         /* usage capture is optional */
       }
@@ -1084,6 +1098,7 @@ class OpenAICompatibleProvider implements ProviderClient {
   }
 
   async *stream(system: string, message: string, maxTokens = 4096): AsyncIterable<string> {
+    this.lastRoute = null;
     const res = await publicHttpFetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: this.headers(),
@@ -1091,6 +1106,8 @@ class OpenAICompatibleProvider implements ProviderClient {
         model: this.model,
         max_tokens: maxTokens,
         stream: true,
+        // Raeto puts the model it picked and the cost in the last chunk, beside the usage
+        ...(this.reportsRoute ? { stream_options: { include_usage: true } } : {}),
         messages: [
           { role: "system", content: system },
           { role: "user", content: message },
@@ -1103,6 +1120,14 @@ class OpenAICompatibleProvider implements ProviderClient {
     if (!res.ok || !res.body) {
       throw new Error(`Provider ${this.baseUrl} error ${res.status}`);
     }
+    // a named model is in the headers from the start; raeto/auto's pick comes in the last chunk
+    const named = this.reportsRoute ? res.headers.get("x-raeto-model")?.trim() : undefined;
+    if (named) this.lastRoute = { model: named };
+    const route = (parsed: { raeto?: { model?: unknown; cost_usd?: unknown } }) => {
+      const r = parsed.raeto;
+      if (!this.reportsRoute || !r || typeof r.model !== "string" || !r.model) return;
+      this.lastRoute = { model: r.model, ...(typeof r.cost_usd === "number" ? { costUsd: r.cost_usd } : {}) };
+    };
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -1125,7 +1150,8 @@ class OpenAICompatibleProvider implements ProviderClient {
           const data = line.slice(6).trim();
           if (data === "[DONE]") return;
           try {
-            const parsed = JSON.parse(data) as { choices: { delta: { content?: string } }[] };
+            const parsed = JSON.parse(data) as { choices: { delta: { content?: string } }[]; raeto?: { model?: unknown; cost_usd?: unknown } };
+            route(parsed);
             const chunk = parsed.choices?.[0]?.delta?.content;
             if (chunk) yield chunk;
           } catch {
@@ -1139,7 +1165,8 @@ class OpenAICompatibleProvider implements ProviderClient {
         const data = finalLine.slice(6).trim();
         if (data !== "[DONE]") {
           try {
-            const parsed = JSON.parse(data) as { choices: { delta: { content?: string } }[] };
+            const parsed = JSON.parse(data) as { choices: { delta: { content?: string } }[]; raeto?: { model?: unknown; cost_usd?: unknown } };
+            route(parsed);
             const chunk = parsed.choices?.[0]?.delta?.content;
             if (chunk) yield chunk;
           } catch {
@@ -1203,6 +1230,18 @@ export function getProvider(agent: Agent): ProviderClient {
       const apiKey = process.env.SURPLUS_API_KEY ?? "";
       if (!apiKey) throw new Error("SURPLUS_API_KEY is not set");
       return new OpenAICompatibleProvider(SURPLUS_BASE_URL, apiKey, providerModel ?? DEFAULT_NOCK_MODEL);
+    }
+
+    case "raeto": {
+      // Raeto: OpenAI-compatible REST, server-side RAETO_API_KEY. The key stays on the server, so no custom endpoint
+      // can be given (it would receive the key).
+      if (providerEndpoint) {
+        throw new Error("Custom providerEndpoint is not supported for raeto agents");
+      }
+      if (!raetoEnabled()) throw new Error("Raeto is switched off on Axon right now (RAETO=off)");
+      const apiKey = process.env.RAETO_API_KEY ?? "";
+      if (!apiKey) throw new Error("RAETO_API_KEY is not set");
+      return new OpenAICompatibleProvider(RAETO_BASE_URL, apiKey, providerModel ?? DEFAULT_RAETO_MODEL, true);
     }
 
     default:
@@ -1291,6 +1330,8 @@ export function effectiveModel(agent: Agent, pinned?: string | null): string | n
       return DEFAULT_GROK_MODEL;
     case "nock":
       return DEFAULT_NOCK_MODEL;
+    case "raeto":
+      return DEFAULT_RAETO_MODEL;
     case "anthropic":
       return DEFAULT_ANTHROPIC_MODEL;
     default:

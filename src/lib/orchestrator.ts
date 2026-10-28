@@ -103,7 +103,7 @@ export async function runOrchestration(agent: Agent, task: Task, opts: Orchestra
         traceId: task.traceId ?? task.taskId, taskId: task.taskId, kind: "step.model", fromAgent: task.fromAgent, toAgent: task.toAgent,
         workflowId: task.workflowId ?? null, stepIndex: task.stepIndex ?? null, inputHash: hashContent(prompt), outputHash: hashContent(step.result),
         model: step.model ?? null, inputTokens: step.inputTokens || null, outputTokens: step.outputTokens || null,
-        costUsd: estimateCostUsd(step.model, step.inputTokens, step.outputTokens), latencyMs: step.latencyMs,
+        costUsd: step.costUsd ?? estimateCostUsd(step.model, step.inputTokens, step.outputTokens), latencyMs: step.latencyMs,
       });
       return step.result;
     });

@@ -730,3 +730,66 @@ describe("POST /api/agents: rate-limit headers on 201", () => {
     expect(res.headers.get("X-RateLimit-Reset")).toBeDefined();
   });
 });
+
+// ── Raeto agents ──────────────────────────────────────────────────────────────
+// Their own owner and address, so the registration rate limits the tests above use up do not apply.
+
+const WALLET_R = evmAddress("owner-raeto");
+const raetoAuth = (apiKey: string) => ({ ...bearer(apiKey), "x-forwarded-for": "203.0.113.77" });
+
+describe("POST /api/agents: Raeto agents", () => {
+  it("registers a Raeto agent on Raeto's routing", async () => {
+    const { apiKey } = createApiKey(WALLET_R);
+    const agentId = uid();
+    const res = await agentPOST(
+      jsonReq("http://localhost/api/agents", "POST", {
+        agentId,
+        name: "Routed Agent",
+        capabilities: ["research"],
+        publicKey: `pk-raeto-${agentId}`,
+        walletAddress: WALLET_R,
+        provider: "raeto",
+        providerModel: "raeto/auto:code",
+      }, raetoAuth(apiKey))
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { provider: string; providerModel: string };
+    expect(body.provider).toBe("raeto");
+    expect(body.providerModel).toBe("raeto/auto:code");
+  });
+
+  it("refuses a Raeto agent that names a model instead of Raeto's routing", async () => {
+    const { apiKey } = createApiKey(WALLET_R);
+    const res = await agentPOST(
+      jsonReq("http://localhost/api/agents", "POST", {
+        agentId: uid(),
+        name: "Dear Model Agent",
+        capabilities: ["research"],
+        publicKey: "pk-raeto-dear",
+        walletAddress: WALLET_R,
+        provider: "raeto",
+        providerModel: "openai/o3-pro",
+      }, raetoAuth(apiKey))
+    );
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(await res.json())).toContain("raeto/auto");
+  });
+
+  it("refuses tools and a custom endpoint for a Raeto agent", async () => {
+    const { apiKey } = createApiKey(WALLET_R);
+    const tools = await agentPOST(
+      jsonReq("http://localhost/api/agents", "POST", {
+        agentId: uid(), name: "Raeto Tools", capabilities: ["research"], publicKey: "pk-raeto-tools",
+        walletAddress: WALLET_R, provider: "raeto", tools: ["web_search"],
+      }, raetoAuth(apiKey))
+    );
+    expect(tools.status).toBe(400);
+    const endpoint = await agentPOST(
+      jsonReq("http://localhost/api/agents", "POST", {
+        agentId: uid(), name: "Raeto Endpoint", capabilities: ["research"], publicKey: "pk-raeto-endpoint",
+        walletAddress: WALLET_R, provider: "raeto", providerEndpoint: "https://evil.example.com/v1",
+      }, raetoAuth(apiKey))
+    );
+    expect(endpoint.status).toBe(400);
+  });
+});

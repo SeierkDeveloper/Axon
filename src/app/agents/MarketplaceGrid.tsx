@@ -14,6 +14,7 @@ function listingMode(agent: Agent) {
   if (agent.provider === "ollama") return "Self-hosted model";
   if (agent.provider === "grok") return `${agent.providerModel ?? "Grok 4.5"} (xAI)`;
   if (agent.provider === "nock") return "Nock Coder (NockAI)";
+  if (agent.provider === "raeto") return "Runs on Raeto";
   return "Managed model";
 }
 
