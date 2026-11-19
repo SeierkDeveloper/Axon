@@ -1,15 +1,15 @@
 {
-  "startedAt": "2026-10-28T09:57:01.408Z",
-  "finishedAt": "2026-10-28T09:57:27.391Z",
-  "commit": "81df27c",
+  "startedAt": "2026-11-19T17:51:44.088Z",
+  "finishedAt": "2026-11-19T17:51:52.561Z",
+  "commit": "b0a29dc",
   "checks": [
     {
       "id": "install-commands",
       "title": "Install commands resolve",
       "ok": true,
-      "checked": 13,
+      "checked": 10,
       "findings": [],
-      "ms": 16619
+      "ms": 4813
     },
     {
       "id": "links",
@@ -17,7 +17,7 @@
       "ok": true,
       "checked": 231,
       "findings": [],
-      "ms": 99
+      "ms": 25
     },
     {
       "id": "dead-exports",
@@ -170,7 +170,7 @@
           ]
         }
       ],
-      "ms": 2551
+      "ms": 1154
     },
     {
       "id": "api-reference",
@@ -187,7 +187,7 @@
           ]
         }
       ],
-      "ms": 79
+      "ms": 43
     },
     {
       "id": "sdk-routes",
@@ -195,7 +195,7 @@
       "ok": true,
       "checked": 175,
       "findings": [],
-      "ms": 98
+      "ms": 12
     },
     {
       "id": "examples",
@@ -203,7 +203,7 @@
       "ok": true,
       "checked": 44,
       "findings": [],
-      "ms": 12
+      "ms": 4
     },
     {
       "id": "packages",
@@ -213,6 +213,22 @@
       "findings": [
         {
           "severity": "warn",
+          "what": "@solana/kit is installed and nothing in Axon imports it",
+          "why": "an unused package is install time and attack surface for nothing",
+          "where": [
+            "package.json"
+          ]
+        },
+        {
+          "severity": "warn",
+          "what": "@solana/program-client-core is installed and nothing in Axon imports it",
+          "why": "an unused package is install time and attack surface for nothing",
+          "where": [
+            "package.json"
+          ]
+        },
+        {
+          "severity": "warn",
           "what": "1 critical and 5 high vulnerabilities in shipped packages",
           "why": "known holes in what runs in production",
           "where": [
@@ -220,7 +236,7 @@
           ]
         }
       ],
-      "ms": 6517
+      "ms": 2418
     },
     {
       "id": "migrations",
@@ -232,7 +248,7 @@
     }
   ],
   "errors": 0,
-  "warnings": 20,
+  "warnings": 22,
   "changed": false,
   "changes": []
 }
