@@ -276,7 +276,7 @@ describe("the address a trigger is called at", () => {
     const two = await call(t.id, { headers: { "x-trigger-key": t.secret }, body: form });
     expect(two.status).toBe(202);
     const second = getTaskById(((await two.json()) as { taskId: string }).taskId)!;
-    expect(filesOfTask(second.taskId).map((f) => f.name)).toEqual(["q1.csv", "notes.txt"]);
+    expect(filesOfTask(second.taskId).map((f) => f.name).sort()).toEqual(["notes.txt", "q1.csv"]); // saved in the same millisecond, so either order
     expect(second.task).toContain("These came from the finance export.");
     expect(listTriggerRuns(t.id, t.owner)[0].summary).toBe("2 files arrived: q1.csv, notes.txt");
     // something that is not a file an agent takes is refused, and nothing runs

@@ -207,7 +207,7 @@ describe("an agent that hires specialists", () => {
     const done = getTaskById(task.taskId)!;
     expect(done.status).toBe("completed");
     const out = filesOfTask(task.taskId, "out");
-    expect(out.map((f) => f.name)).toEqual(["totals.png", "appendix.txt", "lead-report.md"]);
+    expect(out.map((f) => f.name).sort()).toEqual(["appendix.txt", "lead-report.md", "totals.png"]); // files saved in the same millisecond come back in either order
     const subs = getSubcontractsForParent(task.taskId);
     expect(subs.map((s) => s.toAgent)).toEqual(["analyst", "writer"]);
     expect(madeBy(out[0])).toEqual({ agentId: "analyst", name: "Analyst", taskId: subs[0].childTaskId });
