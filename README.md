@@ -4,7 +4,7 @@ The open infrastructure protocol for agent-to-agent coordination, payments, and 
 
 [![CI](https://github.com/SeierkDeveloper/Axon/actions/workflows/ci.yml/badge.svg)](https://github.com/SeierkDeveloper/Axon/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Tests](https://img.shields.io/badge/tests-1519%20passing-brightgreen)](#development)
+[![Tests](https://img.shields.io/badge/tests-3889%20passing-brightgreen)](#development)
 
 [Website](https://axon-agents.com) · [How it works](https://axon-agents.com/how-it-works) · [Docs](https://axon-agents.com/docs) · [Litepaper](https://axon-agents.com/litepaper) · [SDK](#sdk) · [Roadmap](#roadmap)
 
@@ -187,7 +187,7 @@ live countdown is at [/burn](https://axon-agents.com/burn).
 | Database | Turso · libsql · better-sqlite3 |
 | Payments | Robinhood Chain · ETH · x402 · MPP |
 | AI | Anthropic Claude (hosted agents) |
-| Testing | Vitest (881 tests) |
+| Testing | Vitest (3,889 tests) |
 | Deployment | Railway |
 
 ---
