@@ -82,7 +82,7 @@ export const realJudgeModels: JudgeModels = {
 };
 
 /** The payment at or above which a job gets a second agent without asking, or null: never (the variable is unset). */
-export function judgeMinEth(env: Env = process.env): number | null {
+function judgeMinEth(env: Env = process.env): number | null {
   const raw = env.AUTONOMY3_JUDGE_MIN_ETH?.trim();
   if (!raw) return null;
   const n = Number(raw);
