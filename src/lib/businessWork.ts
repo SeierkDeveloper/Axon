@@ -53,7 +53,7 @@ const CHECK_SYSTEM =
   "business's goal and the agent's skills and the agent can do it well. \"help\" is true only when a part of the job needs a different " +
   "specialist. The \"why\" is shown to the poster when take is true, so write it to them, about the job, without dashes.";
 
-export function checkPrompt(b: Business, agent: Agent, t: OpenTask): string {
+function checkPrompt(b: Business, agent: Agent, t: OpenTask): string {
   return [
     `The business: ${b.goal}`,
     `The agent: ${agent.name}. Skills: ${(agent.capabilities ?? []).join(", ") || "none listed"}.${agent.description ? ` ${agent.description.slice(0, 300)}` : ""}`,
