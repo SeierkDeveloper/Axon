@@ -220,7 +220,7 @@ export async function findWork(b: Business, nowMs = Date.now(), judge: Judge = r
 // ── Following it to the money ────────────────────────────────────────────────
 
 /** What a job's payment settled at for this agent: the completed lines paid to it for that job. Wei. */
-export function settledTo(agentId: string, taskId: string): bigint | null {
+function settledTo(agentId: string, taskId: string): bigint | null {
   const rows = getDb().prepare("SELECT amount_eth, status FROM transactions WHERE task_id = ? AND to_agent = ?").all(taskId, agentId) as { amount_eth: number; status: string }[];
   if (!rows.length) return null;
   if (rows.some((r) => r.status === "escrow")) return null; // not settled yet

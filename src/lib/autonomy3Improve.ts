@@ -81,7 +81,7 @@ export function setAutoImprove(agentId: string, on: boolean): void {
 }
 
 /** The instructions an agent runs on now, as text to rewrite: its own, Axon's code for it, or the general prompt. */
-export function currentInstructions(agentId: string): string | null {
+function currentInstructions(agentId: string): string | null {
   const agent = getAgentById(agentId);
   return getInstructions(agentId) ?? codeInstructions(agentId) ?? (agent ? genericCore(agent) : null);
 }
