@@ -130,7 +130,7 @@ export const JOB_TOKENS: Partial<Record<Part, { in: number; out: number }>> = {
 /** Dollars per million tokens used to estimate what a job cost. An estimate for the admin page, not a bill. */
 export const USD_PER_MTOK = { in: 3, out: 15 } as const;
 
-export function estimateUsd(tokensIn: number, tokensOut: number): number {
+function estimateUsd(tokensIn: number, tokensOut: number): number {
   return (Math.max(0, tokensIn) * USD_PER_MTOK.in + Math.max(0, tokensOut) * USD_PER_MTOK.out) / 1_000_000;
 }
 
