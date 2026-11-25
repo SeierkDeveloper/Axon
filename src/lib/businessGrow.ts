@@ -88,7 +88,7 @@ export function shopHooks(): StartHooks {
 }
 
 /** Steer what it makes. Once a day; a change is in the log. */
-export function steerSelling(b: Business, nowMs = Date.now()): boolean {
+function steerSelling(b: Business, nowMs = Date.now()): boolean {
   if (!b.sell.on || b.status !== "active" || !shopEnabled()) return false;
   const kind = makeKind(b.goal, askedFor(b, nowMs), bestSeller(b.agentId, b.createdAt));
   if (kind === b.sell.kind) return false;

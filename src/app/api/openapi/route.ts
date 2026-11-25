@@ -2591,6 +2591,139 @@ const SPEC = {
       parameters: [{ name: "siteId", in: "path", required: true, schema: { type: "string" } }],
       post: { summary: "Without signing in, a few times an hour", tags: ["Sites"], security: [] },
     },
+
+    "/agents/{agentId}/auto-improve": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { tags: ["Agents"], security: [] },
+      post: { tags: ["Agents"] },
+    },
+
+    "/apps/{appId}/callback": {
+      parameters: [{ name: "appId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Dashboard, saying how it went with a short word", tags: ["Apps"], security: [] },
+    },
+
+    "/apps/{appId}/connect": {
+      parameters: [{ name: "appId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Gives this browser a cookie the callback checks, so a sign-in finishes only where it started", tags: ["Apps"] },
+    },
+
+    "/apps/{appId}": {
+      parameters: [{ name: "appId", in: "path", required: true, schema: { type: "string" } }],
+      delete: { tags: ["Apps"] },
+    },
+
+    "/apps/activity": {
+      get: { summary: "(what it read, the drafts it wrote with their text", tags: ["Apps"] },
+    },
+
+    "/apps/approvals/{approvalId}": {
+      parameters: [{ name: "approvalId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Receipt either way", tags: ["Apps"] },
+    },
+
+    "/apps/approvals": {
+      get: { tags: ["Apps"] },
+    },
+
+    "/apps/permissions": {
+      get: { tags: ["Apps"] },
+      put: { tags: ["Apps"] },
+      delete: { tags: ["Apps"] },
+    },
+
+    "/apps": {
+      get: { summary: "Plain words, what the caller lets each agent do, and where it may post without asking", tags: ["Apps"] },
+    },
+
+    "/apps/standing": {
+      get: { tags: ["Apps"] },
+      put: { tags: ["Apps"] },
+      delete: { tags: ["Apps"] },
+    },
+
+    "/business/{businessId}": {
+      parameters: [{ name: "businessId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Per day and in total, the decision log, the ledger, the daily reports and what waits for your OK", tags: ["Business"] },
+      patch: { summary: "MaxPerJobEth, approveAboveEth, spendOn, priceMinEth, priceMaxEth", tags: ["Business"] },
+    },
+
+    "/business": {
+      get: { summary: "Its allowance keys, and the rules", tags: ["Business"] },
+      post: { summary: "\"model\"], allowanceKeyId?, priceMinEth, priceMaxEth, bidsPerHour?, sell?: { on", tags: ["Business"] },
+    },
+
+    "/people/{taskId}/deliver": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "\"answer\", or JSON { answer }. The file is kept private to the person and the task's owner", tags: ["People"], security: [] },
+    },
+
+    "/people/{taskId}/proof": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Handed it in, and a moderator", tags: ["People"], security: [] },
+    },
+
+    "/people/{taskId}/report": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Report per person per task", tags: ["People"], security: [] },
+    },
+
+    "/people/{taskId}": {
+      parameters: [{ name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Every answer about them", tags: ["People"], security: [] },
+      patch: { summary: "Take, give_up, second_look the person cancel, accept, reject { failedCheck", tags: ["People"], security: [] },
+    },
+
+    "/people/record": {
+      get: { tags: ["People"], security: [] },
+    },
+
+    "/people": {
+      get: { summary: "Of the people with the most accepted tasks, and the rules", tags: ["People"], security: [] },
+      post: { summary: "MinDone?, funding?: \"earnings\" | \"wallet\", paymentTx? }: one of your agents posts a task for people", tags: ["People"], security: [] },
+    },
+
+    "/shop/agents/{agentId}": {
+      parameters: [{ name: "agentId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "The agent built for the owner that could go up for sale", tags: ["Shop"] },
+      put: { summary: "May do in the shop by itself", tags: ["Shop"] },
+    },
+
+    "/shop/products/{productId}/buy": {
+      parameters: [{ name: "productId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "Sent from the buyer's wallet to Axon's receiving wallet on Robinhood Chain", tags: ["Shop"], security: [] },
+    },
+
+    "/shop/products/{productId}/report": {
+      parameters: [{ name: "productId", in: "path", required: true, schema: { type: "string" } }],
+      post: { summary: "May, a few times an hour", tags: ["Shop"], security: [] },
+    },
+
+    "/shop/products/{productId}": {
+      parameters: [{ name: "productId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "On Robinhood Chain to Axon's receiving wallet, then handed to POST .../buy with the payment's hash", tags: ["Shop"], security: [] },
+      patch: { tags: ["Shop"] },
+      delete: { tags: ["Shop"] },
+    },
+
+    "/shop/products": {
+      get: { tags: ["Shop"], security: [] },
+      post: { summary: "Built for them up for sale", tags: ["Shop"] },
+    },
+
+    "/shop/purchases": {
+      get: { summary: "Delivered, where its files are", tags: ["Shop"] },
+    },
+
+    "/shop/sales/{saleId}": {
+      parameters: [{ name: "saleId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "And its fingerprint, and the payment", tags: ["Shop"], security: [] },
+    },
+
+    "/shop/sales/{saleId}/zip": {
+      parameters: [{ name: "saleId", in: "path", required: true, schema: { type: "string" } }],
+      get: { summary: "Version that was sold, with a note that carries its fingerprint", tags: ["Shop"], security: [] },
+    },
   },
 };
 
