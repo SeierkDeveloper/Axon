@@ -638,7 +638,7 @@ export function reportPeopleTask(taskId: string, reporter: string, reason: strin
 }
 
 /** Off the board. A task nobody has closes and its lock comes back; one somebody holds stays theirs to finish. */
-export function hideTask(t: PeopleTask, reason: string, nowMs = Date.now()): PeopleTask {
+function hideTask(t: PeopleTask, reason: string, nowMs = Date.now()): PeopleTask {
   const at = iso(nowMs);
   getDb().prepare("UPDATE people_tasks SET hidden_at = ?, hidden_reason = ?, updated_at = ? WHERE task_id = ?").run(at, reason.slice(0, 300), at, t.taskId);
   logEvent(t.taskId, "hidden", `Taken off the board: ${reason}`, null, at);

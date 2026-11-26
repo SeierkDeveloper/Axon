@@ -59,7 +59,7 @@ function queuePay(t: PeopleTask, nowMs: number): void {
 }
 
 /** One payout: sent, waiting (and why), or failed. Never throws. */
-export async function sendPayout(payoutId: string, deps: PayDeps = {}): Promise<"sent" | "waiting" | "failed" | "skipped"> {
+async function sendPayout(payoutId: string, deps: PayDeps = {}): Promise<"sent" | "waiting" | "failed" | "skipped"> {
   const db = getDb(), nowMs = deps.nowMs ?? Date.now(), caps = deps.caps ?? peopleCaps();
   const p = db.prepare("SELECT * FROM people_payouts WHERE payout_id = ?").get(payoutId) as Row | undefined;
   if (!p || !["queued", "failed"].includes(String(p.status))) return "skipped";
