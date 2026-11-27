@@ -107,7 +107,7 @@ export function getConnection(ownerWallet: string, appId: string): Connection | 
   return r ? toConnection(r) : null;
 }
 
-export function listConnections(ownerWallet: string): Connection[] {
+function listConnections(ownerWallet: string): Connection[] {
   return (getDb().prepare("SELECT * FROM app_connections WHERE owner_wallet = ? AND revoked_at IS NULL ORDER BY created_at").all(owner(ownerWallet)) as ConnectionRow[]).map(toConnection);
 }
 

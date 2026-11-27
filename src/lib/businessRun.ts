@@ -30,7 +30,7 @@ export interface TickDeps { judge?: Judge; writer?: Writer; price?: () => Promis
 export interface Tick { kept: number; paused: number; looked: number; bids: number; reports: number }
 
 /** Keep one business's books. Pauses it when its agent is no longer its owner's to run. */
-export async function keepBooks(b: Business, nowMs: number, deps: TickDeps = {}): Promise<Business> {
+async function keepBooks(b: Business, nowMs: number, deps: TickDeps = {}): Promise<Business> {
   const agent = getAgentById(b.agentId);
   if (b.status === "active") {
     const why = !agent ? "Its agent is gone" : !agent.walletAddress || !sameAddress(agent.walletAddress, b.ownerWallet) ? "Its agent changed hands" : !isOwnerVerified(b.agentId) ? "Its owner is no longer signed in with a wallet" : null;
