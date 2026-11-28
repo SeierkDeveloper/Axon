@@ -185,7 +185,7 @@ export function clearStanding(ownerWallet: string, appId: string, agentId?: stri
 }
 
 /** Whether this agent may post in this place without asking right now: set by the owner, and it may still publish. */
-export function standsFor(ownerWallet: string, agentId: string, appId: string, target: string, env: Env = process.env): boolean {
+function standsFor(ownerWallet: string, agentId: string, appId: string, target: string, env: Env = process.env): boolean {
   if (!canDo(ownerWallet, agentId, appId, "publish", env)) return false;
   return Boolean(getDb().prepare("SELECT 1 FROM app_standing WHERE owner_wallet = ? AND agent_id = ? AND app_id = ? AND target = ?").get(owner(ownerWallet), agentId, appId, target));
 }
